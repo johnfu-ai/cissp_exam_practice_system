@@ -4,9 +4,12 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+import app.models  # noqa: F401  -- registers all tables on Base.metadata
+from app.db.base import Base
+
 # Point tests at the dev DB (created by docker compose). Tables are created/dropped
-# per session once models are registered (see Task 4). Tests use a per-test
-# transaction that is rolled back, so the DB stays clean.
+# per session. Tests use a per-test transaction that is rolled back, so the DB
+# stays clean.
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql+psycopg://cissp:cissp@localhost:5432/cissp",
@@ -16,7 +19,9 @@ TEST_DATABASE_URL = os.environ.get(
 @pytest.fixture(scope="session")
 def engine():
     eng = create_engine(TEST_DATABASE_URL, pool_pre_ping=True, future=True)
+    Base.metadata.create_all(eng)
     yield eng
+    Base.metadata.drop_all(eng)
     eng.dispose()
 
 
