@@ -4,6 +4,7 @@ from app.db.seed import run_seed
 from app.models.admin import SchemaMeta
 from app.models.auth import Organization, Permission, Role, RolePermission
 from app.models.enums import RoleName
+from app.models.etl import ChapterDomainMapping, EtlDataset
 from app.models.taxonomy import ExamBlueprint, ExamDomain
 
 
@@ -58,7 +59,7 @@ def test_seed_is_idempotent(db_session):
     assert counts_1_rp == counts_2_rp
 
     sv = db_session.execute(select(SchemaMeta).filter_by(key="seed_version")).scalar_one()
-    assert sv.value == "1"
+    assert sv.value == "2"
 
 
 def test_system_admin_has_all_permissions(db_session):
@@ -75,3 +76,25 @@ def test_system_admin_has_all_permissions(db_session):
         select(func.count()).select_from(Permission)
     ).scalar_one()
     assert rp_count == perm_total
+
+
+def test_seed_creates_osg10_dataset_and_mappings(db_session):
+    run_seed(db_session)
+    ds = db_session.execute(select(EtlDataset).filter_by(slug="osg10")).scalar_one()
+    assert ds.total_questions == 420
+    assert ds.languages == ["en", "zh"]
+    mappings = db_session.execute(
+        select(ChapterDomainMapping).filter_by(dataset_slug="osg10")
+    ).scalars().all()
+    assert len(mappings) == 21
+
+
+def test_seed_osg10_is_idempotent(db_session):
+    run_seed(db_session)
+    run_seed(db_session)
+    count = len(
+        db_session.execute(
+            select(ChapterDomainMapping).filter_by(dataset_slug="osg10")
+        ).scalars().all()
+    )
+    assert count == 21
