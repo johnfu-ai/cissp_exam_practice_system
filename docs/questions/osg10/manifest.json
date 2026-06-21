@@ -1,0 +1,21 @@
+{
+  "source": "book-md/CISSP_OSG_v10-en/CISSP_OSG_v10-en.md",
+  "output": "Exam_APP/questions.jsonl",
+  "total_questions": 420,
+  "chapters": 21,
+  "questions_per_chapter": 20,
+  "flagged_count": 0,
+  "flagged_ids": [],
+  "type_counts": {
+    "single_choice": 385,
+    "multiple_choice": 32,
+    "matching": 3
+  },
+  "zh_reused_from_v9": 400,
+  "zh_from_overrides": 20,
+  "zh_pending_translation": [],
+  "zh_pending_count": 0,
+  "zh_flagged_count": 0,
+  "zh_flagged_ids": [],
+  "zh_overrides_file": "Exam_APP/zh_overrides.json"
+}

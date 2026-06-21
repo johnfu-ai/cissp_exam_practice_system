@@ -156,7 +156,16 @@
 | FR-TAX-05 | 支持 domain、书本章节、知识点之间的交叉映射 | P1 |
 | FR-TAX-06 | 支持标签管理，例如 cloud、risk、crypto、IAM、SDLC | P1 |
 
-### 6.3 题库导入
+### 6.3 题库导入与 ETL
+
+题库入库分为两条路径，共享同一套校验、去重和审计规则：
+
+1. **交互式导入**（FR-IMP-*）：管理员通过页面上传 CSV/XLSX/JSON 或粘贴 Markdown，适合小批量、手工录入。
+2. **ETL 管道**（FR-ETL-*）：面向批量数据集的 Extract-Transform-Load 管道，适合整本书/整批授权题库的清洗入库。`docs/questions/` 目录是其典型输入（见 §10.3），例如 OSG 第 10 版的 420 道双语题目。
+
+两条路径都写入 `ImportJob` 批次记录并遵循相同的来源、授权状态、去重和历史快照规则（见 §9.4、NFR-DATA）。
+
+#### 6.3.1 交互式导入
 
 | ID | 需求 | 优先级 |
 |---|---|---|
@@ -170,6 +179,35 @@
 | FR-IMP-08 | 记录导入批次、来源、授权状态、导入人和导入时间 | P0 |
 | FR-IMP-09 | 支持导出题库为 CSV、JSON 或 PDF | P2 |
 | FR-IMP-10 | 后续支持 DOCX/PDF 半自动解析 | P2 |
+
+#### 6.3.2 ETL 管道
+
+ETL 管道将一个外部数据集（一个目录，含 `manifest.json` + 题目数据文件 + 可选的翻译覆盖/待译队列）清洗为可练习的题库。三阶段执行，全程可重入、可审计、可回滚到批次粒度。
+
+**Extract（抽取）**：从数据集目录读取清单与题目记录，保留原始字段不动，按外部稳定 ID（如 `osg-v10-ch01-q01`）建立抽取索引；识别数据集来源、版本、语言覆盖度和题型分布。
+
+**Transform（清洗转换）**：在不修改源文件的前提下，逐题做归一化、校验、映射、去重和富化，产出待加载的中间结构。清洗规则见 §10.4。
+
+**Load（加载）**：在单个数据库事务内写入或更新 `Book`/`Chapter`/`Question`/`QuestionOption`/`Explanation`/`QuestionMapping`，并登记 `ImportJob` 批次与 `EtlRun` 运行记录；按外部 ID 幂等，重复运行只更新变化项。
+
+| ID | 需求 | 优先级 |
+|---|---|---|
+| FR-ETL-01 | 支持以数据集目录为单位的 ETL 运行，读取 `manifest.json` 清单与题目数据文件 | P0 |
+| FR-ETL-02 | 支持的源格式：JSONL（首选，见 §10.3）、JSON、CSV、XLSX；Markdown 粘贴走交互式导入 | P0 |
+| FR-ETL-03 | 按外部稳定 ID 做抽取索引与幂等加载，重复运行不产生重复题，仅更新变化项 | P0 |
+| FR-ETL-04 | 题型映射：`single_choice`/`multiple_choice`/`true_false` 直接入库；`matching` 归一化为 `single_choice`（每题恰好 1 个正确项），`prompt_items` 存入 `questions.prompt_items` JSONB，并标记 `needs_revision`（见 §16.7） | P0 |
+| FR-ETL-05 | 双语处理：同时保留 en/zh 题干、选项、解析；优先以 `zh_overrides.json` 覆盖机翻译文，`translate_queue.json` 标记缺译 | P0 |
+| FR-ETL-06 | 字段校验：必填字段、`correct_keys` 必须命中存在选项、单选恰好 1 个正确项、多选 ≥2 个正确项 | P0 |
+| FR-ETL-07 | 来源映射：`source.book`/`edition`/`chapter`/`chapter_title` → 复用或新建 `Book`/`Chapter`；章节→domain 走映射表 `ChapterDomainMapping`（见 §9.4） | P0 |
+| FR-ETL-08 | 去重：题干 hash、外部 ID、选项集合指纹三级去重；命中已存在题时按策略跳过/更新/标记冲突 | P0 |
+| FR-ETL-09 | 富化与默认值：难度缺失默认 medium；授权状态缺失默认 `unconfirmed`；带 `issues`/`zh_issues` 的题入库为 `draft` 并标记待修订 | P0 |
+| FR-ETL-10 | 预览（dry-run）：先全量 Transform 产出预览报告（新增/更新/跳过/冲突/错误计数与明细），确认后再 Load | P0 |
+| FR-ETL-11 | 运行记录：每次 ETL 写入 `EtlRun`（数据集、阶段、计数、错误报告、耗时、操作人），并与 `ImportJob` 关联 | P0 |
+| FR-ETL-12 | 部分成功：单题失败不中断整批，失败项写入错误报告，批次标记为 `partial`；已成功项保留 | P0 |
+| FR-ETL-13 | 回滚：支持按 `EtlRun` 撤销本次新增/更新（题目软删除 + 恢复上一版本快照） | P1 |
+| FR-ETL-14 | 调度：支持 CLI 触发（`python -m app.etl run <dataset>`）与后台任务异步执行大批次 | P1 |
+| FR-ETL-15 | 映射维护：管理员可在后台维护章节→domain、章节→知识点映射，ETL 加载时自动套用 | P1 |
+| FR-ETL-16 | 多数据集：支持多个数据集并存（OSG、AIO 等），按数据集筛选与统计 | P1 |
 
 ### 6.4 题目模型与生命周期
 
@@ -428,6 +466,10 @@ PostgreSQL + Redis + Background Worker
 | Explanation | 正确答案说明、错误选项解释、考点总结 |
 | QuestionMapping | 题目与 domain、章节、知识点、标签的映射 |
 | ImportJob | 导入任务、状态、错误报告、来源 |
+| EtlDataset | ETL 数据集（目录、来源、版本、题目数、语言覆盖度） |
+| EtlRun | 单次 ETL 运行（数据集、阶段、计数、错误报告、耗时、操作人），关联 ImportJob |
+| ChapterDomainMapping | 章节→domain 映射规则，供 ETL 加载时自动套用 |
+| QuestionExternalKey | 题目外部稳定 ID（如 `osg-v10-ch01-q01`），用于幂等加载与去重 |
 | PracticeSession | 练习会话、范围、状态、统计 |
 | PracticeAnswer | 练习答题记录和题目快照 |
 | ExamSession | 固定模拟考试或 CAT 模拟考试会话 |
@@ -460,6 +502,17 @@ POST   /api/questions/import
 GET    /api/questions/import/{job_id}
 GET    /api/questions/export
 
+GET    /api/etl/datasets
+GET    /api/etl/datasets/{dataset}
+POST   /api/etl/runs                 # 启动 ETL（支持 dry-run 预览）
+GET    /api/etl/runs
+GET    /api/etl/runs/{run_id}
+POST   /api/etl/runs/{run_id}/commit # 预览确认后提交加载
+POST   /api/etl/runs/{run_id}/rollback
+GET    /api/etl/mappings             # 章节→domain 映射
+POST   /api/etl/mappings
+PUT    /api/etl/mappings/{mapping_id}
+
 POST   /api/practice/sessions
 GET    /api/practice/sessions/{session_id}
 GET    /api/practice/sessions/{session_id}/next
@@ -485,6 +538,22 @@ POST   /api/questions/{question_id}/bookmark
 DELETE /api/questions/{question_id}/bookmark
 POST   /api/questions/{question_id}/notes
 PUT    /api/notes/{note_id}
+```
+
+### 9.6 ETL 管道架构
+
+ETL 作为独立服务模块（`app/etl/`），由抽取器、转换器、加载器三段管线组成，可由 API 或 CLI 触发：
+
+- **`app/etl/extract.py`**：按数据集目录读取 `manifest.json` 与题目文件，产出原始记录流（`RawQuestion`），按外部 ID 去索引。源格式适配器：`JsonlExtractor`、`JsonExtractor`、`CsvExtractor`、`XlsxExtractor`。
+- **`app/etl/transform.py`**：对原始记录执行 §10.4 清洗规则，产出 `CleanedQuestion` 中间结构与错误/冲突清单；纯函数、无副作用、可单测。
+- **`app/etl/load.py`**：在单个事务内将 `CleanedQuestion` 写入 ORM（`Book`/`Chapter`/`Question`/`QuestionOption`/`Explanation`/`QuestionMapping`/`QuestionExternalKey`），登记 `EtlRun` + `ImportJob`，更新历史快照；按外部 ID 幂等。
+- **`app/etl/runner.py`**：编排三段管线，支持 `dry-run`（只 Extract+Transform 产出预览）与 `commit`（执行 Load），记录耗时与计数。
+
+数据集目录约定为 `docs/questions/<dataset>/`（开发期）或可配置的导入根目录（生产期）。ETL 不修改源文件；所有变更通过 ORM 落库并经 `AuditLog` 审计。大批次 ETL 通过后台任务（Celery/RQ/Arq）异步执行，前端通过 `GET /api/etl/runs/{run_id}` 轮询进度。
+
+```text
+docs/questions/<dataset>/ ──Extract──▶ RawQuestion ──Transform──▶ CleanedQuestion ──Load──▶ ORM + ImportJob + EtlRun
+        (源文件只读)            (按外部ID索引)        (清洗/校验/去重/富化)        (单事务, 幂等, 审计)
 ```
 
 ## 10. 导入模板建议
@@ -521,6 +590,58 @@ PUT    /api/notes/{note_id}
 - 难度缺失时默认为 medium。
 - 题干或解析为空时不允许发布。
 - 授权状态为空时允许导入，但必须标记为未确认，不能进入共享题库。
+
+### 10.3 ETL 数据集源格式（JSONL + 清单）
+
+ETL 的首选输入是一个数据集目录，例如 `docs/questions/osg10/`：
+
+```
+docs/questions/<dataset>/
+├── manifest.json          # 数据集清单（必填）
+├── questions.jsonl        # 题目记录，每行一道题（必填）
+├── zh_overrides.json      # 中文人工译文覆盖，按外部 ID 索引（可选）
+└── translate_queue.json   # 待翻译/缺译的外部 ID 列表（可选）
+```
+
+**manifest.json** — 数据集级元数据：
+
+| 字段 | 说明 | 示例 |
+|---|---|---|
+| source | 原始来源描述 | `book-md/CISSP_OSG_v10-en/...` |
+| total_questions | 题目总数 | `420` |
+| chapters | 章节数 | `21` |
+| type_counts | 题型分布 | `{"single_choice":385,"multiple_choice":32,"matching":3}` |
+| zh_reused_from_v9 / zh_from_overrides / zh_pending_count | 中文覆盖度统计 | `400 / 20 / 0` |
+
+**questions.jsonl** — 每行一道题，字段如下：
+
+| 字段 | 说明 | 示例 |
+|---|---|---|
+| id | 外部稳定 ID，幂等去重主键 | `osg-v10-ch01-q01` |
+| source | 来源元信息 | `{book, edition, section, chapter, chapter_title, number}` |
+| type | 题型 | `single_choice` / `multiple_choice` / `matching` |
+| stem | 双语题干 | `{"en":"...","zh":"..."}` |
+| options | 选项数组 | `[{key:"A", text:{en,zh}}]` |
+| correct_keys | 正确选项 key 数组 | `["C"]` 或 `["A","C","D","F"]` |
+| explanation | 双语解析 | `{"en":"...","zh":"..."}` |
+| meta | 质量与翻译标记 | `{choose_all, matching, issues, zh_source, zh_issues}` |
+| prompt_items | 仅 matching 题：配对项 | `[{key, text:{en,zh}}]` |
+
+ETL 读取时以 `manifest.json` 建立数据集记录，逐行解析 `questions.jsonl`，`zh_overrides.json` 在 Transform 阶段按 ID 覆盖 `stem/explanation/options` 的 zh 字段，`translate_queue.json` 中的题标记为缺译并入库为 `draft`。
+
+### 10.4 ETL 清洗（Transform）规则
+
+抽取后的原始记录在 Transform 阶段做以下处理，全部不修改源文件：
+
+1. **题型归一化**：`single_choice`/`multiple_choice`/`true_false` 直接映射到 `QuestionType`；`matching` 归一化为 `single_choice`（每题恰好 1 个正确项，`correct_keys` 长度为 1），`prompt_items` 存入 `questions.prompt_items` JSONB，并标记 `needs_revision`（开放问题 §16.7）。
+2. **双语合并**：题干/选项/解析同时保留 en 与 zh；zh 优先级为 `zh_overrides.json` > 源记录 zh > 空；缺译项写 `translate_queue`。题库 `language` 字段记录主语言（默认 `en`），双语以独立字段或变体存储。
+3. **必填校验**：题干、至少 2 个选项、`correct_keys`、解析非空；`correct_keys` 必须全部命中存在选项 key。
+4. **答案一致性**：单选恰好 1 个正确项；多选 ≥2 个正确项；不满足则记入错误报告，该题不入库。
+5. **来源映射**：`source.book`+`edition` → 复用或新建 `Book`；`chapter`+`chapter_title` → 复用或新建 `Chapter`；`ChapterDomainMapping` 将章节映射到 CISSP domain，写入 `QuestionMapping.domain_id`。无映射规则的章节，domain 留空待人工补充。
+6. **去重**：外部 ID 命中已有题 → 比对内容指纹，无变化则跳过，有变化则更新并递增 `version`；题干 hash 命中不同外部 ID → 标记冲突，跳过待人工裁决。
+7. **富化默认值**：难度缺失 → `medium`；`license_status` 缺失 → `unconfirmed`；`meta.issues`/`zh_issues` 非空或 `matching` 题 → 入库状态 `draft` + 标记待修订。
+8. **快照**：更新已有题时，先用 `snapshot_question()` 写入 `QuestionRevision` 历史快照，再更新当前版本。
+9. **错误隔离**：单题 Transform 失败不中断整批，失败原因与原始 ID 写入 `EtlRun.error_report`，批次最终状态为 `partial` 或 `completed`。
 
 ## 11. CAT 模拟策略
 
@@ -562,7 +683,8 @@ MVP 可采用规则驱动加简化能力估计：
 
 1. 用户注册登录。
 2. CSV/XLSX/JSON 题库导入。
-3. 导入模板、字段映射、预览校验、错误报告。
+3. ETL 管道：以 `docs/questions/` 数据集为输入，完成抽取、清洗、幂等加载，首批导入 OSG 第 10 版双语题库。
+4. 导入模板、字段映射、预览校验、错误报告。
 4. 题目管理和基本分类管理。
 5. 单选、多选题练习。
 6. 按 domain、书本、章节筛选练习。
@@ -597,17 +719,21 @@ MVP 可采用规则驱动加简化能力估计：
 
 1. 用户可以上传符合模板的 CSV/XLSX/JSON 文件，并成功导入题目、选项、答案和解析。
 2. 导入时系统可以发现必填字段缺失、答案格式错误、domain 不存在和重复题。
-3. 用户可以按书本、章节、domain 组合筛选题目并开始练习。
-4. 用户提交答案后能看到正确答案、解析和错误选项解释。
-5. 用户答错的题会自动进入错题本。
-6. 用户可以收藏题目、添加个人笔记并在后续练习中筛选。
-7. 用户可以启动固定模拟考试，并获得考试报告。
-8. 用户可以启动 CAT 模拟考试，系统按动态策略出题并在 100-150 题内结束。
-9. CAT 模拟考试中，用户提交后不能返回修改上一题。
-10. 管理员可以维护考试版本、domain、书本、章节和知识点。
-11. 系统可以展示用户各 domain 的正确率、题量、耗时和趋势。
-12. 系统对题库内容来源、授权状态、导入批次和管理操作有记录。
-13. 已完成练习和考试的历史记录不因题目后续编辑而改变。
+3. ETL 可以读取 `docs/questions/` 数据集（`manifest.json` + `questions.jsonl` + `zh_overrides.json`），完成清洗后幂等加载为可练习题目，重复运行不产生重复题。
+4. ETL 预览（dry-run）能给出新增/更新/跳过/冲突/错误计数与明细，确认后再实际写入。
+5. ETL 对 `matching` 题型、缺译题、带 `issues` 的题入库为 `draft` 并标记待修订，不阻塞整批导入。
+6. ETL 每次运行登记 `EtlRun` + `ImportJob`，记录数据集、计数、错误报告与操作人。
+7. 用户可以按书本、章节、domain 组合筛选题目并开始练习。
+8. 用户提交答案后能看到正确答案、解析和错误选项解释。
+9. 用户答错的题会自动进入错题本。
+10. 用户可以收藏题目、添加个人笔记并在后续练习中筛选。
+11. 用户可以启动固定模拟考试，并获得考试报告。
+12. 用户可以启动 CAT 模拟考试，系统按动态策略出题并在 100-150 题内结束。
+13. CAT 模拟考试中，用户提交后不能返回修改上一题。
+14. 管理员可以维护考试版本、domain、书本、章节和知识点。
+15. 系统可以展示用户各 domain 的正确率、题量、耗时和趋势。
+16. 系统对题库内容来源、授权状态、导入批次和管理操作有记录。
+17. 已完成练习和考试的历史记录不因题目后续编辑而改变。
 
 ## 15. 风险与应对
 
@@ -621,6 +747,7 @@ MVP 可采用规则驱动加简化能力估计：
 | 过早实现复杂题型 | 延误 MVP | MVP 聚焦单选、多选，复杂题型先做数据结构预留 |
 | 缺少 IRT 校准数据 | CAT 结果不可信 | MVP 使用规则驱动，后续通过答题数据校准 |
 | 机构版权限复杂 | 后期重构成本高 | 提前设计租户、角色和审计模型 |
+| ETL 源数据脏（缺译、题型不匹配、章节无 domain 映射） | 入库质量差或整批失败 | dry-run 预览、单题错误隔离、问题题入库 draft 待修订、章节映射表可维护 |
 
 ## 16. 开放问题
 
@@ -630,6 +757,9 @@ MVP 可采用规则驱动加简化能力估计：
 4. 书本章节是否优先支持 OSG、AIO、Eleventh Hour 等常见教材？
 5. CAT 模拟结果是否显示“通过/未通过”，还是显示“准备度等级”更稳妥？
 6. 是否需要部署为 SaaS，还是先做自托管 Web 应用？
+7. `matching` 题型在 MVP 中如何落库：~~归一化为多选、扩展 `QuestionType` 新增 `matching` 枚举，还是暂存为 draft 待后续支持配对交互？~~ **已决议（2026-06-21）**：归一化为 `single_choice`（每题恰好 1 个正确项），`prompt_items` 存入 `questions.prompt_items` JSONB，并标记 `needs_revision`。后续如需配对交互再扩展枚举。
+8. OSG 章节到 CISSP 8 大 domain 的映射规则由谁维护、是否随教材版本变化？**已决议（2026-06-21）**：以 `ChapterDomainMapping`（GLOBAL）承载，OSG v10 的 21 章→8 domain 默认映射随 seed 一起初始化（见 §10.4 与 ETL 设计文档），后续可经 `/api/etl/mappings` 维护、随教材版本以新 `dataset_slug` 区分。
+9. 双语内容如何落库？**已决议（2026-06-21）**：每个源题生成两条 `Question` 行（`language='en'` 与 `'zh'`），经同一 `external_id` 关联（`QuestionExternalKey` 唯一约束 `(dataset_slug, external_id, language)`）。保留现有 `stem`/`content` 单一 Text 列不动；练习/考试会话在渲染时按所选语言取对应行。
 
 ## 17. 推荐下一步
 
