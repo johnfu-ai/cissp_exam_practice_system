@@ -28,6 +28,9 @@ class ExamSession(UUIDPrimaryKey, TenantScopedMixin, TimestampMixin, Base):
     correct_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    config: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'")
+    )
 
 
 class ExamAnswer(UUIDPrimaryKey, TimestampMixin, Base):

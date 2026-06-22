@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import router as auth_router
 from app.api.etl import router as etl_router
+from app.api.exam import router as exam_router
 from app.api.practice import router as practice_router
 from app.api.questions import router as questions_router
 from app.api.taxonomy import router as taxonomy_router
@@ -47,6 +48,7 @@ def create_app() -> FastAPI:
     app.include_router(taxonomy_router)
     app.include_router(questions_router)
     app.include_router(practice_router)
+    app.include_router(exam_router)
 
     return app
 
