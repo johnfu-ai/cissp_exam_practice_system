@@ -14,16 +14,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.queries import not_deleted
-from app.models.enums import AuditAction, QuestionStatus, QuestionType
+from app.models.enums import (
+    AuditAction,
+    QuestionFeedbackStatus,
+    QuestionStatus,
+    QuestionType,
+)
 from app.models.question import (
     Explanation,
     Question,
+    QuestionFeedback,
     QuestionMapping,
     QuestionOption,
     QuestionRevision,
 )
 from app.schemas.question import (
     ExplanationIn,
+    FeedbackIn,
     MappingsIn,
     OptionIn,
     QuestionCreateIn,
@@ -365,3 +372,29 @@ def submit_review(session: Session, *, question_id, actor_id,
               organization_id=q.organization_id, entity_type="question",
               entity_id=str(q.id), details={"action": action.value, "comment": comment})
     return q
+
+
+def create_feedback(session: Session, *, org_id, question_id, reporter_id,
+                    payload: FeedbackIn) -> QuestionFeedback:
+    """Create a correction-feedback entry on a live question (FR-Q-07)."""
+    get_question(session, question_id)  # raises NotFound if missing/deleted
+    fb = QuestionFeedback(
+        organization_id=org_id,
+        question_id=question_id,
+        reporter_id=reporter_id,
+        feedback_type=payload.feedback_type,
+        comment=payload.comment,
+        status=QuestionFeedbackStatus.open,
+    )
+    session.add(fb)
+    return fb
+
+
+def list_feedback(session: Session, *, question_id) -> list[QuestionFeedback]:
+    return list(
+        session.execute(
+            select(QuestionFeedback)
+            .where(QuestionFeedback.question_id == question_id, not_deleted(QuestionFeedback))
+            .order_by(QuestionFeedback.created_at.desc())
+        ).scalars().all()
+    )

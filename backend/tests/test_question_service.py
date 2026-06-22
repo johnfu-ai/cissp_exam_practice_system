@@ -319,3 +319,30 @@ def test_review_illegal_transition(db_session):
     with pytest.raises(IllegalTransition):
         submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
                       action=ReviewAction.approve)
+
+
+# --- Task 9: correction feedback ---
+
+from app.models.enums import QuestionFeedbackStatus, QuestionFeedbackType  # noqa: E402
+from app.schemas.question import FeedbackIn  # noqa: E402
+from app.services.question import create_feedback, list_feedback  # noqa: E402
+
+
+def test_create_and_list_feedback(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    fb = create_feedback(db_session, org_id=org.id, question_id=q.id, reporter_id=_actor(db_session),
+                         payload=FeedbackIn(feedback_type=QuestionFeedbackType.unclear_explanation,
+                                            comment="huh?"))
+    assert fb.question_id == q.id
+    assert fb.status == QuestionFeedbackStatus.open
+    assert len(list_feedback(db_session, question_id=q.id)) == 1
+
+
+def test_create_feedback_on_deleted_question_raises(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    delete_question(db_session, question_id=q.id, actor_id=_actor(db_session))
+    with pytest.raises(NotFound):
+        create_feedback(db_session, org_id=org.id, question_id=q.id, reporter_id=_actor(db_session),
+                        payload=FeedbackIn(feedback_type=QuestionFeedbackType.other))
