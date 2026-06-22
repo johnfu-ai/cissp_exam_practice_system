@@ -104,6 +104,7 @@ class Question(
         ForeignKey("import_jobs.id", ondelete="SET NULL"), nullable=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    prompt_items: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
 
 class QuestionOption(UUIDPrimaryKey, TimestampMixin, Base):

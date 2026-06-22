@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.etl import router as etl_router
 from app.core.config import settings
 from app.db.session import get_engine
 
@@ -27,6 +28,8 @@ def create_app() -> FastAPI:
         except Exception:
             redis_status = "error"
         return {"status": "ok", "db": db_status, "redis": redis_status}
+
+    app.include_router(etl_router)
 
     return app
 

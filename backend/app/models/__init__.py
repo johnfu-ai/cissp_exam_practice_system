@@ -27,6 +27,12 @@ from app.models.question import (  # noqa: F401
     QuestionOption,
     QuestionRevision,
 )
+from app.models.etl import (  # noqa: F401
+    ChapterDomainMapping,
+    EtlDataset,
+    EtlRun,
+    QuestionExternalKey,
+)
 from app.models.taxonomy import (  # noqa: F401
     ExamBlueprint,
     ExamDomain,
@@ -62,4 +68,8 @@ __all__ = [
     "ExamAnswer",
     "AuditLog",
     "SchemaMeta",
+    "EtlDataset",
+    "EtlRun",
+    "QuestionExternalKey",
+    "ChapterDomainMapping",
 ]

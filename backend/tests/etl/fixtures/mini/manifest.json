@@ -1,0 +1,6 @@
+{
+  "source": "test/mini",
+  "total_questions": 3,
+  "chapters": 2,
+  "type_counts": {"single_choice": 1, "multiple_choice": 1, "matching": 1}
+}

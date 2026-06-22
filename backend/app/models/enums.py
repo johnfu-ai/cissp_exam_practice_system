@@ -70,6 +70,12 @@ class ImportStatus(str, enum.Enum):
     partial = "partial"
 
 
+class EtlRunPhase(str, enum.Enum):
+    preview = "preview"
+    committed = "committed"
+    rolled_back = "rolled_back"
+
+
 class PracticeSessionStatus(str, enum.Enum):
     in_progress = "in_progress"
     completed = "completed"

@@ -1233,7 +1233,12 @@ def apply_load(session, org_id, dataset_slug, import_job_id, cleaned_list) -> Lo
             else:
                 result.unchanged += 1
         except Exception as exc:
-            session.rollback()
+            # Roll back ONLY this record's savepoint — a bare session.rollback()
+            # would undo the outer transaction and lose prior records' commits.
+            try:
+                sp.rollback()
+            except Exception:
+                pass
             result.errors.append({
                 "external_id": cleaned.external_id,
                 "language": cleaned.language,
@@ -1710,67 +1715,111 @@ git commit -m "feat(etl): seed osg10 dataset + 21 chapter->domain mappings"
 `backend/tests/etl/test_api_etl.py`:
 ```python
 from datetime import date
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.api.etl import router as etl_router
+from app.db.session import get_session
 from app.main import create_app
 from app.models.auth import Organization
 from app.models.enums import ImportFormat, OrgKind
 from app.models.etl import ChapterDomainMapping, EtlDataset
 from app.models.taxonomy import ExamBlueprint, ExamDomain
-from pathlib import Path
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mini"
 
 
-def _seed_via_app_session():
-    """Seed minimal data directly into the app's engine DB for the API test."""
-    from app.db.session import get_engine
-    from sqlalchemy.orm import Session
-    with Session(get_engine()) as s:
-        org = Organization(slug="api-org", name="API", kind=OrgKind.personal)
-        s.add(org); s.flush()
-        bp = ExamBlueprint(version_label="api", effective_date=date(2024,4,15),
-                           min_items=1, max_items=2, duration_minutes=60,
-                           passing_score=700, max_score=1000, is_current=True)
-        s.add(bp); s.flush()
-        for n in (1,2):
-            s.add(ExamDomain(blueprint_id=bp.id, number=n, name=f"D{n}", weight_pct=10))
-        s.flush()
-        d1 = s.execute(select(ExamDomain).filter_by(number=1)).scalar_one()
-        d2 = s.execute(select(ExamDomain).filter_by(number=2)).scalar_one()
-        s.add(ChapterDomainMapping(dataset_slug="mini", chapter_number=1, domain_id=d1.id, chapter_title="Chapter One"))
-        s.add(ChapterDomainMapping(dataset_slug="mini", chapter_number=2, domain_id=d2.id, chapter_title="Chapter Two"))
-        s.add(EtlDataset(organization_id=org.id, slug="mini", name="Mini", source_path=str(FIXTURE),
-                         format=ImportFormat.json, total_questions=3, languages=["en","zh"]))
-        s.commit()
-        return org.id
+@pytest.fixture
+def client(db_session):
+    """A TestClient whose /api/etl routes share the test's own session/connection.
+
+    The db_session fixture holds an uncommitted savepoint on its connection; if
+    the app opened its own session it would not see that data. Overriding
+    get_session to return db_session makes the app read/write through the same
+    connection the test seeds.
+    """
+    app = create_app()
+
+    def _override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = _override_session
+    return TestClient(app)
 
 
-def test_list_datasets(db_session):
-    # db_session fixture already provides a clean DB; seed there
-    from app.models.enums import ImportFormat
-    db_session.add(EtlDataset(organization_id=_org(db_session), slug="mini", name="Mini",
-                              source_path=str(FIXTURE), format=ImportFormat.json,
-                              total_questions=3, languages=["en","zh"]))
-    db_session.flush()
-    client = TestClient(create_app())
+def _seed(session):
+    org = Organization(slug="api-org", name="API", kind=OrgKind.personal)
+    session.add(org); session.flush()
+    bp = ExamBlueprint(version_label="api", effective_date=date(2024, 4, 15),
+                       min_items=1, max_items=2, duration_minutes=60,
+                       passing_score=700, max_score=1000, is_current=True)
+    session.add(bp); session.flush()
+    for n in (1, 2):
+        session.add(ExamDomain(blueprint_id=bp.id, number=n, name=f"D{n}", weight_pct=10))
+    session.flush()
+    d1 = session.execute(select(ExamDomain).filter_by(number=1)).scalar_one()
+    d2 = session.execute(select(ExamDomain).filter_by(number=2)).scalar_one()
+    session.add(ChapterDomainMapping(dataset_slug="mini", chapter_number=1, domain_id=d1.id, chapter_title="Chapter One"))
+    session.add(ChapterDomainMapping(dataset_slug="mini", chapter_number=2, domain_id=d2.id, chapter_title="Chapter Two"))
+    session.add(EtlDataset(organization_id=org.id, slug="mini", name="Mini", source_path=str(FIXTURE),
+                           format=ImportFormat.json, total_questions=3, languages=["en", "zh"]))
+    session.flush()
+    return org.id
+
+
+def test_list_datasets(client, db_session):
+    _seed(db_session)
     resp = client.get("/api/etl/datasets")
     assert resp.status_code == 200
     slugs = [d["slug"] for d in resp.json()]
     assert "mini" in slugs
 
 
-def _org(session):
-    from app.models.auth import Organization
-    from app.models.enums import OrgKind
-    org = Organization(slug="api-org", name="API", kind=OrgKind.personal)
-    session.add(org); session.flush()
-    return org.id
+def test_get_dataset_404(client, db_session):
+    _seed(db_session)
+    resp = client.get("/api/etl/datasets/does-not-exist")
+    assert resp.status_code == 404
+
+
+def test_list_mappings(client, db_session):
+    _seed(db_session)
+    resp = client.get("/api/etl/mappings?dataset_slug=mini")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+def test_create_and_rollback_run(client, db_session):
+    org_id = _seed(db_session)
+    # preview
+    resp = client.post("/api/etl/runs", json={"dataset_slug": "mini"})
+    assert resp.status_code == 200, resp.text
+    run_id = resp.json()["run_id"]
+    assert resp.json()["phase"] == "preview"
+    assert resp.json()["preview_summary"]["would_create"] == 6
+    # rollback (writes nothing)
+    rb = client.post(f"/api/etl/runs/{run_id}/rollback")
+    assert rb.status_code == 200
+    assert rb.json()["phase"] == "rolled_back"
+    from app.models.question import Question
+    assert db_session.execute(select(Question)).scalars().all() == []
+
+
+def test_commit_run_writes_rows(client, db_session):
+    _seed(db_session)
+    resp = client.post("/api/etl/runs", json={"dataset_slug": "mini"})
+    run_id = resp.json()["run_id"]
+    commit = client.post(f"/api/etl/runs/{run_id}/commit")
+    assert commit.status_code == 200, commit.text
+    assert commit.json()["phase"] == "committed"
+    from app.models.question import Question
+    from sqlalchemy import func
+    assert db_session.execute(select(func.count(Question.id))).scalar() == 6
 ```
 
-Note: because the router resolves `org_id` from a placeholder (the seeded personal org), the API tests that exercise runs need that org + dataset present in the SAME engine the app uses. To keep tests simple and isolated, the router's `org_id` will be read from the first `Organization` row at request time. The `test_list_datasets` test above uses `TestClient(create_app())` which uses the app engine — but `db_session` is a separate connection on the same `cissp_test` engine. To avoid cross-connection visibility issues, this task's router endpoints that only READ (`GET /datasets`) are tested; the write endpoints (`POST /runs`) are tested against the same engine by seeding through the app engine directly. **Implement the router to open its own session per request via `get_session` dependency.**
+Note: the `client` fixture overrides the `get_session` dependency so the FastAPI app shares the test's own `db_session` connection — otherwise the app's separate session could not see the uncommitted savepoint data the test seeds, and `GET /datasets` would return empty. The router still opens its session via the `get_session` dependency in production; the override only swaps which session object is yielded during tests.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1995,8 +2044,8 @@ def test_cli_help_runs():
 
 def test_cli_preview_osg10_against_real_dataset(db_session, monkeypatch):
     # This is an integration test against the real docs/questions/osg10 dataset.
-    # It seeds the osg10 dataset row then invokes run_preview directly via the
-    # CLI's helper, asserting 840 would-create.
+    # It seeds the osg10 dataset row then invokes run_preview directly, asserting
+    # 840 would-create (420 questions x 2 languages).
     run_seed(db_session)
     # Point the dataset source_path at the real repo dataset.
     repo_root = Path(__file__).resolve().parents[3]
@@ -2005,7 +2054,9 @@ def test_cli_preview_osg10_against_real_dataset(db_session, monkeypatch):
     db_session.flush()
 
     from app.etl.runner import run_preview
-    run = run_preview(db_session, db_session.execute(select(__import__("app.models.auth", fromlist=["Organization"]).Organization)).scalar_one().id, ds)
+    from app.models.auth import Organization
+    org_id = db_session.execute(select(Organization)).scalar_one().id
+    run = run_preview(db_session, org_id, ds)
     assert run.preview_summary["would_create"] == 840
 ```
 

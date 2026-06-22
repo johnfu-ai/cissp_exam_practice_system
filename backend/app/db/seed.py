@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.models.admin import SchemaMeta
 from app.models.auth import Organization, Permission, Role, RolePermission
-from app.models.enums import OrgKind, RoleName
+from app.models.enums import ImportFormat, OrgKind, RoleName
+from app.models.etl import ChapterDomainMapping, EtlDataset
 from app.models.taxonomy import ExamBlueprint, ExamDomain
 
-SEED_VERSION = "1"
+SEED_VERSION = "2"
 
 # PRD §2 — CISSP 2024-04-15 blueprint weights.
 DOMAINS = [
@@ -67,10 +68,18 @@ def _get_or_create(session, model, defaults=None, **filters):
 
 
 def run_seed(session: Session) -> dict:
-    counts = {"organizations": 0, "blueprints": 0, "domains": 0, "roles": 0, "permissions": 0}
+    counts = {
+        "organizations": 0,
+        "blueprints": 0,
+        "domains": 0,
+        "roles": 0,
+        "permissions": 0,
+        "datasets": 0,
+        "chapter_mappings": 0,
+    }
 
     # Organization: the built-in personal org.
-    _get_or_create(
+    personal_org = _get_or_create(
         session,
         Organization,
         slug="personal",
@@ -132,6 +141,65 @@ def run_seed(session: Session) -> dict:
             if existing is None:
                 session.add(RolePermission(role_id=role.id, permission_id=perm.id))
     session.flush()
+
+    # OSG v10 dataset + chapter->domain mapping (PRD §9.4, spec §9).
+    osg10_path = "docs/questions/osg10"
+    _get_or_create(
+        session,
+        EtlDataset,
+        slug="osg10",
+        defaults={
+            "organization_id": personal_org.id,
+            "name": "CISSP OSG v10",
+            "source_path": osg10_path,
+            "format": ImportFormat.json,
+            "total_questions": 420,
+            "languages": ["en", "zh"],
+            "notes": "OSG 10th edition review questions, bilingual en/zh",
+        },
+    )
+    domain_by_number = {
+        d.number: d
+        for d in session.execute(select(ExamDomain).filter_by(blueprint_id=bp.id)).scalars()
+    }
+    # (chapter_number, chapter_title, domain_number)
+    osg10_chapters = [
+        (1, "Security Governance Through Principles and Policies", 1),
+        (2, "Personnel Security and Risk Management Concepts", 1),
+        (3, "Business Continuity Planning", 1),
+        (4, "Laws, Regulations, and Compliance", 1),
+        (5, "Protecting Security of Assets", 2),
+        (6, "Cryptography and Symmetric Key Algorithms", 3),
+        (7, "PKI and Cryptographic Applications", 3),
+        (8, "Principles of Security Models, Design, and Capabilities", 3),
+        (9, "Security Vulnerabilities, Threats, and Countermeasures", 3),
+        (10, "Physical Security Requirements", 3),
+        (11, "Secure Network Architecture and Components", 4),
+        (12, "Secure Communications and Network Attacks", 4),
+        (13, "Managing Identity and Authentication", 5),
+        (14, "Controlling and Monitoring Access", 5),
+        (15, "Security Assessment and Testing", 6),
+        (16, "Managing Security Operations", 7),
+        (17, "Preventing and Responding to Incidents", 7),
+        (18, "Disaster Recovery Planning", 7),
+        (19, "Investigations and Ethics", 7),
+        (20, "Software Development Security", 8),
+        (21, "Malicious Code and Application Attacks", 8),
+    ]
+    for chapter_number, chapter_title, domain_number in osg10_chapters:
+        _get_or_create(
+            session,
+            ChapterDomainMapping,
+            dataset_slug="osg10",
+            chapter_number=chapter_number,
+            defaults={
+                "domain_id": domain_by_number[domain_number].id,
+                "chapter_title": chapter_title,
+            },
+        )
+    session.flush()
+    counts["datasets"] = 1
+    counts["chapter_mappings"] = len(osg10_chapters)
 
     # Seed version marker.
     _get_or_create(session, SchemaMeta, key="seed_version", defaults={"value": SEED_VERSION})
