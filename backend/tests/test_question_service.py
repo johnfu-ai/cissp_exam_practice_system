@@ -216,3 +216,42 @@ def test_list_search_by_stem(db_session):
     _, total = list_questions(db_session, org_id=org.id, page=1, size=20,
                               filters={"search": "crypto"})
     assert total == 1
+
+
+# --- Task 6: update + revisions ---
+
+from app.schemas.question import QuestionUpdateIn  # noqa: E402
+from app.services.question import list_revisions, update_question  # noqa: E402
+
+
+def test_update_bumps_version_and_writes_revision(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=actor, payload=_single_payload())
+    updated = update_question(db_session, question_id=q.id, actor_id=actor,
+                              payload=QuestionUpdateIn(stem="What is 2+2?"))
+    assert updated.version == 2
+    assert updated.stem == "What is 2+2?"
+    revs = list_revisions(db_session, q.id)
+    assert len(revs) == 2
+    # pre-edit revision (revision #2) captures the ORIGINAL stem before this edit
+    assert revs[1].snapshot["stem"] == "What is 1+1?"
+
+
+def test_update_options_revalidates(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    with pytest.raises(ValidationError):
+        update_question(db_session, question_id=q.id, actor_id=_actor(db_session),
+                        payload=QuestionUpdateIn(options=[
+                            OptionIn(content="a", is_correct=False, order_index=0),
+                            OptionIn(content="b", is_correct=False, order_index=1),
+                        ]))
+
+
+def test_update_noop_does_not_bump(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    updated = update_question(db_session, question_id=q.id, actor_id=_actor(db_session),
+                              payload=QuestionUpdateIn())
+    assert updated.version == 1

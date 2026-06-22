@@ -27,6 +27,7 @@ from app.schemas.question import (
     MappingsIn,
     OptionIn,
     QuestionCreateIn,
+    QuestionUpdateIn,
 )
 from app.services.audit import log_audit
 from app.services.snapshot import snapshot_question
@@ -221,3 +222,89 @@ def list_questions(
         ).scalars().all()
     )
     return items, total
+
+
+def _delete_rows(session: Session, model, question_id) -> None:
+    rows = list(
+        session.execute(select(model).where(model.question_id == question_id)).scalars().all()
+    )
+    for r in rows:
+        session.delete(r)
+
+
+def update_question(session: Session, *, question_id, actor_id,
+                    payload: QuestionUpdateIn) -> Question:
+    """Partial update. Writes a pre-edit revision snapshot, bumps version, and
+    revalidates options when supplied. A no-op payload (nothing set) does not
+    bump the version.
+    """
+    q = get_question(session, question_id)
+    data = payload.model_dump(exclude_unset=True)
+    changed = bool(data)
+
+    if "options" in data:
+        opts = data["options"]  # list of dicts
+        opt_objs = [OptionIn(**o) for o in opts]
+        qtype = data.get("question_type", q.question_type)
+        _validate_options(qtype, opt_objs)
+
+    # capture pre-edit snapshot BEFORE mutating (revision records the prior state)
+    if changed:
+        _write_revision(session, q, actor_id=actor_id, change_summary="update")
+
+    if "stem" in data:
+        if not data["stem"].strip():
+            raise ValidationError("stem must not be empty")
+        q.stem = data["stem"]
+    if "stem_format" in data:
+        q.stem_format = data["stem_format"]
+    if "question_type" in data:
+        q.question_type = data["question_type"]
+    if "difficulty" in data:
+        q.difficulty = data["difficulty"]
+    if "language" in data:
+        q.language = data["language"]
+    if "source" in data:
+        q.source = data["source"]
+    if "license_status" in data:
+        q.license_status = data["license_status"]
+    if "prompt_items" in data:
+        q.prompt_items = data["prompt_items"]
+    if "options" in data:
+        _delete_rows(session, QuestionOption, q.id)
+        for i, opt in enumerate(opt_objs):
+            session.add(QuestionOption(
+                question_id=q.id,
+                order_index=opt.order_index if opt.order_index is not None else i,
+                content=opt.content, content_format=opt.content_format,
+                is_correct=opt.is_correct, explanation=opt.explanation,
+            ))
+    if "explanation" in data:
+        _delete_rows(session, Explanation, q.id)
+        if data["explanation"] is not None:
+            ex = ExplanationIn(**data["explanation"])
+            session.add(Explanation(
+                question_id=q.id, correct_answer_rationale=ex.correct_answer_rationale,
+                key_point_summary=ex.key_point_summary, further_reading=ex.further_reading,
+            ))
+    if "mappings" in data:
+        _delete_rows(session, QuestionMapping, q.id)
+        _apply_mappings(session, q.id, MappingsIn(**data["mappings"]))
+
+    if changed:
+        q.version = (q.version or 1) + 1
+        q.updated_by_id = actor_id
+        log_audit(session, action=AuditAction.edit, actor_id=actor_id,
+                  organization_id=q.organization_id, entity_type="question",
+                  entity_id=str(q.id), details={"action": "update"})
+    return q
+
+
+def list_revisions(session: Session, question_id) -> list[QuestionRevision]:
+    return list(
+        session.execute(
+            select(QuestionRevision)
+            .where(QuestionRevision.question_id == question_id)
+            .order_by(QuestionRevision.revision_number.asc())
+        ).scalars().all()
+    )
