@@ -33,8 +33,10 @@ from app.schemas.exam import (
     ReviewItemOut,
     WrongQuestion,
 )
+from app.services import cat_engine
 from app.services.audit import log_audit
 from app.services.snapshot import snapshot_question
+from sqlalchemy.orm.attributes import flag_modified
 
 
 class ValidationError(ValueError):
@@ -150,6 +152,8 @@ def create_session(
 ) -> ExamSession:
     body = _as_create_in(payload)
     bp = _current_blueprint(session)
+    if getattr(body, "kind", "fixed") == "cat":
+        return create_cat_session(session, org_id=org_id, actor_id=actor_id, bp=bp)
     count = body.count if body.count else bp.max_items
     if count < bp.min_items:
         count = bp.min_items
@@ -188,6 +192,152 @@ def create_session(
         details={"total_questions": len(question_ids), "kind": "fixed"},
     )
     return es
+
+
+def _cat_candidate_pool(
+    session: Session, *, org_id, blueprint: ExamBlueprint
+) -> list[dict]:
+    """All published, tenant-scoped questions mapped to a domain of this
+    blueprint, as engine-consumable candidate dicts. Deduped by question id
+    (a question mapped to multiple domains counts once, first mapping wins)."""
+    rows = session.execute(
+        select(
+            Question.id,
+            Question.difficulty,
+            QuestionMapping.domain_id,
+            QuestionMapping.knowledge_point_id,
+            Question.source,
+        )
+        .join(QuestionMapping, QuestionMapping.question_id == Question.id)
+        .where(
+            Question.organization_id == org_id,
+            Question.status == QuestionStatus.published,
+            not_deleted(Question),
+            QuestionMapping.domain_id.in_(
+                select(ExamDomain.id).where(ExamDomain.blueprint_id == blueprint.id)
+            ),
+        )
+        .order_by(Question.id)
+    ).all()
+    out: list[dict] = []
+    seen_ids: set[uuid.UUID] = set()
+    for r in rows:
+        if r.id in seen_ids:
+            continue
+        seen_ids.add(r.id)
+        out.append({
+            "id": str(r.id),
+            "difficulty": r.difficulty,
+            "domain_id": str(r.domain_id) if r.domain_id else None,
+            "knowledge_point_id": str(r.knowledge_point_id) if r.knowledge_point_id else None,
+            "source": r.source,
+        })
+    return out
+
+
+def create_cat_session(
+    session: Session, *, org_id, actor_id, bp: ExamBlueprint
+) -> ExamSession:
+    domains = list(
+        session.execute(
+            select(ExamDomain)
+            .where(ExamDomain.blueprint_id == bp.id)
+            .order_by(ExamDomain.number)
+        ).scalars().all()
+    )
+    if not domains:
+        raise ValidationError("current blueprint has no domains configured")
+    targets = _allocate(bp.max_items, [d.weight_pct for d in domains])
+    domain_targets = {str(d.id): t for d, t in zip(domains, targets)}
+    candidates = _cat_candidate_pool(session, org_id=org_id, blueprint=bp)
+    if not candidates:
+        raise ValidationError("not enough published questions for CAT")
+    rng = random.Random()
+    first_id = cat_engine.select_first_item(candidates, rng)
+    if first_id is None:
+        raise ValidationError("not enough published questions for CAT")
+    started = datetime.now(timezone.utc)
+    deadline = started + timedelta(minutes=bp.duration_minutes)
+    config = {
+        "kind": "cat",
+        "question_ids": [],
+        "next_question_id": first_id,
+        "position": 0,
+        "ability": cat_engine.initial_ability(),
+        "se": cat_engine.DEFAULT_PARAMS["base_se"],
+        "answered": 0,
+        "correct": 0,
+        "domain_targets": domain_targets,
+        "domain_answered": {},
+        "seen": [],
+        "last_knowledge_point": None,
+        "last_source": None,
+        "deadline_at": deadline.isoformat(),
+        "max_score": bp.max_score,
+        "passing_score": bp.passing_score,
+        "duration_minutes": bp.duration_minutes,
+        "min_items": bp.min_items,
+        "max_items": bp.max_items,
+        "cat_params": dict(cat_engine.DEFAULT_PARAMS),
+        "disclaimer": cat_engine.DISCLAIMER,
+    }
+    es = ExamSession(
+        user_id=actor_id,
+        organization_id=org_id,
+        blueprint_id=bp.id,
+        session_kind=ExamSessionKind.cat,
+        status=ExamSessionStatus.in_progress,
+        total_questions=0,
+        correct_count=0,
+        config=config,
+    )
+    session.add(es)
+    session.flush()
+    log_audit(
+        session, action=AuditAction.edit, actor_id=actor_id, organization_id=org_id,
+        entity_type="exam_session", entity_id=str(es.id),
+        details={"kind": "cat", "max_items": bp.max_items},
+    )
+    return es
+
+
+def get_next_question(session: Session, *, session_id, user_id) -> dict:
+    es = _load_session(session, session_id, user_id)
+    if _auto_submit_if_expired(session, es) or es.status != ExamSessionStatus.in_progress:
+        raise ConflictError("exam session is not in progress")
+    qid_str = es.config.get("next_question_id")
+    if not qid_str:
+        raise ConflictError("exam session has no next question")
+    question = session.get(Question, uuid.UUID(qid_str))
+    if question is None or question.deleted_at is not None:
+        raise NotFound("question no longer available")
+    options = _options_for(session, question.id)
+    started = es.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    elapsed_ms = int(
+        (datetime.now(timezone.utc) - started).total_seconds() * 1000
+    )
+    return {
+        "session_id": str(es.id),
+        "position": es.config.get("position", 0),
+        "total": es.config.get("max_items", 0),
+        "question_id": str(question.id),
+        "stem": question.stem,
+        "question_type": question.question_type.value,
+        "options": [
+            {
+                "id": str(o.id),
+                "order_index": o.order_index,
+                "content": o.content,
+                "content_format": o.content_format.value,
+            }
+            for o in options
+        ],
+        "elapsed_ms": elapsed_ms,
+        "time_remaining_ms": _time_remaining_ms(es),
+        "previous_answer": None,
+    }
 
 
 def _load_session(session: Session, session_id, user_id) -> ExamSession:

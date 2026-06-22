@@ -36,7 +36,7 @@ def _actor(db_session, org, email="learner@example.com"):
 
 
 def _question(db_session, org, actor, *, stem="q",
-              qtype=QuestionType.single_choice, options=None):
+              qtype=QuestionType.single_choice, options=None, difficulty=None):
     q = Question(
         organization_id=org.id,
         question_type=qtype,
@@ -44,6 +44,7 @@ def _question(db_session, org, actor, *, stem="q",
         stem_format=TextFormat.markdown,
         status=QuestionStatus.published,
         created_by_id=actor.id,
+        difficulty=difficulty,
     )
     db_session.add(q)
     db_session.flush()
@@ -605,3 +606,105 @@ def test_history_uses_historical_scoring_basis(db_session):
     hist = svc.list_history(db_session, user_id=actor.id)
     assert hist[0].passed is False  # still judged against original 700 (config basis)
     assert hist[0].scaled_score == 500
+
+
+def _cat_blueprint(db_session, *, min_items=1, max_items=5, passing_score=700,
+                   max_score=1000, duration_minutes=30):
+    bp = _blueprint(
+        db_session, min_items=min_items, max_items=max_items,
+        passing_score=passing_score, max_score=max_score,
+        duration_minutes=duration_minutes, version="cat-v1",
+    )
+    d1 = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    return bp, d1
+
+
+def _seed_cat_questions(db_session, org, actor, domain, n=5, difficulty=3):
+    qs = []
+    for i in range(n):
+        q = _question(db_session, org, actor, stem=f"cat-q{i}", difficulty=difficulty)
+        _map(db_session, q, domain)
+        qs.append(q)
+    return qs
+
+
+def test_create_cat_session_medium_start_and_config_shape(db_session):
+    from app.models.enums import ExamSessionKind, ExamSessionStatus
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
+    _seed_cat_questions(db_session, org, actor, d1, n=5, difficulty=3)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+    )
+    assert es.session_kind == ExamSessionKind.cat
+    assert es.status == ExamSessionStatus.in_progress
+    cfg = es.config
+    assert cfg["kind"] == "cat"
+    assert cfg["ability"] == 3.0
+    assert cfg["answered"] == 0
+    assert cfg["position"] == 0
+    assert cfg["next_question_id"]  # first item selected
+    assert cfg["question_ids"] == []
+    assert cfg["max_items"] == 5
+    assert cfg["min_items"] == 1
+    assert "deadline_at" in cfg
+    assert "disclaimer" in cfg
+    assert "cat_params" in cfg
+
+
+def test_create_cat_first_item_is_medium_difficulty(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
+    qs = _seed_cat_questions(db_session, org, actor, d1, n=5, difficulty=3)
+    # add a couple of extreme-difficulty items that must NOT be chosen first
+    hard = _question(db_session, org, actor, stem="hard", difficulty=5)
+    _map(db_session, hard, d1)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+    )
+    first_id = uuid.UUID(es.config["next_question_id"])
+    chosen = next(q for q in qs if q.id == first_id)
+    assert chosen.difficulty == 3
+
+
+def test_create_cat_rejects_empty_pool(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp, d1 = _cat_blueprint(db_session)  # no questions seeded
+    with pytest.raises(svc.ValidationError):
+        svc.create_session(
+            db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+        )
+
+
+def test_get_next_question_strips_correctness(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
+    _seed_cat_questions(db_session, org, actor, d1, n=5)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+    )
+    out = svc.get_next_question(db_session, session_id=es.id, user_id=actor.id)
+    assert out["position"] == 0
+    assert out["total"] == 5
+    for opt in out["options"]:
+        assert "is_correct" not in opt
+    assert out["previous_answer"] is None
+    assert out["time_remaining_ms"] > 0
+
+
+def test_get_next_question_other_user_404(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    intruder = _actor(db_session, org, email="other@example.com")
+    bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
+    _seed_cat_questions(db_session, org, actor, d1, n=5)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+    )
+    with pytest.raises(svc.NotFound):
+        svc.get_next_question(db_session, session_id=es.id, user_id=intruder.id)
