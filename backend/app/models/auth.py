@@ -3,7 +3,13 @@ import uuid
 from sqlalchemy import Enum, ForeignKey, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TimestampMixin, UUIDPrimaryKey
+from app.db.base import (
+    Base,
+    SoftDeleteMixin,
+    TenantScopedMixin,
+    TimestampMixin,
+    UUIDPrimaryKey,
+)
 from app.models.enums import OrgKind, OrgStatus, RoleName, UserStatus
 
 
@@ -87,4 +93,28 @@ class OrganizationMembership(UUIDPrimaryKey, TimestampMixin, Base):
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+class Class(UUIDPrimaryKey, TenantScopedMixin, TimestampMixin, SoftDeleteMixin, Base):
+    __tablename__ = "classes"
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    instructor_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
+class ClassMembership(UUIDPrimaryKey, TimestampMixin, Base):
+    __tablename__ = "class_memberships"
+    __table_args__ = (
+        UniqueConstraint("class_id", "user_id", name="uq_class_membership"),
+    )
+
+    class_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("classes.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )

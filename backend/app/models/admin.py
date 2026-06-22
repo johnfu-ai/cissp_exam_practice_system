@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,3 +35,14 @@ class SchemaMeta(UUIDPrimaryKey, TimestampMixin, Base):
 
     key: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     value: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+
+class CatParamsVersion(UUIDPrimaryKey, TimestampMixin, Base):
+    __tablename__ = "cat_params_versions"
+
+    version_label: Mapped[str] = mapped_column(String(50), nullable=False)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    is_current: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    params: Mapped[dict] = mapped_column(JSONB, nullable=False)
