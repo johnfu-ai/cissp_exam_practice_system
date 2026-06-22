@@ -356,3 +356,35 @@ def test_other_user_session_not_found(db_session):
     s = _start(db_session, org, actor)
     with pytest.raises(svc.NotFound):
         svc.finish_session(db_session, session_id=s.id, user_id=intruder.id)
+
+
+def test_set_question_state_upsert(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    q = _question(db_session, org, actor)
+    svc.set_question_state(
+        db_session, user_id=actor.id, org_id=org.id, question_id=q.id,
+        payload=QuestionStateIn(is_bookmarked=True, note="hard"),
+    )
+    svc.set_question_state(
+        db_session, user_id=actor.id, org_id=org.id, question_id=q.id,
+        payload=QuestionStateIn(is_flagged_review=True),
+    )
+    state = db_session.query(UserQuestionState).filter_by(
+        user_id=actor.id, question_id=q.id
+    ).one()
+    assert state.is_bookmarked is True
+    assert state.is_flagged_review is True
+    assert state.note == "hard"
+
+
+def test_set_question_state_wrong_tenant_not_found(db_session):
+    org = _org(db_session)
+    other_org = _org(db_session, slug="o2")
+    actor = _actor(db_session, org)
+    q = _question(db_session, org, actor)
+    with pytest.raises(svc.NotFound):
+        svc.set_question_state(
+            db_session, user_id=actor.id, org_id=other_org.id, question_id=q.id,
+            payload=QuestionStateIn(is_bookmarked=True),
+        )

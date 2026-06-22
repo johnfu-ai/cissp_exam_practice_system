@@ -502,3 +502,34 @@ def finish_session(session: Session, *, session_id, user_id) -> SessionSummaryOu
 def get_summary(session: Session, *, session_id, user_id) -> SessionSummaryOut:
     ps = _load_session(session, session_id, user_id)
     return _build_summary(session, ps)
+
+
+def set_question_state(
+    session: Session, *, user_id, org_id, question_id, payload: QuestionStateIn
+) -> UserQuestionState:
+    q = session.get(Question, question_id)
+    if q is None or q.deleted_at is not None or q.organization_id != org_id:
+        raise NotFound(f"question {question_id} not found")
+    state = session.execute(
+        select(UserQuestionState).where(
+            UserQuestionState.user_id == user_id,
+            UserQuestionState.question_id == question_id,
+        )
+    ).scalars().first()
+    if state is None:
+        state = UserQuestionState(user_id=user_id, question_id=question_id)
+        session.add(state)
+    if payload.is_bookmarked is not None:
+        state.is_bookmarked = payload.is_bookmarked
+    if payload.is_flagged_review is not None:
+        state.is_flagged_review = payload.is_flagged_review
+    if payload.is_mastered is not None:
+        state.is_mastered = payload.is_mastered
+        if payload.is_mastered:
+            state.mastery_level = MasteryLevel.mastered
+    if payload.is_questioned is not None:
+        state.is_questioned = payload.is_questioned
+    if payload.note is not None:
+        state.note = payload.note
+    session.flush()
+    return state
