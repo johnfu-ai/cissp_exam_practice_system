@@ -860,19 +860,32 @@ def get_review(session: Session, *, session_id, user_id) -> list:
     return items
 
 
-def _scaled(es: ExamSession) -> tuple[int, bool, float]:
+def _scaled(es: ExamSession) -> tuple[int, bool, float, int, int]:
+    """Return (scaled_score, passed, accuracy, total, correct) for a history row.
+
+    For CAT sessions the stored total_questions/correct_count columns are only
+    reconciled on normal termination (decide_termination in _submit_cat_answer
+    or the in_progress branch of finish_session); _auto_submit_if_expired only
+    flips status + ended_at, so a time-up (auto_submitted) CAT row still reads
+    0/0. Prefer the live CAT runtime state in config ("answered"/"correct")
+    over the stale columns. For fixed-exam sessions the columns are
+    authoritative and are read directly (behavior unchanged).
+    """
     max_score = es.config.get("max_score", 0)
     passing_score = es.config.get("passing_score", 0)
-    total = es.total_questions or 0
     if es.session_kind == ExamSessionKind.cat:
+        total = es.config.get("answered", 0) or es.total_questions or 0
+        correct = es.config.get("correct", 0)
         ability = es.config.get("ability", cat_engine.initial_ability())
         scaled = cat_engine.scaled_score(ability, max_score)
-        accuracy = (es.correct_count / total) if total else 0.0
-        return scaled, scaled >= passing_score, accuracy
-    scaled = round((es.correct_count / total) * max_score) if total else 0
+        accuracy = (correct / total) if total else 0.0
+        return scaled, scaled >= passing_score, accuracy, total, correct
+    total = es.total_questions or 0
+    correct = es.correct_count or 0
+    scaled = round((correct / total) * max_score) if total else 0
     passed = scaled >= passing_score
-    accuracy = (es.correct_count / total) if total else 0.0
-    return scaled, passed, accuracy
+    accuracy = (correct / total) if total else 0.0
+    return scaled, passed, accuracy, total, correct
 
 
 def list_history(session: Session, *, user_id) -> list:
@@ -889,15 +902,15 @@ def list_history(session: Session, *, user_id) -> list:
     )
     out: list = []
     for es in rows:
-        scaled, passed, accuracy = _scaled(es)
+        scaled, passed, accuracy, total, correct = _scaled(es)
         out.append(
             ExamHistoryItemOut(
                 id=es.id,
                 started_at=es.started_at,
                 ended_at=es.ended_at,
                 status=es.status.value,
-                total_questions=es.total_questions,
-                correct_count=es.correct_count,
+                total_questions=total,
+                correct_count=correct,
                 scaled_score=scaled,
                 max_score=es.config.get("max_score", 0),
                 passed=passed,

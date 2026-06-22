@@ -843,6 +843,54 @@ def test_cat_time_up_auto_submits(db_session):
     assert db_session.get(ExamSession, es.id).status == ExamSessionStatus.auto_submitted
 
 
+def test_cat_time_up_history_shows_answered_totals(db_session):
+    """I-1: auto-submitted (time-up) CAT sessions must not show stale
+    total_questions=0 / correct_count=0 / accuracy=0.0 in /history.
+
+    _auto_submit_if_expired only flips status + ended_at; it does not
+    reconcile total_questions/correct_count (those are set on normal
+    termination or in finish_session's in_progress branch, both skipped
+    for auto_submitted). History must prefer the live CAT runtime state
+    in config ("answered"/"correct") over the stale columns.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.enums import ExamSessionStatus
+    from app.services import cat_engine
+
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
+    # Answer one question correctly (option 0 is correct on every seeded q).
+    _answer(db_session, es, actor, selected=[0], position=0)
+    answered = es.config["answered"]
+    correct = es.config["correct"]
+    assert answered >= 1
+    assert correct == 1
+    # Force time-up: deadline into the past, then touch a path that runs
+    # _auto_submit_if_expired.
+    es.config["deadline_at"] = datetime.now(timezone.utc).isoformat()
+    flag_modified_for_test(es)
+    db_session.flush()
+    with pytest.raises(svc.ConflictError):
+        svc.get_next_question(db_session, session_id=es.id, user_id=actor.id)
+    assert db_session.get(ExamSession, es.id).status == ExamSessionStatus.auto_submitted
+    # The stored columns stay stale (auto-submit does not reconcile them).
+    assert es.total_questions == 0
+    assert es.correct_count == 0
+    # History must reflect the answers actually given, not the stale columns.
+    hist = svc.list_history(db_session, user_id=actor.id)
+    assert len(hist) == 1
+    row = hist[0]
+    assert row.total_questions == answered
+    assert row.correct_count == correct
+    assert row.accuracy == correct / answered
+    # Regression guard: ability-based scoring fields remain correct.
+    expected_scaled = cat_engine.scaled_score(
+        es.config["ability"], es.config["max_score"])
+    assert row.scaled_score == expected_scaled
+    assert row.max_score == 1000
+    assert row.passed == (expected_scaled >= es.config["passing_score"])
+
+
 def _finish_cat(db_session, *, passing_score=700, max_score=1000, selected=0,
                 early_stop=False, max_items=3, n_questions=5):
     org, actor, es = _cat_start(
