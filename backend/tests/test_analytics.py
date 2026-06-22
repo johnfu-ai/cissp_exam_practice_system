@@ -550,6 +550,74 @@ def recommendation_setup(db_session, learner, current_bp):
     return q1.id
 
 
+@pytest.fixture
+def recommendation_mastered_correct_setup(db_session, learner, current_bp):
+    """Weak domain 1 (in current_bp) with a mastered-but-CORRECT question.
+
+    - q1: answered CORRECTLY, mastery_level=mastered (the leak candidate).
+      q1 is NOT in wrong_qids, so the old mastered_qids (built from wrong-only
+      states) missed it — it leaked into next_practice_question_ids.
+    - q2, q3, q4: answered wrong -> domain accuracy 1/4 = 0.25, weak.
+
+    Returns the mastered-correct question id — it MUST be excluded from
+    next_practice_question_ids even though it is correct (not wrong).
+    """
+    org = db_session.get(Organization, learner.default_organization_id)
+    d1 = db_session.query(ExamDomain).filter_by(
+        blueprint_id=current_bp.id, number=1
+    ).one()
+    ps = _practice_session(db_session, org, learner)
+    q1 = _question(db_session, org, learner, stem="rec-correct-q1")
+    q2 = _question(db_session, org, learner, stem="rec-correct-q2")
+    q3 = _question(db_session, org, learner, stem="rec-correct-q3")
+    q4 = _question(db_session, org, learner, stem="rec-correct-q4")
+    _map(db_session, q1, d1)
+    _map(db_session, q2, d1)
+    _map(db_session, q3, d1)
+    _map(db_session, q4, d1)
+    now = datetime.now(timezone.utc)
+    _practice_answer(db_session, session=ps, actor=learner, question=q1,
+                     is_correct=True, answered_at=now - timedelta(minutes=40))
+    _practice_answer(db_session, session=ps, actor=learner, question=q2,
+                     is_correct=False, answered_at=now - timedelta(minutes=30))
+    _practice_answer(db_session, session=ps, actor=learner, question=q3,
+                     is_correct=False, answered_at=now - timedelta(minutes=20))
+    _practice_answer(db_session, session=ps, actor=learner, question=q4,
+                     is_correct=False, answered_at=now - timedelta(minutes=10))
+    _state(db_session, user=learner, question=q1,
+           mastery_level=MasteryLevel.mastered)
+    return q1.id
+
+
+@pytest.fixture
+def recommendation_duplicate_wrong_setup(db_session, learner, current_bp):
+    """Weak domain 1 where q1 is answered wrong TWICE (plus q2, q3 wrong once).
+
+    Used to assert wrong_to_review has no duplicate question ids.
+    """
+    org = db_session.get(Organization, learner.default_organization_id)
+    d1 = db_session.query(ExamDomain).filter_by(
+        blueprint_id=current_bp.id, number=1
+    ).one()
+    ps = _practice_session(db_session, org, learner)
+    q1 = _question(db_session, org, learner, stem="dedup-q1")
+    q2 = _question(db_session, org, learner, stem="dedup-q2")
+    q3 = _question(db_session, org, learner, stem="dedup-q3")
+    _map(db_session, q1, d1)
+    _map(db_session, q2, d1)
+    _map(db_session, q3, d1)
+    now = datetime.now(timezone.utc)
+    _practice_answer(db_session, session=ps, actor=learner, question=q1,
+                     is_correct=False, answered_at=now - timedelta(minutes=30))
+    _practice_answer(db_session, session=ps, actor=learner, question=q1,
+                     is_correct=False, answered_at=now - timedelta(minutes=20))
+    _practice_answer(db_session, session=ps, actor=learner, question=q2,
+                     is_correct=False, answered_at=now - timedelta(minutes=10))
+    _practice_answer(db_session, session=ps, actor=learner, question=q3,
+                     is_correct=False, answered_at=now)
+    return q1.id
+
+
 # --------------------------------------------------------------------------- #
 # weak_areas
 # --------------------------------------------------------------------------- #
@@ -659,6 +727,50 @@ def test_recommendation_no_weak_areas(db_session, learner, current_bp):
     assert out.next_practice_question_ids == []
     assert out.wrong_to_review == []
     assert "no weak areas" in out.rationale.lower()
+
+
+def test_recommendation_excludes_mastered_correct_in_weak_domain(
+    db_session, learner, current_bp, recommendation_mastered_correct_setup
+):
+    """A mastered-but-CORRECT question in a weak domain must NOT leak into
+    next_practice_question_ids.
+
+    Regression for Finding 1: mastered_qids used to be built only from
+    wrong-question states, so a mastered correct question in a weak domain
+    escaped exclusion. The fix queries UserQuestionState across ALL weak_qids.
+    """
+    mastered_correct_qid = recommendation_mastered_correct_setup
+    out = analytics.recommendation(
+        db_session, user_id=learner.id, blueprint=current_bp
+    )
+    assert out.focus_domain is not None
+    assert out.focus_domain.label == "D1"  # 1/4 = 0.25 -> weak
+    # The mastered-correct question must be excluded from next_practice.
+    assert mastered_correct_qid not in out.next_practice_question_ids
+    # The three non-mastered wrong questions (q2, q3, q4) are the candidates.
+    assert len(out.next_practice_question_ids) == 3
+    # It is correct, so it never enters wrong_to_review regardless.
+    assert mastered_correct_qid not in out.wrong_to_review
+
+
+def test_recommendation_wrong_to_review_dedup(
+    db_session, learner, current_bp, recommendation_duplicate_wrong_setup
+):
+    """A question answered wrong twice appears only once in wrong_to_review.
+
+    Regression for Finding 2: wrong_qids is a list comprehension, so duplicate
+    wrong answers duplicated qids in wrong_to_review until sorted(set(...)).
+    """
+    dup_qid = recommendation_duplicate_wrong_setup
+    out = analytics.recommendation(
+        db_session, user_id=learner.id, blueprint=current_bp
+    )
+    # 3 distinct wrong questions (q1, q2, q3) — q1 not duplicated.
+    assert len(out.wrong_to_review) == 3
+    assert out.wrong_to_review.count(dup_qid) == 1
+    # next_practice also dedups (earliest answered_at wins per distinct qid).
+    assert dup_qid in out.next_practice_question_ids
+    assert out.next_practice_question_ids.count(dup_qid) == 1
 
 
 # --------------------------------------------------------------------------- #

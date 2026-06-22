@@ -445,9 +445,25 @@ def recommendation(
         for qid in {r[0] for r in rows}
         if qid_dom.get(qid) in weak_dom_ids or qid_kp.get(qid) in weak_kp_ids
     }
-    mastered_qids = {
-        s.question_id for s in states if s.mastery_level == MasteryLevel.mastered
-    }
+    # mastered_qids must span ALL weak-area questions (correct + wrong), not
+    # just the wrong ones — otherwise a mastered-but-CORRECT question in a
+    # weak domain would leak into next_practice_question_ids. ``states`` above
+    # is intentionally kept narrow (wrong only) for the wrong_to_review
+    # mastered-exclusion, which is correct as-is.
+    mastered_qids = (
+        {
+            s.question_id
+            for s in session.execute(
+                select(UserQuestionState).where(
+                    UserQuestionState.user_id == user_id,
+                    UserQuestionState.question_id.in_(weak_qids),
+                )
+            ).scalars().all()
+            if s.mastery_level == MasteryLevel.mastered
+        }
+        if weak_qids
+        else set()
+    )
     # Exclude soft-deleted questions: next-practice must point at live rows.
     live_qids = (
         {
@@ -481,7 +497,7 @@ def recommendation(
     )
     return ReviewRecommendationOut(
         focus_domain=focus,
-        wrong_to_review=sorted(wrong_to_review),
+        wrong_to_review=sorted(set(wrong_to_review)),
         next_practice_question_ids=next_ids,
         rationale=rationale,
     )
