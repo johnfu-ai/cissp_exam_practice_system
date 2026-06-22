@@ -71,6 +71,7 @@ def test_session_has_config_and_paused_at_columns(db_session):
     """PracticeSession must expose config (JSONB) and paused_at columns."""
     org = _org(db_session)
     actor = _actor(db_session, org)
+    _question(db_session, org, actor, stem="q1")
     session = svc.create_session(
         db_session, org_id=org.id, actor_id=actor.id,
         payload=SessionCreateIn(count=1),
