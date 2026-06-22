@@ -1,0 +1,219 @@
+"""Auth service: registration, login (with lockout), refresh, logout."""
+
+import uuid
+from dataclasses import dataclass
+from datetime import timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.security import (
+    RefreshTokenStore,
+    create_access_token,
+    generate_refresh_token,
+    hash_password,
+    verify_password,
+)
+from app.models.auth import (
+    Organization,
+    OrganizationMembership,
+    Permission,
+    Role,
+    RolePermission,
+    User,
+)
+from app.models.enums import AuditAction, OrgKind, RoleName, UserStatus
+from app.services.audit import log_audit
+
+
+@dataclass
+class AuthTokens:
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class AuthError(Exception):
+    def __init__(self, message: str, status_code: int = 401):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _refresh_ttl() -> int:
+    return int(timedelta(days=settings.refresh_token_expire_days).total_seconds())
+
+
+class LockoutStore:
+    def record_failure(self, email: str) -> int: ...
+    def is_locked(self, email: str) -> bool: ...
+    def reset(self, email: str) -> None: ...
+
+
+class InMemoryLockoutStore(LockoutStore):
+    def __init__(self, threshold: int | None = None) -> None:
+        self._counts: dict[str, int] = {}
+        self.threshold = threshold or settings.login_lockout_threshold
+
+    def record_failure(self, email):
+        key = email.lower()
+        self._counts[key] = self._counts.get(key, 0) + 1
+        return self._counts[key]
+
+    def is_locked(self, email):
+        return self._counts.get(email.lower(), 0) >= self.threshold
+
+    def reset(self, email):
+        self._counts.pop(email.lower(), None)
+
+
+class RedisLockoutStore(LockoutStore):
+    def __init__(self, redis_url: str) -> None:
+        import redis
+
+        self._redis = redis.from_url(redis_url, socket_connect_timeout=2)
+        self._prefix = "loginfail:"
+
+    def _key(self, email: str) -> str:
+        return f"{self._prefix}{email.lower()}"
+
+    def record_failure(self, email):
+        key = self._key(email)
+        count = self._redis.incr(key)
+        if count == 1:
+            self._redis.expire(key, settings.login_lockout_window_minutes * 60)
+        return count
+
+    def is_locked(self, email):
+        v = self._redis.get(self._key(email))
+        if v is None:
+            return False
+        return int(v) >= settings.login_lockout_threshold
+
+    def reset(self, email):
+        self._redis.delete(self._key(email))
+
+
+def load_user_roles(session: Session, user_id: uuid.UUID, org_id: uuid.UUID) -> list[str]:
+    rows = session.execute(
+        select(Role.name)
+        .join(OrganizationMembership, OrganizationMembership.role_id == Role.id)
+        .where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == org_id,
+        )
+    ).scalars().all()
+    return [r.value for r in rows]
+
+
+def load_user_perms(session: Session, user_id: uuid.UUID, org_id: uuid.UUID) -> list[str]:
+    rows = session.execute(
+        select(Permission.code)
+        .join(RolePermission, RolePermission.permission_id == Permission.id)
+        .join(OrganizationMembership, OrganizationMembership.role_id == RolePermission.role_id)
+        .where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == org_id,
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+def issue_tokens(session: Session, user: User, org_id: uuid.UUID,
+                 refresh_store: RefreshTokenStore) -> AuthTokens:
+    roles = load_user_roles(session, user.id, org_id)
+    perms = load_user_perms(session, user.id, org_id)
+    access = create_access_token(user_id=user.id, org_id=org_id, roles=roles, perms=perms)
+    refresh = generate_refresh_token()
+    refresh_store.store(refresh, user.id, org_id, _refresh_ttl())
+    return AuthTokens(access_token=access, refresh_token=refresh)
+
+
+def register_user(session: Session, *, email: str, password: str,
+                  display_name: str | None,
+                  refresh_store: RefreshTokenStore) -> tuple[User, AuthTokens]:
+    email = email.lower().strip()
+    existing = session.execute(select(User).filter_by(email=email)).scalar_one_or_none()
+    if existing is not None:
+        raise AuthError("email already registered", status_code=409)
+
+    user = User(
+        email=email,
+        password_hash=hash_password(password),
+        display_name=display_name,
+        status=UserStatus.active,
+    )
+    session.add(user)
+    session.flush()
+
+    org = Organization(
+        name=f"{display_name or email}'s space",
+        slug=f"personal-{user.id.hex[:8]}",
+        kind=OrgKind.personal,
+    )
+    session.add(org)
+    session.flush()
+
+    learner_role = session.execute(
+        select(Role).filter_by(name=RoleName.individual_learner)
+    ).scalar_one()
+    session.add(OrganizationMembership(
+        user_id=user.id, organization_id=org.id, role_id=learner_role.id,
+    ))
+    user.default_organization_id = org.id
+    session.flush()
+
+    tokens = issue_tokens(session, user, org.id, refresh_store)
+    return user, tokens
+
+
+def authenticate(session: Session, *, email: str, password: str,
+                 refresh_store: RefreshTokenStore,
+                 lockout_store: LockoutStore) -> tuple[User, AuthTokens]:
+    email = email.lower().strip()
+    if lockout_store.is_locked(email):
+        raise AuthError("too many failed attempts; try later", status_code=429)
+
+    user = session.execute(select(User).filter_by(email=email)).scalar_one_or_none()
+    if user is None or not user.password_hash or not verify_password(password, user.password_hash):
+        count = lockout_store.record_failure(email)
+        threshold = getattr(lockout_store, "threshold", None) or settings.login_lockout_threshold
+        if count >= threshold:
+            raise AuthError("too many failed attempts; try later", status_code=429)
+        raise AuthError("invalid credentials", status_code=401)
+
+    if user.status != UserStatus.active:
+        raise AuthError("account disabled", status_code=403)
+
+    lockout_store.reset(email)
+    org_id = user.default_organization_id
+    tokens = issue_tokens(session, user, org_id, refresh_store)
+    log_audit(
+        session, action=AuditAction.login, actor_id=user.id,
+        organization_id=org_id, entity_type="user", entity_id=str(user.id),
+    )
+    return user, tokens
+
+
+def refresh_tokens(session: Session, refresh_store: RefreshTokenStore,
+                   refresh_token: str) -> AuthTokens:
+    data = refresh_store.load(refresh_token)
+    if data is None:
+        raise AuthError("invalid or expired refresh token", status_code=401)
+    user_id = uuid.UUID(data["user_id"])
+    org_id = uuid.UUID(data["org_id"])
+    user = session.get(User, user_id)
+    if user is None or user.status != UserStatus.active:
+        refresh_store.delete(refresh_token)
+        raise AuthError("account disabled", status_code=403)
+    new_refresh = refresh_store.rotate(
+        refresh_token, user_id=user.id, org_id=org_id, ttl_seconds=_refresh_ttl()
+    )
+    roles = load_user_roles(session, user.id, org_id)
+    perms = load_user_perms(session, user.id, org_id)
+    access = create_access_token(user_id=user.id, org_id=org_id, roles=roles, perms=perms)
+    return AuthTokens(access_token=access, refresh_token=new_refresh)
+
+
+def logout(refresh_store: RefreshTokenStore, refresh_token: str) -> None:
+    refresh_store.delete(refresh_token)
