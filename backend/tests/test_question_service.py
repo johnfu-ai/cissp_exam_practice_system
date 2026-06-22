@@ -153,3 +153,66 @@ def test_create_empty_stem_rejected(db_session):
     )
     with pytest.raises(ValidationError):
         create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=payload)
+
+
+# --- Task 5: get + list ---
+
+from app.services.question import get_question, list_questions, NotFound  # noqa: E402
+
+
+def test_get_question_missing_raises(db_session):
+    with pytest.raises(NotFound):
+        get_question(db_session, uuid.uuid4())
+
+
+def test_get_question_excludes_soft_deleted(db_session):
+    from datetime import datetime, timezone
+
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session),
+                        payload=_single_payload())
+    q.deleted_at = datetime.now(timezone.utc)
+    db_session.flush()
+    with pytest.raises(NotFound):
+        get_question(db_session, q.id)
+
+
+def test_list_pagination_and_tenant(db_session):
+    org = _org(db_session)
+    other = _org(db_session)
+    for _ in range(3):
+        create_question(db_session, org_id=org.id, actor_id=_actor(db_session),
+                        payload=_single_payload())
+    create_question(db_session, org_id=other.id, actor_id=_actor(db_session),
+                    payload=_single_payload())
+    items, total = list_questions(db_session, org_id=org.id, page=1, size=2)
+    assert total == 3
+    assert len(items) == 2
+    items2, _ = list_questions(db_session, org_id=org.id, page=2, size=2)
+    assert len(items2) == 1
+
+
+def test_list_filter_by_status(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session),
+                        payload=_single_payload())
+    q.status = QuestionStatus.published
+    db_session.flush()
+    _, total = list_questions(db_session, org_id=org.id, page=1, size=20,
+                              filters={"status": QuestionStatus.published})
+    assert total == 1
+    _, total_draft = list_questions(db_session, org_id=org.id, page=1, size=20,
+                                    filters={"status": QuestionStatus.draft})
+    assert total_draft == 0
+
+
+def test_list_search_by_stem(db_session):
+    org = _org(db_session)
+    create_question(db_session, org_id=org.id, actor_id=_actor(db_session),
+                    payload=QuestionCreateIn(
+                        question_type=QuestionType.single_choice, stem="Cryptography basics",
+                        options=[OptionIn(content="a", is_correct=True, order_index=0),
+                                 OptionIn(content="b", order_index=1)]))
+    _, total = list_questions(db_session, org_id=org.id, page=1, size=20,
+                              filters={"search": "crypto"})
+    assert total == 1

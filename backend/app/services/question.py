@@ -13,6 +13,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.queries import not_deleted
 from app.models.enums import AuditAction, QuestionStatus, QuestionType
 from app.models.question import (
     Explanation,
@@ -33,6 +34,10 @@ from app.services.snapshot import snapshot_question
 
 class ValidationError(ValueError):
     """Invalid question data (maps to HTTP 422)."""
+
+
+class NotFound(LookupError):
+    """Question does not exist or is soft-deleted (maps to HTTP 404)."""
 
 
 def _validate_options(qtype: QuestionType, options: list[OptionIn]) -> None:
@@ -150,3 +155,69 @@ def create_question(session: Session, *, org_id, actor_id,
               organization_id=org_id, entity_type="question", entity_id=str(q.id),
               details={"action": "create"})
     return q
+
+
+def get_question(session: Session, question_id) -> Question:
+    """Return a live question by id. Raises ``NotFound`` if missing or soft-deleted."""
+    q = session.get(Question, question_id)
+    if q is None or q.deleted_at is not None:
+        raise NotFound(f"question {question_id} not found")
+    return q
+
+
+def list_questions(
+    session: Session,
+    *,
+    org_id,
+    page: int = 1,
+    size: int = 20,
+    filters: dict | None = None,
+) -> tuple[list[Question], int]:
+    """Tenant-scoped, paginated list of live questions.
+
+    ``filters`` may contain any of: status, question_type, language, difficulty,
+    search (stem ILIKE), domain_id, chapter_id, knowledge_point_id, tag_id.
+    Returns (items, total).
+    """
+    from sqlalchemy import func
+
+    filters = filters or {}
+    stmt = select(Question).where(Question.organization_id == org_id, not_deleted(Question))
+    if (st := filters.get("status")) is not None:
+        stmt = stmt.where(Question.status == st)
+    if (qt := filters.get("question_type")) is not None:
+        stmt = stmt.where(Question.question_type == qt)
+    if (lang := filters.get("language")) is not None:
+        stmt = stmt.where(Question.language == lang)
+    if (diff := filters.get("difficulty")) is not None:
+        stmt = stmt.where(Question.difficulty == diff)
+    if (search := filters.get("search")) is not None:
+        stmt = stmt.where(Question.stem.ilike(f"%{search}%"))
+    if (domain_id := filters.get("domain_id")) is not None:
+        stmt = stmt.where(Question.id.in_(
+            select(QuestionMapping.question_id).where(QuestionMapping.domain_id == domain_id)
+        ))
+    if (chapter_id := filters.get("chapter_id")) is not None:
+        stmt = stmt.where(Question.id.in_(
+            select(QuestionMapping.question_id).where(QuestionMapping.chapter_id == chapter_id)
+        ))
+    if (knowledge_point_id := filters.get("knowledge_point_id")) is not None:
+        stmt = stmt.where(Question.id.in_(
+            select(QuestionMapping.question_id).where(
+                QuestionMapping.knowledge_point_id == knowledge_point_id
+            )
+        ))
+    if (tag_id := filters.get("tag_id")) is not None:
+        stmt = stmt.where(Question.id.in_(
+            select(QuestionMapping.question_id).where(QuestionMapping.tag_id == tag_id)
+        ))
+
+    total = session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    page = max(page, 1)
+    size = min(max(size, 1), 100)
+    items = list(
+        session.execute(
+            stmt.order_by(Question.created_at.desc()).offset((page - 1) * size).limit(size)
+        ).scalars().all()
+    )
+    return items, total
