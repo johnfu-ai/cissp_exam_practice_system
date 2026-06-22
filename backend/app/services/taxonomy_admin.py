@@ -649,3 +649,169 @@ def delete_knowledge_point(session: Session, *, kp_id, actor_id) -> None:
         entity_id=str(kp_id),
         details={"op": "delete"},
     )
+
+
+# --- KnowledgePoint <-> Domain binding ---
+
+
+def bind_kp_domain(
+    session: Session, *, kp_id, actor_id, payload: BindingIn
+) -> KnowledgePointDomain:
+    get_knowledge_point(session, kp_id)
+    domain = session.get(ExamDomain, payload.domain_id)
+    if domain is None:
+        raise NotFound("domain not found")
+    dup = session.execute(
+        select(KnowledgePointDomain).where(
+            KnowledgePointDomain.knowledge_point_id == kp_id,
+            KnowledgePointDomain.domain_id == payload.domain_id,
+        )
+    ).first()
+    if dup is not None:
+        raise ConflictError("knowledge point already bound to this domain")
+    binding = KnowledgePointDomain(
+        knowledge_point_id=kp_id, domain_id=payload.domain_id
+    )
+    session.add(binding)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="knowledge_point_domain",
+        entity_id=str(binding.id),
+        details={
+            "op": "create",
+            "kp_id": str(kp_id),
+            "domain_id": str(payload.domain_id),
+        },
+    )
+    return binding
+
+
+def list_kp_domains(session: Session, kp_id) -> list[ExamDomain]:
+    get_knowledge_point(session, kp_id)
+    domain_ids = select(KnowledgePointDomain.domain_id).where(
+        KnowledgePointDomain.knowledge_point_id == kp_id
+    )
+    return list(
+        session.execute(
+            select(ExamDomain)
+            .where(ExamDomain.id.in_(domain_ids))
+            .order_by(ExamDomain.number)
+        ).scalars().all()
+    )
+
+
+def unbind_kp_domain(
+    session: Session, *, kp_id, domain_id, actor_id
+) -> None:
+    get_knowledge_point(session, kp_id)
+    binding = session.execute(
+        select(KnowledgePointDomain).where(
+            KnowledgePointDomain.knowledge_point_id == kp_id,
+            KnowledgePointDomain.domain_id == domain_id,
+        )
+    ).scalar_one_or_none()
+    if binding is None:
+        raise NotFound("binding not found")
+    session.delete(binding)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="knowledge_point_domain",
+        entity_id=str(binding.id),
+        details={"op": "delete", "kp_id": str(kp_id), "domain_id": str(domain_id)},
+    )
+
+
+# --- Tag ---
+
+
+def _validate_tag(*, name):
+    if not name or not name.strip():
+        raise ValidationError("tag name is required")
+
+
+def create_tag(session: Session, *, actor_id, payload: TagIn) -> Tag:
+    _validate_tag(name=payload.name)
+    dup = session.execute(select(Tag).where(Tag.name == payload.name)).first()
+    if dup is not None:
+        raise ConflictError("tag name already exists")
+    tag = Tag(name=payload.name, description=payload.description)
+    session.add(tag)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="tag",
+        entity_id=str(tag.id),
+        details={"op": "create"},
+    )
+    return tag
+
+
+def list_tags(session: Session) -> list[Tag]:
+    return list(
+        session.execute(select(Tag).order_by(Tag.name)).scalars().all()
+    )
+
+
+def get_tag(session: Session, tag_id) -> Tag:
+    tag = session.get(Tag, tag_id)
+    if tag is None:
+        raise NotFound("tag not found")
+    return tag
+
+
+def update_tag(
+    session: Session, *, tag_id, actor_id, payload: TagIn
+) -> Tag:
+    tag = get_tag(session, tag_id)
+    _validate_tag(name=payload.name)
+    if payload.name != tag.name:
+        dup = session.execute(
+            select(Tag).where(Tag.name == payload.name)
+        ).first()
+        if dup is not None:
+            raise ConflictError("tag name already exists")
+    tag.name = payload.name
+    tag.description = payload.description
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="tag",
+        entity_id=str(tag.id),
+        details={"op": "update"},
+    )
+    return tag
+
+
+def _tag_has_mapped_questions(session: Session, tag_id) -> bool:
+    exists = session.execute(
+        select(QuestionMapping.question_id)
+        .where(QuestionMapping.tag_id == tag_id)
+        .limit(1)
+    ).first()
+    return exists is not None
+
+
+def delete_tag(session: Session, *, tag_id, actor_id) -> None:
+    tag = get_tag(session, tag_id)
+    if _tag_has_mapped_questions(session, tag_id):
+        raise ConflictError("tag is referenced by questions")
+    session.delete(tag)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="tag",
+        entity_id=str(tag_id),
+        details={"op": "delete"},
+    )

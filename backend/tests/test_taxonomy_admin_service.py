@@ -430,3 +430,161 @@ def test_delete_kp_ok(db_session):
     svc.delete_knowledge_point(db_session, kp_id=kp.id, actor_id=actor.id)
     with pytest.raises(svc.NotFound):
         svc.get_knowledge_point(db_session, kp.id)
+
+
+# --- KnowledgePoint <-> Domain binding ---
+
+
+def test_bind_kp_domain(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    domain = svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=10),
+    )
+    kp = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="KP")
+    )
+    binding = svc.bind_kp_domain(
+        db_session,
+        kp_id=kp.id,
+        actor_id=actor.id,
+        payload=BindingIn(domain_id=domain.id),
+    )
+    assert binding.knowledge_point_id == kp.id
+    assert binding.domain_id == domain.id
+    domains = svc.list_kp_domains(db_session, kp_id=kp.id)
+    assert len(domains) == 1
+    assert domains[0].id == domain.id
+
+
+def test_bind_kp_domain_duplicate_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    domain = svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=10),
+    )
+    kp = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="KP")
+    )
+    svc.bind_kp_domain(
+        db_session,
+        kp_id=kp.id,
+        actor_id=actor.id,
+        payload=BindingIn(domain_id=domain.id),
+    )
+    with pytest.raises(svc.ConflictError):
+        svc.bind_kp_domain(
+            db_session,
+            kp_id=kp.id,
+            actor_id=actor.id,
+            payload=BindingIn(domain_id=domain.id),
+        )
+
+
+def test_unbind_kp_domain(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    domain = svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=10),
+    )
+    kp = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="KP")
+    )
+    svc.bind_kp_domain(
+        db_session,
+        kp_id=kp.id,
+        actor_id=actor.id,
+        payload=BindingIn(domain_id=domain.id),
+    )
+    svc.unbind_kp_domain(
+        db_session, kp_id=kp.id, domain_id=domain.id, actor_id=actor.id
+    )
+    assert len(svc.list_kp_domains(db_session, kp_id=kp.id)) == 0
+
+
+def test_delete_kp_with_binding_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    domain = svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=10),
+    )
+    kp = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="KP")
+    )
+    svc.bind_kp_domain(
+        db_session,
+        kp_id=kp.id,
+        actor_id=actor.id,
+        payload=BindingIn(domain_id=domain.id),
+    )
+    with pytest.raises(svc.ConflictError):
+        svc.delete_knowledge_point(db_session, kp_id=kp.id, actor_id=actor.id)
+
+
+# --- Tag ---
+
+
+def test_create_tag(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    tag = svc.create_tag(
+        db_session, actor_id=actor.id, payload=TagIn(name="crypto")
+    )
+    assert tag.name == "crypto"
+
+
+def test_create_tag_duplicate_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    svc.create_tag(db_session, actor_id=actor.id, payload=TagIn(name="crypto"))
+    with pytest.raises(svc.ConflictError):
+        svc.create_tag(db_session, actor_id=actor.id, payload=TagIn(name="crypto"))
+
+
+def test_delete_tag_with_questions_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    tag = svc.create_tag(
+        db_session, actor_id=actor.id, payload=TagIn(name="crypto")
+    )
+    from app.models.enums import QuestionType
+    from app.models.question import Question, QuestionMapping
+
+    q = Question(
+        organization_id=org.id,
+        question_type=QuestionType.single_choice,
+        stem="x",
+        created_by_id=actor.id,
+    )
+    db_session.add(q)
+    db_session.flush()
+    db_session.add(QuestionMapping(question_id=q.id, tag_id=tag.id))
+    db_session.flush()
+    with pytest.raises(svc.ConflictError):
+        svc.delete_tag(db_session, tag_id=tag.id, actor_id=actor.id)
+
+
+def test_delete_tag_ok(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    tag = svc.create_tag(
+        db_session, actor_id=actor.id, payload=TagIn(name="crypto")
+    )
+    svc.delete_tag(db_session, tag_id=tag.id, actor_id=actor.id)
+    assert len(svc.list_tags(db_session)) == 0
