@@ -219,3 +219,145 @@ def test_create_default_count_is_max_items(db_session):
         db_session, org_id=org.id, actor_id=actor.id, payload={},
     )
     assert es.total_questions == 3  # default = max_items
+
+
+def _start(db_session, org, actor, *, count=1, bp=None):
+    if bp is None:
+        bp = _blueprint(db_session, min_items=1, max_items=10)
+        d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+        q = _question(db_session, org, actor, stem="q1")
+        _map(db_session, q, d)
+    return svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"count": count},
+    )
+
+
+def test_delivery_strips_correctness_and_has_timing(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    s = _start(db_session, org, actor, count=1)
+    out = svc.get_question_at(
+        db_session, session_id=s.id, position=0, user_id=actor.id
+    )
+    assert out["position"] == 0
+    assert out["total"] == 1
+    assert out["stem"] == "q1"
+    for opt in out["options"]:
+        assert "is_correct" not in opt
+    assert out["time_remaining_ms"] > 0
+    assert out["elapsed_ms"] >= 0
+    assert out["previous_answer"] is None
+
+
+def test_submit_answer_returns_ack_no_judgment(db_session):
+    from datetime import datetime, timezone
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    s = _start(db_session, org, actor, count=1)
+    ack = svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    assert ack.saved is True
+    assert ack.position == 0
+    assert ack.time_remaining_ms > 0
+
+
+def test_answer_is_revisable_single_row(db_session):
+    from datetime import datetime, timezone
+
+    from app.models.exam import ExamAnswer
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    s = _start(db_session, org, actor, count=1)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    rows = db_session.query(ExamAnswer).filter_by(session_id=s.id).all()
+    assert len(rows) == 1
+    assert rows[0].user_answer == {"selected": [0]}
+    assert rows[0].is_correct is True  # judged from snapshot at revise time
+
+
+def test_answer_persists_snapshot(db_session):
+    from datetime import datetime, timezone
+
+    from app.models.exam import ExamAnswer
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    s = _start(db_session, org, actor, count=1)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    ans = db_session.query(ExamAnswer).filter_by(session_id=s.id).one()
+    assert ans.options_snapshot[0]["is_correct"] is True
+    assert ans.is_correct is True
+
+
+def test_delivery_returns_previous_answer(db_session):
+    from datetime import datetime, timezone
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    s = _start(db_session, org, actor, count=1)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    out = svc.get_question_at(
+        db_session, session_id=s.id, position=0, user_id=actor.id
+    )
+    assert out["previous_answer"] == {"selected": [1]}
+
+
+def test_lazy_auto_submit_after_deadline(db_session):
+    from datetime import datetime, timezone
+
+    from app.models.enums import ExamSessionStatus
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    s = _start(db_session, org, actor, count=1)
+    # Force the deadline into the past.
+    s.config["deadline_at"] = (datetime.now(timezone.utc)).isoformat()
+    db_session.flush()
+    with pytest.raises(svc.ConflictError):
+        svc.get_question_at(
+            db_session, session_id=s.id, position=0, user_id=actor.id
+        )
+    assert db_session.get(ExamSession, s.id).status == ExamSessionStatus.auto_submitted
+
+
+def test_position_out_of_range_rejected(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    s = _start(db_session, org, actor, count=1)
+    with pytest.raises(svc.ValidationError):
+        svc.get_question_at(
+            db_session, session_id=s.id, position=5, user_id=actor.id
+        )
+
+
+def test_other_user_exam_not_found(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    intruder = _actor(db_session, org, email="other@example.com")
+    s = _start(db_session, org, actor, count=1)
+    with pytest.raises(svc.NotFound):
+        svc.get_question_at(
+            db_session, session_id=s.id, position=0, user_id=intruder.id
+        )
