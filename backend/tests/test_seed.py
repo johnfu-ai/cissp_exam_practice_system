@@ -59,7 +59,7 @@ def test_seed_is_idempotent(db_session):
     assert counts_1_rp == counts_2_rp
 
     sv = db_session.execute(select(SchemaMeta).filter_by(key="seed_version")).scalar_one()
-    assert sv.value == "3"
+    assert sv.value == "4"
 
 
 def test_system_admin_has_all_permissions(db_session):
@@ -109,3 +109,24 @@ def test_seed_creates_bootstrap_admin(db_session):
     ).scalar_one()
     role = db_session.get(Role, m.role_id)
     assert role.name == RoleName.system_admin
+
+
+def test_seed_includes_reports_permission(db_session):
+    run_seed(db_session)
+    rep = db_session.execute(
+        select(Permission).filter_by(code="admin:view_reports")
+    ).scalar_one()
+    assert rep is not None
+    for name in (RoleName.org_admin, RoleName.system_admin):
+        role = db_session.execute(select(Role).filter_by(name=name)).scalar_one()
+        link = db_session.execute(
+            select(RolePermission).filter_by(role_id=role.id, permission_id=rep.id)
+        ).scalar_one()
+        assert link is not None
+    # instructor + content_editor + individual_learner do NOT get it
+    for name in (RoleName.individual_learner, RoleName.instructor, RoleName.content_editor):
+        role = db_session.execute(select(Role).filter_by(name=name)).scalar_one()
+        link = db_session.execute(
+            select(RolePermission).filter_by(role_id=role.id, permission_id=rep.id)
+        ).scalar_one_or_none()
+        assert link is None
