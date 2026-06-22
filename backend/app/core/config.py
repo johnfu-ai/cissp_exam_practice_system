@@ -10,6 +10,13 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 14
+    bcrypt_rounds: int = 12
+    login_lockout_threshold: int = 5
+    login_lockout_window_minutes: int = 15
+    cors_origins: str = "http://localhost:3000"
+    seed_admin_email: str = "admin@example.com"
+    seed_admin_password: str = ""
 
 
 settings = Settings()

@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Sub-project A (Foundations & data model) is implemented and runnable.** The full stack starts with `docker compose up -d --build` and is verified healthy: backend `/health` returns `{"status":"ok","db":"ok","redis":"ok"}`, the frontend home page renders that status, the Alembic initial migration creates 26 tables, and the idempotent seed populates the personal org, the 2024-04-15 blueprint, 8 CISSP domains, 5 roles, and the permission matrix.
 
-What exists now: backend (FastAPI + SQLAlchemy 2.x + Alembic), 26 ORM models across 6 bounded contexts, `/health` endpoint (the only endpoint — no business endpoints yet), idempotent seed, migration + model tests (20 passing); frontend (Next.js 14 placeholder whose home page calls backend `/health`). What does NOT exist yet: auth/JWT, question bank CRUD, practice/exam APIs, CAT engine, import pipeline, admin UI — these are later sub-projects (B–H).
+What exists now: backend (FastAPI + SQLAlchemy 2.x + Alembic), 26 ORM models across 6 bounded contexts, `/health` endpoint, **auth & RBAC** (`/api/auth/{register,login,refresh,logout,me,reset-password}`, JWT access + opaque refresh tokens in Redis, bcrypt passwords, login lockout, permission-based `require_permission` dependency applied to the ETL API), idempotent seed (now bootstraps a `system_admin` user), migration + model + auth tests (83 passing); frontend (Next.js 14 with login/register/logout pages, Zustand auth store, typed API client with silent refresh). What does NOT exist yet: question bank CRUD, practice/exam APIs, CAT engine, admin UI — these are later sub-projects (C–H).
+
+**Auth env vars** (in `backend/.env` or compose): `jwt_secret` (change from default), `access_token_expire_minutes`, `refresh_token_expire_days`, `bcrypt_rounds`, `login_lockout_threshold`, `login_lockout_window_minutes`, `cors_origins` (comma-separated), `seed_admin_email`, `seed_admin_password` (if unset, the seed prints a randomly generated admin password once).
 
 The PRD remains the source of truth for scope. Read it before designing later sub-projects.
 

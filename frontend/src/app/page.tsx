@@ -1,58 +1,80 @@
-const BACKEND_URL =
-  process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+"use client";
 
-type Health = { status: string; db: string; redis: string };
+import { useEffect, useState } from "react";
+import { useAuthStore } from "@/lib/auth-store";
+import { apiJson } from "@/lib/api";
 
-async function fetchHealth(): Promise<Health | null> {
-  try {
-    const res = await fetch(`${BACKEND_URL}/health`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as Health;
-  } catch {
-    return null;
+const BACKEND =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://localhost:8000";
+
+export default function Home() {
+  const { user, accessToken, hydrate, clear } = useAuthStore();
+  const [health, setHealth] = useState<string>("...");
+  const [datasets, setDatasets] = useState<string>("");
+
+  useEffect(() => {
+    hydrate();
+    fetch(`${BACKEND}/health`)
+      .then((r) => r.json())
+      .then((j) => setHealth(JSON.stringify(j)))
+      .catch(() => setHealth("error"));
+  }, [hydrate]);
+
+  async function loadDatasets() {
+    try {
+      const ds = await apiJson<any[]>("/api/etl/datasets");
+      setDatasets(ds.map((d) => d.slug).join(", "));
+    } catch (e: any) {
+      setDatasets(`error: ${e.message}`);
+    }
   }
-}
 
-function statusColor(value: string): string {
-  return value === "ok" || value === "healthy"
-    ? "text-green-600 dark:text-green-400"
-    : "text-red-600 dark:text-red-400";
-}
-
-export default async function Home() {
-  const health = await fetchHealth();
+  async function logout() {
+    const rt = useAuthStore.getState().refreshToken;
+    if (rt) {
+      await fetch(`${BACKEND}/api/auth/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: rt }),
+      });
+    }
+    clear();
+  }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-8">
-      <div className="w-full max-w-xl space-y-6 text-center">
-        <h1 className="text-4xl font-bold tracking-tight">CISSP Exam Practice</h1>
-        <p className="text-neutral-600 dark:text-neutral-400">
-          Foundations &amp; data model sub-project. Backend service status:
-        </p>
-        {health === null ? (
-          <p className="text-red-600 dark:text-red-400">
-            Backend unreachable at <code>{BACKEND_URL}</code>
+    <main className="mx-auto max-w-2xl p-8">
+      <h1 className="text-3xl font-bold mb-2">CISSP Exam Practice</h1>
+      <p className="text-gray-600 mb-6">Backend health: {health}</p>
+      {accessToken && user ? (
+        <div className="space-y-4">
+          <p>
+            Signed in as <strong>{user.email}</strong> (roles: {user.roles.join(", ")})
           </p>
-        ) : (
-          <dl className="inline-block space-y-2 text-left">
-            <div className="flex justify-between gap-8">
-              <dt className="font-medium">Overall</dt>
-              <dd className={statusColor(health.status)}>{health.status}</dd>
-            </div>
-            <div className="flex justify-between gap-8">
-              <dt className="font-medium">Database</dt>
-              <dd className={statusColor(health.db)}>{health.db}</dd>
-            </div>
-            <div className="flex justify-between gap-8">
-              <dt className="font-medium">Redis</dt>
-              <dd className={statusColor(health.redis)}>{health.redis}</dd>
-            </div>
-          </dl>
-        )}
-      </div>
+          <button onClick={logout} className="border px-4 py-2 rounded">
+            Log out
+          </button>
+          <div>
+            <button
+              onClick={loadDatasets}
+              className="bg-blue-600 text-white px-4 py-2 rounded"
+            >
+              List ETL datasets
+            </button>
+            {datasets && <p className="mt-2 text-sm">datasets: {datasets}</p>}
+          </div>
+        </div>
+      ) : (
+        <div className="space-x-4">
+          <a href="/login" className="bg-blue-600 text-white px-4 py-2 rounded inline-block">
+            Log in
+          </a>
+          <a href="/register" className="border px-4 py-2 rounded inline-block">
+            Register
+          </a>
+        </div>
+      )}
     </main>
   );
 }

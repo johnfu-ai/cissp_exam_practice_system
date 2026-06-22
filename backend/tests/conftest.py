@@ -68,3 +68,40 @@ def db_session(engine) -> Session:
         session.close()
         transaction.rollback()
         connection.close()
+
+
+@pytest.fixture
+def session_with_roles(db_session):
+    """db_session with seeded roles + permissions (individual_learner perms)."""
+    from app.db.seed import PERMISSIONS, ROLE_PERMISSIONS
+    from app.models.auth import Permission, Role, RolePermission
+    from app.models.enums import RoleName
+
+    perm_by_code = {}
+    for code, desc in PERMISSIONS:
+        p = db_session.query(Permission).filter_by(code=code).first()
+        if p is None:
+            p = Permission(code=code, description=desc)
+            db_session.add(p)
+            db_session.flush()
+        perm_by_code[code] = p
+    role_by_name = {}
+    for name in RoleName:
+        r = db_session.query(Role).filter_by(name=name).first()
+        if r is None:
+            r = Role(name=name, description=name.value)
+            db_session.add(r)
+            db_session.flush()
+        role_by_name[name] = r
+    for name, codes in ROLE_PERMISSIONS.items():
+        for code in codes:
+            exists = db_session.query(RolePermission).filter_by(
+                role_id=role_by_name[name].id, permission_id=perm_by_code[code].id
+            ).first()
+            if exists is None:
+                db_session.add(RolePermission(
+                    role_id=role_by_name[name].id,
+                    permission_id=perm_by_code[code].id,
+                ))
+    db_session.flush()
+    return db_session

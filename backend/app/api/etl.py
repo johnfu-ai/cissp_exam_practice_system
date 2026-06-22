@@ -1,6 +1,4 @@
-"""ETL HTTP API. Unauthenticated stubs until auth/JWT sub-project lands.
-Each handler carries # TODO(auth): replace with real org/user from JWT.
-"""
+"""ETL HTTP API. Permission-gated via app.dependencies."""
 
 import uuid
 
@@ -10,19 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
+from app.dependencies import CurrentUser, require_permission
 from app.etl.runner import run_commit, run_preview, run_rollback
-from app.models.auth import Organization
 from app.models.etl import ChapterDomainMapping, EtlDataset, EtlRun
 
 router = APIRouter(prefix="/api/etl", tags=["etl"])
-
-
-def _org_id(session: Session) -> uuid.UUID:
-    # TODO(auth): replace with real org from JWT.
-    org = session.execute(select(Organization).limit(1)).scalar_one_or_none()
-    if org is None:
-        raise HTTPException(status_code=500, detail="no organization seeded")
-    return org.id
 
 
 class CreateRunIn(BaseModel):
@@ -37,20 +27,17 @@ class MappingIn(BaseModel):
 
 
 @router.get("/datasets")
-def list_datasets(session: Session = Depends(get_session)):
+def list_datasets(session: Session = Depends(get_session),
+                  _: CurrentUser = Depends(require_permission("question:import"))):
     rows = session.execute(select(EtlDataset)).scalars().all()
-    return [
-        {
-            "id": str(d.id), "slug": d.slug, "name": d.name,
-            "source_path": d.source_path, "total_questions": d.total_questions,
-            "languages": d.languages,
-        }
-        for d in rows
-    ]
+    return [{"id": str(d.id), "slug": d.slug, "name": d.name,
+             "source_path": d.source_path, "total_questions": d.total_questions,
+             "languages": d.languages} for d in rows]
 
 
 @router.get("/datasets/{slug}")
-def get_dataset(slug: str, session: Session = Depends(get_session)):
+def get_dataset(slug: str, session: Session = Depends(get_session),
+                _: CurrentUser = Depends(require_permission("question:import"))):
     d = session.execute(select(EtlDataset).filter_by(slug=slug)).scalar_one_or_none()
     if d is None:
         raise HTTPException(status_code=404, detail="dataset not found")
@@ -60,19 +47,19 @@ def get_dataset(slug: str, session: Session = Depends(get_session)):
 
 
 @router.post("/runs")
-def create_run(body: CreateRunIn, session: Session = Depends(get_session)):
-    # TODO(auth): initiated_by_id from JWT.
-    org_id = _org_id(session)
+def create_run(body: CreateRunIn, session: Session = Depends(get_session),
+               current: CurrentUser = Depends(require_permission("question:import"))):
     ds = session.execute(select(EtlDataset).filter_by(slug=body.dataset_slug)).scalar_one_or_none()
     if ds is None:
         raise HTTPException(status_code=404, detail="dataset not found")
-    run = run_preview(session, org_id, ds)
+    run = run_preview(session, current.org_id, ds, initiated_by_id=current.user.id)
     session.commit()
     return {"run_id": str(run.id), "phase": run.phase.value, "preview_summary": run.preview_summary}
 
 
 @router.get("/runs/{run_id}")
-def get_run(run_id: uuid.UUID, session: Session = Depends(get_session)):
+def get_run(run_id: uuid.UUID, session: Session = Depends(get_session),
+            _: CurrentUser = Depends(require_permission("question:import"))):
     run = session.get(EtlRun, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
@@ -81,11 +68,10 @@ def get_run(run_id: uuid.UUID, session: Session = Depends(get_session)):
 
 
 @router.post("/runs/{run_id}/commit")
-def commit_run(run_id: uuid.UUID, session: Session = Depends(get_session)):
-    # TODO(auth): org_id from JWT.
-    org_id = _org_id(session)
+def commit_run(run_id: uuid.UUID, session: Session = Depends(get_session),
+               current: CurrentUser = Depends(require_permission("question:import"))):
     try:
-        run = run_commit(session, org_id, run_id)
+        run = run_commit(session, current.org_id, run_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     session.commit()
@@ -93,7 +79,8 @@ def commit_run(run_id: uuid.UUID, session: Session = Depends(get_session)):
 
 
 @router.post("/runs/{run_id}/rollback")
-def rollback_run(run_id: uuid.UUID, session: Session = Depends(get_session)):
+def rollback_run(run_id: uuid.UUID, session: Session = Depends(get_session),
+                 _: CurrentUser = Depends(require_permission("question:import"))):
     try:
         run = run_rollback(session, run_id)
     except ValueError as exc:
@@ -103,33 +90,30 @@ def rollback_run(run_id: uuid.UUID, session: Session = Depends(get_session)):
 
 
 @router.get("/mappings")
-def list_mappings(dataset_slug: str | None = None, session: Session = Depends(get_session)):
+def list_mappings(dataset_slug: str | None = None, session: Session = Depends(get_session),
+                  _: CurrentUser = Depends(require_permission("admin:manage_taxonomy"))):
     stmt = select(ChapterDomainMapping)
     if dataset_slug:
         stmt = stmt.filter_by(dataset_slug=dataset_slug)
     rows = session.execute(stmt).scalars().all()
-    return [
-        {"id": str(m.id), "dataset_slug": m.dataset_slug,
-         "chapter_number": m.chapter_number, "chapter_title": m.chapter_title,
-         "domain_id": str(m.domain_id) if m.domain_id else None}
-        for m in rows
-    ]
+    return [{"id": str(m.id), "dataset_slug": m.dataset_slug,
+             "chapter_number": m.chapter_number, "chapter_title": m.chapter_title,
+             "domain_id": str(m.domain_id) if m.domain_id else None} for m in rows]
 
 
 @router.post("/mappings")
-def create_mapping(body: MappingIn, session: Session = Depends(get_session)):
-    m = ChapterDomainMapping(
-        dataset_slug=body.dataset_slug, chapter_number=body.chapter_number,
-        chapter_title=body.chapter_title, domain_id=body.domain_id,
-    )
+def create_mapping(body: MappingIn, session: Session = Depends(get_session),
+                   _: CurrentUser = Depends(require_permission("admin:manage_taxonomy"))):
+    m = ChapterDomainMapping(dataset_slug=body.dataset_slug, chapter_number=body.chapter_number,
+                             chapter_title=body.chapter_title, domain_id=body.domain_id)
     session.add(m)
     session.commit()
-    return {"id": str(m.id), "dataset_slug": m.dataset_slug,
-            "chapter_number": m.chapter_number}
+    return {"id": str(m.id), "dataset_slug": m.dataset_slug, "chapter_number": m.chapter_number}
 
 
 @router.put("/mappings/{mapping_id}")
-def update_mapping(mapping_id: uuid.UUID, body: MappingIn, session: Session = Depends(get_session)):
+def update_mapping(mapping_id: uuid.UUID, body: MappingIn, session: Session = Depends(get_session),
+                   _: CurrentUser = Depends(require_permission("admin:manage_taxonomy"))):
     m = session.get(ChapterDomainMapping, mapping_id)
     if m is None:
         raise HTTPException(status_code=404, detail="mapping not found")
@@ -140,7 +124,8 @@ def update_mapping(mapping_id: uuid.UUID, body: MappingIn, session: Session = De
 
 
 @router.delete("/mappings/{mapping_id}")
-def delete_mapping(mapping_id: uuid.UUID, session: Session = Depends(get_session)):
+def delete_mapping(mapping_id: uuid.UUID, session: Session = Depends(get_session),
+                   _: CurrentUser = Depends(require_permission("admin:manage_taxonomy"))):
     m = session.get(ChapterDomainMapping, mapping_id)
     if m is None:
         raise HTTPException(status_code=404, detail="mapping not found")
