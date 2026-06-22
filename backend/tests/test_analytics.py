@@ -12,8 +12,10 @@ import pytest
 
 from app.models.auth import Organization, User
 from app.models.enums import (
+    ErrorType,
     ExamSessionKind,
     ExamSessionStatus,
+    MasteryLevel,
     OrgKind,
     PracticeSessionStatus,
     QuestionStatus,
@@ -21,9 +23,9 @@ from app.models.enums import (
     TextFormat,
 )
 from app.models.exam import ExamAnswer, ExamSession
-from app.models.practice import PracticeAnswer, PracticeSession
+from app.models.practice import PracticeAnswer, PracticeSession, UserQuestionState
 from app.models.question import Question, QuestionMapping, QuestionOption
-from app.models.taxonomy import ExamBlueprint, ExamDomain
+from app.models.taxonomy import ExamBlueprint, ExamDomain, KnowledgePoint
 from app.services import analytics
 
 
@@ -99,11 +101,36 @@ def _domain(db_session, bp, *, number, name, weight_pct):
     return d
 
 
-def _map(db_session, question, domain):
-    m = QuestionMapping(question_id=question.id, domain_id=domain.id)
+def _map(db_session, question, domain, knowledge_point=None):
+    m = QuestionMapping(
+        question_id=question.id,
+        domain_id=domain.id,
+        knowledge_point_id=knowledge_point.id if knowledge_point else None,
+    )
     db_session.add(m)
     db_session.flush()
     return m
+
+
+def _kp(db_session, name):
+    """Global KnowledgePoint row."""
+    kp = KnowledgePoint(name=name)
+    db_session.add(kp)
+    db_session.flush()
+    return kp
+
+
+def _state(db_session, *, user, question, mastery_level=None, error_type=None):
+    """UserQuestionState for user+question (mastery_level / error_type optional)."""
+    st = UserQuestionState(
+        user_id=user.id,
+        question_id=question.id,
+        mastery_level=mastery_level or MasteryLevel.not_started,
+        error_type=error_type,
+    )
+    db_session.add(st)
+    db_session.flush()
+    return st
 
 
 def _practice_session(db_session, org, actor):
@@ -396,3 +423,272 @@ def test_trend_90d_accepted(db_session, learner, trend_answers):
     out = analytics.trend(db_session, user_id=learner.id, window_days=90)
     assert out.window_days == 90
     assert len(out.points) == 2  # both days within 90d window
+
+
+# --------------------------------------------------------------------------- #
+# Tests — weak_areas, error_type_breakdown, recommendation, personal_report
+# (Task 5)
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def weak_area_setup(db_session, learner):
+    """Three domains + one knowledge point:
+
+    - Domain 1: 3 answers (1 correct, 2 wrong) -> accuracy 0.3333, weak
+    - Domain 2: 2 answers (1 correct, 1 wrong) -> accuracy 0.5, NOT weak
+      (only 2 answered, below the >=3 threshold)
+    - Domain 3: 3 answers (0 correct, 3 wrong) -> accuracy 0.0, weak (weakest)
+    - KP1 (mapped to Domain 1 questions): 3 answers (1 correct, 2 wrong) -> weak
+    """
+    org = db_session.get(Organization, learner.default_organization_id)
+    bp = _blueprint(db_session, current=False, version="weak-v1")
+    d1 = _domain(db_session, bp, number=1, name="Domain 1", weight_pct=34)
+    d2 = _domain(db_session, bp, number=2, name="Domain 2", weight_pct=33)
+    d3 = _domain(db_session, bp, number=3, name="Domain 3", weight_pct=33)
+    kp1 = _kp(db_session, "KP1")
+    ps = _practice_session(db_session, org, learner)
+    # Domain 1: 3 answers, 1 correct (accuracy 0.3333) — mapped to KP1
+    q1 = _question(db_session, org, learner, stem="d1-q1")
+    q2 = _question(db_session, org, learner, stem="d1-q2")
+    q3 = _question(db_session, org, learner, stem="d1-q3")
+    _map(db_session, q1, d1, knowledge_point=kp1)
+    _map(db_session, q2, d1, knowledge_point=kp1)
+    _map(db_session, q3, d1, knowledge_point=kp1)
+    _practice_answer(db_session, session=ps, actor=learner, question=q1,
+                     is_correct=True)
+    _practice_answer(db_session, session=ps, actor=learner, question=q2,
+                     is_correct=False)
+    _practice_answer(db_session, session=ps, actor=learner, question=q3,
+                     is_correct=False)
+    # Domain 2: 2 answers, 1 correct (accuracy 0.5) — NOT weak (<3 answered)
+    q4 = _question(db_session, org, learner, stem="d2-q4")
+    q5 = _question(db_session, org, learner, stem="d2-q5")
+    _map(db_session, q4, d2)
+    _map(db_session, q5, d2)
+    _practice_answer(db_session, session=ps, actor=learner, question=q4,
+                     is_correct=True)
+    _practice_answer(db_session, session=ps, actor=learner, question=q5,
+                     is_correct=False)
+    # Domain 3: 3 answers, 0 correct (accuracy 0.0) — weakest
+    q6 = _question(db_session, org, learner, stem="d3-q6")
+    q7 = _question(db_session, org, learner, stem="d3-q7")
+    q8 = _question(db_session, org, learner, stem="d3-q8")
+    _map(db_session, q6, d3)
+    _map(db_session, q7, d3)
+    _map(db_session, q8, d3)
+    _practice_answer(db_session, session=ps, actor=learner, question=q6,
+                     is_correct=False)
+    _practice_answer(db_session, session=ps, actor=learner, question=q7,
+                     is_correct=False)
+    _practice_answer(db_session, session=ps, actor=learner, question=q8,
+                     is_correct=False)
+
+
+@pytest.fixture
+def error_type_setup(db_session, learner):
+    """4 wrong answers across 4 distinct questions + 1 correct answer:
+
+    - q1, q2: error_type=concept_unclear (2 wrong, classified)
+    - q3:     error_type=misread_stem     (1 wrong, classified)
+    - q4:     no UserQuestionState         (1 wrong, unclassified -> None bucket)
+    - q5:     correct                      (not counted as wrong)
+    """
+    org = db_session.get(Organization, learner.default_organization_id)
+    ps = _practice_session(db_session, org, learner)
+    q1 = _question(db_session, org, learner, stem="et-q1")
+    q2 = _question(db_session, org, learner, stem="et-q2")
+    q3 = _question(db_session, org, learner, stem="et-q3")
+    q4 = _question(db_session, org, learner, stem="et-q4")
+    q5 = _question(db_session, org, learner, stem="et-q5")
+    _practice_answer(db_session, session=ps, actor=learner, question=q1,
+                     is_correct=False)
+    _practice_answer(db_session, session=ps, actor=learner, question=q2,
+                     is_correct=False)
+    _practice_answer(db_session, session=ps, actor=learner, question=q3,
+                     is_correct=False)
+    _practice_answer(db_session, session=ps, actor=learner, question=q4,
+                     is_correct=False)
+    _practice_answer(db_session, session=ps, actor=learner, question=q5,
+                     is_correct=True)
+    _state(db_session, user=learner, question=q1,
+           error_type=ErrorType.concept_unclear)
+    _state(db_session, user=learner, question=q2,
+           error_type=ErrorType.concept_unclear)
+    _state(db_session, user=learner, question=q3,
+           error_type=ErrorType.misread_stem)
+    # q4 intentionally has NO UserQuestionState -> falls into the None bucket.
+
+
+@pytest.fixture
+def recommendation_setup(db_session, learner, current_bp):
+    """Weak domain 1 (in current_bp) with 3 wrong answers; q1 is mastered.
+
+    Returns the mastered question id — it MUST be excluded from
+    next_practice_question_ids (mastered questions are not candidates).
+    """
+    org = db_session.get(Organization, learner.default_organization_id)
+    d1 = db_session.query(ExamDomain).filter_by(
+        blueprint_id=current_bp.id, number=1
+    ).one()
+    ps = _practice_session(db_session, org, learner)
+    q1 = _question(db_session, org, learner, stem="rec-q1")  # will be mastered
+    q2 = _question(db_session, org, learner, stem="rec-q2")
+    q3 = _question(db_session, org, learner, stem="rec-q3")
+    _map(db_session, q1, d1)
+    _map(db_session, q2, d1)
+    _map(db_session, q3, d1)
+    now = datetime.now(timezone.utc)
+    # Distinct answered_at so least-recently-practiced ordering is deterministic.
+    _practice_answer(db_session, session=ps, actor=learner, question=q1,
+                     is_correct=False, answered_at=now - timedelta(minutes=30))
+    _practice_answer(db_session, session=ps, actor=learner, question=q2,
+                     is_correct=False, answered_at=now - timedelta(minutes=20))
+    _practice_answer(db_session, session=ps, actor=learner, question=q3,
+                     is_correct=False, answered_at=now - timedelta(minutes=10))
+    _state(db_session, user=learner, question=q1,
+           mastery_level=MasteryLevel.mastered)
+    return q1.id
+
+
+# --------------------------------------------------------------------------- #
+# weak_areas
+# --------------------------------------------------------------------------- #
+
+def test_weak_areas_threshold_and_order(db_session, learner, weak_area_setup):
+    out = analytics.weak_areas(db_session, user_id=learner.id)
+    # A domain with accuracy 0.33 over 3 answers is weak; a domain with
+    # accuracy 0.5 over 2 is NOT (<3 answered).
+    assert any(w.label.startswith("Domain") and w.accuracy < 0.6
+               for w in out.weak_domains)
+    assert all(w.answered >= 3 for w in out.weak_domains)
+    assert all(w.accuracy < 0.6 for w in out.weak_domains)
+    # Domain 2 (2 answered) must NOT appear; Domain 1 and Domain 3 must.
+    labels = {w.label for w in out.weak_domains}
+    assert "Domain 1" in labels
+    assert "Domain 3" in labels
+    assert "Domain 2" not in labels
+    # Sorted accuracy ascending: Domain 3 (0.0) before Domain 1 (0.3333).
+    assert len(out.weak_domains) == 2
+    assert out.weak_domains[0].accuracy <= out.weak_domains[1].accuracy
+    assert out.weak_domains[0].accuracy == 0.0
+    assert out.weak_domains[1].accuracy == round(1 / 3, 4)
+
+
+def test_weak_areas_knowledge_points(db_session, learner, weak_area_setup):
+    out = analytics.weak_areas(db_session, user_id=learner.id)
+    # KP1 has 3 answers (1 correct, 2 wrong) -> accuracy 0.3333, weak.
+    assert len(out.weak_knowledge_points) == 1
+    w = out.weak_knowledge_points[0]
+    assert w.knowledge_point_id is not None
+    assert w.domain_id is None
+    assert w.label == "KP1"
+    assert w.answered == 3
+    assert w.correct == 1
+    assert w.accuracy == round(1 / 3, 4)
+
+
+def test_weak_areas_empty_user(db_session, learner):
+    out = analytics.weak_areas(db_session, user_id=learner.id)
+    assert out.weak_domains == []
+    assert out.weak_knowledge_points == []
+
+
+# --------------------------------------------------------------------------- #
+# error_type_breakdown
+# --------------------------------------------------------------------------- #
+
+def test_error_type_breakdown(db_session, learner, error_type_setup):
+    out = analytics.error_type_breakdown(db_session, user_id=learner.id)
+    types = {b.error_type: b.count for b in out.distribution}
+    assert types.get("concept_unclear") == 2
+    assert types.get("misread_stem") == 1
+    assert types.get(None) >= 1  # unclassified bucket present
+    # 4 wrong questions total; 3 classified (q1, q2, q3) + 1 unclassified (q4).
+    assert out.total_wrong_classified == 3
+
+
+def test_error_type_breakdown_empty_user(db_session, learner):
+    out = analytics.error_type_breakdown(db_session, user_id=learner.id)
+    assert out.total_wrong_classified == 0
+    # None bucket is always present (even when empty).
+    assert {b.error_type for b in out.distribution} == {None}
+    assert out.distribution[0].count == 0
+
+
+# --------------------------------------------------------------------------- #
+# recommendation
+# --------------------------------------------------------------------------- #
+
+def test_recommendation_focus_weakest(
+    db_session, learner, current_bp, recommendation_setup
+):
+    mastered_qid = recommendation_setup
+    out = analytics.recommendation(
+        db_session, user_id=learner.id, blueprint=current_bp
+    )
+    assert out.focus_domain is not None
+    assert out.focus_domain.label == "D1"  # weakest domain in current_bp
+    assert len(out.next_practice_question_ids) <= 10
+    # Mastered questions excluded from next_practice.
+    assert mastered_qid not in out.next_practice_question_ids
+    # The two non-mastered wrong questions in D1 are the candidates,
+    # ordered least-recently-practiced first (q2 answered before q3).
+    assert len(out.next_practice_question_ids) == 2
+    # Mastered question excluded from wrong_to_review as well.
+    assert mastered_qid not in out.wrong_to_review
+    assert len(out.wrong_to_review) == 2
+    assert out.rationale.startswith("Focus on your weakest domain")
+
+
+def test_recommendation_no_blueprint(db_session, learner):
+    out = analytics.recommendation(
+        db_session, user_id=learner.id, blueprint=None
+    )
+    assert out.focus_domain is None
+    assert out.next_practice_question_ids == []
+    assert out.wrong_to_review == []
+    assert "blueprint" in out.rationale.lower()
+
+
+def test_recommendation_no_weak_areas(db_session, learner, current_bp):
+    # No answers -> no weak areas -> focus_domain None, empty lists.
+    out = analytics.recommendation(
+        db_session, user_id=learner.id, blueprint=current_bp
+    )
+    assert out.focus_domain is None
+    assert out.next_practice_question_ids == []
+    assert out.wrong_to_review == []
+    assert "no weak areas" in out.rationale.lower()
+
+
+# --------------------------------------------------------------------------- #
+# personal_report
+# --------------------------------------------------------------------------- #
+
+def test_personal_report_composes(
+    db_session, learner, current_bp, recommendation_setup
+):
+    out = analytics.personal_report(
+        db_session, user_id=learner.id, blueprint=current_bp
+    )
+    assert out.dashboard is not None
+    assert out.dashboard.total_answered == 3  # 3 wrong answers seeded
+    assert out.trend_30d.window_days == 30
+    assert isinstance(out.domains, list)
+    assert len(out.domains) == 8  # current_bp has 8 domains
+    assert out.error_types is not None
+    assert out.recommendation is not None
+    assert out.recommendation.focus_domain is not None
+    assert out.weak_areas.weak_domains  # domain 1 is weak
+    assert out.generated_at is not None
+
+
+def test_personal_report_no_blueprint(db_session, learner):
+    out = analytics.personal_report(
+        db_session, user_id=learner.id, blueprint=None
+    )
+    assert out.dashboard is not None
+    assert out.trend_30d.window_days == 30
+    assert out.domains == []  # no blueprint -> empty domain mastery
+    assert out.recommendation.focus_domain is None
+    assert out.generated_at is not None
