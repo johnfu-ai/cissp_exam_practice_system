@@ -116,3 +116,27 @@ def test_class_membership(session_with_roles):
     assert any(m.user_id == target.id for m in members)
     svc.remove_class_member(db, current=cur, class_id=c.id, user_id=target.id)
     assert not any(m.user_id == target.id for m in svc.list_class_members(db, current=cur, class_id=c.id))
+
+
+def test_get_user_with_multiple_roles_in_same_org(session_with_roles):
+    """Regression: a user with 2+ roles in the same org has multiple
+    OrganizationMembership rows. get_user's org-scope existence check must use
+    .first() (not .scalar_one_or_none()), which otherwise raises
+    sqlalchemy.exc.MultipleResultsFound -> 500. set_user_roles itself creates
+    such multi-role memberships, so this path is reachable in production."""
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    target = _user(db, "multi@x.com", o1)
+    cur = _current(db, o1)
+    # Give the target TWO roles in the same org -> two OrganizationMembership
+    # rows for (user_id, organization_id) with different role_id.
+    svc.set_user_roles(db, current=cur, user_id=target.id,
+                       role_names=[RoleName.instructor, RoleName.content_editor])
+    memberships = db.query(OrganizationMembership).filter_by(
+        user_id=target.id, organization_id=o1.id).all()
+    assert len(memberships) == 2  # sanity: the bug precondition holds
+
+    # Before the fix this raised MultipleResultsFound (a 500 in the router).
+    out = svc.get_user(db, current=cur, user_id=target.id)
+    assert out.id == target.id
+    assert set(out.roles) == {"instructor", "content_editor"}

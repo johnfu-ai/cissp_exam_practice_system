@@ -15,14 +15,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.queries import not_deleted
 from app.dependencies import CurrentUser
-from app.models.admin import AuditLog
 from app.models.auth import (
     Class,
     ClassMembership,
@@ -37,8 +35,6 @@ from app.schemas.admin import (
     ClassMemberOut,
     ClassOut,
     UserOut,
-    UserRolesIn,
-    UserStatusIn,
 )
 from app.services.audit import log_audit
 
@@ -60,7 +56,6 @@ class ConflictError(AdminError):
     pass
 
 
-_REPORTS_PERM = "admin:view_reports"
 _SYSTEM_ADMIN = RoleName.system_admin.value
 
 
@@ -69,13 +64,6 @@ def _admin_org_scope(current: CurrentUser) -> uuid.UUID | None:
     if _SYSTEM_ADMIN in current.roles:
         return None
     return current.org_id
-
-
-def _ensure_same_org(current: CurrentUser, org_id: uuid.UUID | None) -> None:
-    """For org_admin, reject queries targeting another org."""
-    scope = _admin_org_scope(current)
-    if scope is not None and org_id is not None and org_id != scope:
-        raise ValidationError("cannot target another organization")
 
 
 def _user_out(session: Session, user: User, org_id: uuid.UUID) -> UserOut:
@@ -105,18 +93,27 @@ def _resolve_scope_org(current: CurrentUser, user: User) -> uuid.UUID:
 
 def list_users(session, *, current, search=None, limit=50, offset=0):
     scope = _admin_org_scope(current)
-    q = select(User).join(OrganizationMembership,
-                          OrganizationMembership.user_id == User.id)
+    filters = []
     if scope is not None:
-        q = q.where(OrganizationMembership.organization_id == scope)
+        filters.append(OrganizationMembership.organization_id == scope)
     if search:
-        q = q.where(or_(User.email.ilike(f"%{search}%"),
-                        User.display_name.ilike(f"%{search}%")))
-    total = session.execute(
-        select(func.count()).select_from(q.subquery())
-    ).scalar_one()
+        filters.append(or_(User.email.ilike(f"%{search}%"),
+                           User.display_name.ilike(f"%{search}%")))
+    # count DISTINCT users so a user with N roles in the same org counts once,
+    # matching the deduped `rows` query below (which uses .scalars().unique()).
+    count_q = (select(func.count(func.distinct(User.id)))
+               .select_from(User)
+               .join(OrganizationMembership,
+                     OrganizationMembership.user_id == User.id))
+    for f in filters:
+        count_q = count_q.where(f)
+    total = session.execute(count_q).scalar_one()
+    rows_q = select(User).join(OrganizationMembership,
+                               OrganizationMembership.user_id == User.id)
+    for f in filters:
+        rows_q = rows_q.where(f)
     rows = session.execute(
-        q.order_by(User.email).limit(limit).offset(offset)
+        rows_q.order_by(User.email).limit(limit).offset(offset)
     ).scalars().unique().all()
     out = [_user_out(session, u, _resolve_scope_org(current, u)) for u in rows]
     return out, total
@@ -128,12 +125,16 @@ def get_user(session, *, current, user_id):
         raise NotFound("user not found")
     scope = _admin_org_scope(current)
     if scope is not None:
+        # Existence check only (a user may have multiple roles in the same org,
+        # i.e. multiple OrganizationMembership rows). Use .first(), not
+        # .scalar_one_or_none(), which raises MultipleResultsFound on multi-role
+        # users (set_user_roles itself creates such memberships).
         in_org = session.execute(
             select(OrganizationMembership).where(
                 OrganizationMembership.user_id == user_id,
                 OrganizationMembership.organization_id == scope,
             )
-        ).scalar_one_or_none()
+        ).first()
         if in_org is None:
             raise NotFound("user not found")
     return _user_out(session, user, _resolve_scope_org(current, user))
@@ -270,12 +271,14 @@ def add_class_member(session, *, current, class_id, user_id) -> None:
     # user must be in the class's org
     scope = _admin_org_scope(current)
     org_filter = scope if scope is not None else cls.organization_id
+    # Existence check only; a user with multiple roles in the org has multiple
+    # matching rows, so use .first() (not .scalar_one_or_none()).
     m = session.execute(
         select(OrganizationMembership).where(
             OrganizationMembership.user_id == user_id,
             OrganizationMembership.organization_id == org_filter,
         )
-    ).scalar_one_or_none()
+    ).first()
     if m is None:
         raise NotFound("user not found")
     existing = session.execute(
