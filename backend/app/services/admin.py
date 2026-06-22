@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.db.queries import not_deleted
 from app.dependencies import CurrentUser
+from app.models.admin import CatParamsVersion
 from app.models.auth import (
     Class,
     ClassMembership,
@@ -31,6 +32,8 @@ from app.models.auth import (
 )
 from app.models.enums import AuditAction, UserStatus
 from app.schemas.admin import (
+    CatParamsIn,
+    CatParamsVersionOut,
     ClassIn,
     ClassMemberOut,
     ClassOut,
@@ -305,3 +308,72 @@ def remove_class_member(session, *, current, class_id, user_id) -> None:
     log_audit(session, action=AuditAction.edit, actor_id=current.user.id,
               organization_id=cls.organization_id, entity_type="class_member",
               entity_id=str(cls.id), details={"removed_user_id": str(user_id)})
+
+
+# ---- FR-ADMIN-04: CAT params ----
+# CatParamsVersion is GLOBAL (organization_id=None on the audit row). Only one
+# version may have is_current=True at a time; _unset_current clears the prior
+# current before a new one is set. Mutations audit as config_change.
+
+def _cat_out(v: CatParamsVersion) -> CatParamsVersionOut:
+    return CatParamsVersionOut(id=v.id, version_label=v.version_label,
+                               effective_date=v.effective_date, is_current=v.is_current,
+                               params=v.params)
+
+
+def list_cat_params(session) -> list[CatParamsVersionOut]:
+    rows = session.execute(
+        select(CatParamsVersion).order_by(CatParamsVersion.effective_date.desc())
+    ).scalars().all()
+    return [_cat_out(v) for v in rows]
+
+
+def _unset_current(session) -> None:
+    # ORM-level update (not a Core bulk UPDATE) so identity-mapped objects stay
+    # consistent with the DB — a Core update().values() would leave in-memory
+    # rows stale, breaking the "v1.is_current is False" check right after v2 is
+    # created with set_current=True.
+    rows = session.execute(
+        select(CatParamsVersion).where(CatParamsVersion.is_current.is_(True))
+    ).scalars().all()
+    for v in rows:
+        v.is_current = False
+
+
+def create_cat_params(session, *, current, payload: CatParamsIn) -> CatParamsVersionOut:
+    dup = session.execute(
+        select(CatParamsVersion).where(CatParamsVersion.version_label == payload.version_label)
+    ).scalar_one_or_none()
+    if dup is not None:
+        raise ConflictError("version_label already exists")
+    if payload.set_current:
+        _unset_current(session)
+    v = CatParamsVersion(version_label=payload.version_label,
+                        effective_date=payload.effective_date,
+                        is_current=payload.set_current,
+                        params=payload.params.model_dump())
+    session.add(v); session.flush()
+    log_audit(session, action=AuditAction.config_change, actor_id=current.user.id,
+              organization_id=None, entity_type="cat_params",
+              entity_id=str(v.id), details={"version_label": v.version_label,
+                                            "set_current": v.is_current})
+    return _cat_out(v)
+
+
+def set_current_cat_params(session, *, current, version_id) -> CatParamsVersionOut:
+    v = session.get(CatParamsVersion, version_id)
+    if v is None:
+        raise NotFound("cat params version not found")
+    _unset_current(session)
+    v.is_current = True
+    session.flush()
+    log_audit(session, action=AuditAction.config_change, actor_id=current.user.id,
+              organization_id=None, entity_type="cat_params",
+              entity_id=str(v.id), details={"set_current": True})
+    return _cat_out(v)
+
+
+def get_current_cat_params(session) -> CatParamsVersion | None:
+    return session.execute(
+        select(CatParamsVersion).where(CatParamsVersion.is_current.is_(True))
+    ).scalar_one_or_none()

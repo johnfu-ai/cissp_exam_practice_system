@@ -8,9 +8,11 @@ matrix already exist for ``OrganizationMembership`` and role lookups.
 """
 
 import pytest
+from datetime import date
 
 from app.db.seed import PERMISSIONS
 from app.dependencies import CurrentUser
+from app.models.admin import CatParamsVersion
 from app.models.auth import (
     Organization,
     OrganizationMembership,
@@ -19,7 +21,7 @@ from app.models.auth import (
     User,
 )
 from app.models.enums import OrgKind, OrgStatus, UserStatus
-from app.schemas.admin import ClassIn
+from app.schemas.admin import CatParams, CatParamsIn, ClassIn
 from app.services import admin as svc
 
 
@@ -140,3 +142,82 @@ def test_get_user_with_multiple_roles_in_same_org(session_with_roles):
     out = svc.get_user(db, current=cur, user_id=target.id)
     assert out.id == target.id
     assert set(out.roles) == {"instructor", "content_editor"}
+
+
+# ---- FR-ADMIN-04: CAT params ----
+
+def _sysadmin_current(db, org):
+    return _current(db, org, role_name=RoleName.system_admin)
+
+
+def test_create_cat_params_sets_current_and_unsets_siblings(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    v1 = svc.create_cat_params(db, current=cur, payload=CatParamsIn(
+        version_label="v1", effective_date=date(2026, 1, 1),
+        params=CatParams(k0=0.5, decay=0.1, base_se=1.0)))
+    assert v1.is_current is True
+    v2 = svc.create_cat_params(db, current=cur, payload=CatParamsIn(
+        version_label="v2", effective_date=date(2026, 2, 1),
+        params=CatParams(k0=0.4, decay=0.1, base_se=1.0)))
+    db.flush()
+    assert v2.is_current is True
+    assert db.get(CatParamsVersion, v1.id).is_current is False
+
+
+def test_set_current_cat_params(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    v1 = svc.create_cat_params(db, current=cur, payload=CatParamsIn(
+        version_label="v1", effective_date=date(2026, 1, 1),
+        params=CatParams(k0=0.5, decay=0.1, base_se=1.0), set_current=False))
+    v2 = svc.create_cat_params(db, current=cur, payload=CatParamsIn(
+        version_label="v2", effective_date=date(2026, 2, 1),
+        params=CatParams(k0=0.4, decay=0.1, base_se=1.0), set_current=True))
+    out = svc.set_current_cat_params(db, current=cur, version_id=v1.id)
+    assert out.is_current is True
+    assert db.get(CatParamsVersion, v2.id).is_current is False
+
+
+def test_get_current_cat_params_fallback_none(session_with_roles):
+    db = session_with_roles
+    assert svc.get_current_cat_params(db) is None
+
+
+def test_create_cat_params_duplicate_label_conflict(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    svc.create_cat_params(db, current=cur, payload=CatParamsIn(
+        version_label="v1", effective_date=date(2026, 1, 1),
+        params=CatParams(k0=0.5, decay=0.1, base_se=1.0)))
+    with pytest.raises(svc.ConflictError):
+        svc.create_cat_params(db, current=cur, payload=CatParamsIn(
+            version_label="v1", effective_date=date(2026, 2, 1),
+            params=CatParams(k0=0.4, decay=0.1, base_se=1.0)))
+
+
+def test_set_current_cat_params_unknown_id_not_found(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    import uuid as _uuid
+    with pytest.raises(svc.NotFound):
+        svc.set_current_cat_params(db, current=cur, version_id=_uuid.uuid4())
+
+
+def test_create_cat_params_audits_config_change(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    v1 = svc.create_cat_params(db, current=cur, payload=CatParamsIn(
+        version_label="v1", effective_date=date(2026, 1, 1),
+        params=CatParams(k0=0.5, decay=0.1, base_se=1.0)))
+    db.flush()
+    from app.models.admin import AuditLog
+    logs = db.query(AuditLog).filter_by(
+        entity_type="cat_params", entity_id=str(v1.id)).all()
+    assert any(l.action.value == "config_change" for l in logs)
+    assert all(l.organization_id is None for l in logs)
