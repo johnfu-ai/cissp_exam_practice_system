@@ -708,3 +708,136 @@ def test_get_next_question_other_user_404(db_session):
     )
     with pytest.raises(svc.NotFound):
         svc.get_next_question(db_session, session_id=es.id, user_id=intruder.id)
+
+
+def _cat_start(db_session, *, passing_score=700, max_score=1000,
+               min_items=1, max_items=5, n_questions=5, difficulty=3,
+               early_stop=True):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp, d1 = _cat_blueprint(
+        db_session, min_items=min_items, max_items=max_items,
+        passing_score=passing_score, max_score=max_score,
+    )
+    _seed_cat_questions(db_session, org, actor, d1, n=n_questions, difficulty=difficulty)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+    )
+    if not early_stop:
+        es.config["cat_params"]["early_stop_enabled"] = False
+        flag_modified_for_test(es)
+    return org, actor, es
+
+
+def flag_modified_for_test(es):
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(es, "config")
+
+
+def _answer(db_session, es, actor, *, selected, position):
+    from datetime import datetime, timezone
+    return svc.submit_answer(
+        db_session, session_id=es.id, user_id=actor.id,
+        payload={"position": position, "selected": selected,
+                 "started_at": datetime.now(timezone.utc)},
+    )
+
+
+def test_cat_submit_advances_position_and_ability(db_session):
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
+    # option 0 is correct on every seeded question
+    ack = _answer(db_session, es, actor, selected=[0], position=0)
+    assert ack.saved is True
+    assert ack.finished is False
+    assert es.config["answered"] == 1
+    assert es.config["correct"] == 1
+    assert es.config["ability"] > 3.0  # correct -> ability up
+    assert es.config["position"] == 1  # advanced
+    assert es.config["next_question_id"]  # next item selected
+
+
+def test_cat_submit_wrong_lowers_ability(db_session):
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
+    _answer(db_session, es, actor, selected=[1], position=0)  # wrong
+    assert es.config["ability"] < 3.0
+    assert es.config["correct"] == 0
+
+
+def test_cat_submit_records_ability_on_answer(db_session):
+    from app.models.exam import ExamAnswer
+
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
+    _answer(db_session, es, actor, selected=[0], position=0)
+    ans = db_session.query(ExamAnswer).filter_by(session_id=es.id).one()
+    assert ans.ability_estimate_after is not None
+    assert ans.se_after is not None
+    assert ans.ability_estimate_after > 3.0
+
+
+def test_cat_submit_non_revisable(db_session):
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
+    _answer(db_session, es, actor, selected=[0], position=0)  # position -> 1
+    # re-submitting position 0 is now a position mismatch -> rejected (forward-only)
+    with pytest.raises(svc.ValidationError):
+        _answer(db_session, es, actor, selected=[0], position=0)
+
+
+def test_cat_submit_position_mismatch_rejected(db_session):
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
+    with pytest.raises(svc.ValidationError):
+        _answer(db_session, es, actor, selected=[0], position=5)
+
+
+def test_cat_terminate_at_max_items(db_session):
+    from app.models.enums import ExamSessionStatus
+
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=3, n_questions=5)
+    ack0 = _answer(db_session, es, actor, selected=[0], position=0)
+    assert ack0.finished is False
+    ack1 = _answer(db_session, es, actor, selected=[0], position=1)
+    assert ack1.finished is False
+    ack2 = _answer(db_session, es, actor, selected=[0], position=2)
+    assert ack2.finished is True  # reached max_items=3
+    assert es.status == ExamSessionStatus.completed
+    assert es.total_questions == 3
+    assert es.correct_count == 3
+    assert es.config["next_question_id"] is None
+
+
+def test_cat_early_stop_converged_pass(db_session):
+    from app.models.enums import ExamSessionStatus
+
+    # passing_score=0 -> pass_ability=1.0; one correct answer -> ability 3.5,
+    # CI entirely above 1.0 -> converged pass at min_items=1.
+    org, actor, es = _cat_start(
+        db_session, passing_score=0, min_items=1, max_items=10, early_stop=True)
+    ack = _answer(db_session, es, actor, selected=[0], position=0)
+    assert ack.finished is True
+    assert es.status == ExamSessionStatus.completed
+    assert es.total_questions == 1
+
+
+def test_cat_early_stop_converged_fail(db_session):
+    from app.models.enums import ExamSessionStatus
+
+    # passing_score=1000 -> pass_ability=5.0; one wrong answer -> ability 2.5,
+    # CI entirely below 5.0 -> converged fail at min_items=1.
+    org, actor, es = _cat_start(
+        db_session, passing_score=1000, min_items=1, max_items=10, early_stop=True)
+    ack = _answer(db_session, es, actor, selected=[1], position=0)
+    assert ack.finished is True
+    assert es.status == ExamSessionStatus.completed
+
+
+def test_cat_time_up_auto_submits(db_session):
+    from datetime import datetime, timezone
+
+    from app.models.enums import ExamSessionStatus
+
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
+    es.config["deadline_at"] = datetime.now(timezone.utc).isoformat()
+    flag_modified_for_test(es)
+    db_session.flush()
+    with pytest.raises(svc.ConflictError):
+        svc.get_next_question(db_session, session_id=es.id, user_id=actor.id)
+    assert db_session.get(ExamSession, es.id).status == ExamSessionStatus.auto_submitted

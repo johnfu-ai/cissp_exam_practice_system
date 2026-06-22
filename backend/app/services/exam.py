@@ -438,6 +438,8 @@ def get_question_at(session: Session, *, session_id, position: int, user_id) -> 
 def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnswerAck:
     body = payload if isinstance(payload, ExamAnswerIn) else ExamAnswerIn(**payload)
     es = _load_session(session, session_id, user_id)
+    if es.session_kind == ExamSessionKind.cat:
+        return _submit_cat_answer(session, es=es, user_id=user_id, payload=body)
     if _auto_submit_if_expired(session, es) or es.status != ExamSessionStatus.in_progress:
         raise ConflictError("exam session is not in progress")
     qids = es.config.get("question_ids", [])
@@ -481,6 +483,122 @@ def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnsw
     return ExamAnswerAck(
         position=body.position, saved=True,
         time_remaining_ms=_time_remaining_ms(es),
+    )
+
+
+def _submit_cat_answer(
+    session: Session, *, es: ExamSession, user_id, payload
+) -> ExamAnswerAck:
+    body = payload if isinstance(payload, ExamAnswerIn) else ExamAnswerIn(**payload)
+    if _auto_submit_if_expired(session, es) or es.status != ExamSessionStatus.in_progress:
+        raise ConflictError("exam session is not in progress")
+    cfg = es.config
+    if body.position != cfg.get("position", 0):
+        raise ValidationError("position does not match current CAT position")
+    qid_str = cfg.get("next_question_id")
+    if not qid_str:
+        raise ConflictError("exam session has no next question")
+    question_id = uuid.UUID(qid_str)
+    question = session.get(Question, question_id)
+    if question is None or question.deleted_at is not None:
+        raise NotFound("question no longer available")
+    options = _options_for(session, question_id)
+    snap = snapshot_question(question, options)
+    is_correct = _judge(snap, body.selected)
+    now = datetime.now(timezone.utc)
+    started = body.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    time_spent_ms = max(0, int((now - started).total_seconds() * 1000))
+
+    params = cfg.get("cat_params", dict(cat_engine.DEFAULT_PARAMS))
+    prev_answered = cfg.get("answered", 0)
+    answered = prev_answered + 1
+    new_ability = cat_engine.update_ability(
+        cfg.get("ability", cat_engine.initial_ability()),
+        question.difficulty, is_correct, prev_answered, params,
+    )
+    new_se = cat_engine.sem(answered, params)
+
+    # Domain + knowledge point of the answered item (for coverage + anti-cluster).
+    mapping = session.execute(
+        select(QuestionMapping).where(QuestionMapping.question_id == question_id)
+    ).scalars().first()
+    domain_id = str(mapping.domain_id) if mapping and mapping.domain_id else None
+    kp = str(mapping.knowledge_point_id) if mapping and mapping.knowledge_point_id else None
+
+    ans = ExamAnswer(session_id=es.id, user_id=user_id, question_id=question_id)
+    session.add(ans)
+    ans.question_snapshot = snap
+    ans.options_snapshot = snap["options"]
+    ans.user_answer = {"selected": body.selected}
+    ans.is_correct = is_correct
+    ans.time_spent_ms = time_spent_ms
+    ans.ability_estimate_after = new_ability
+    ans.se_after = new_se
+    ans.answered_at = now
+
+    # Update CAT runtime state in config.
+    cfg["question_ids"] = cfg.get("question_ids", []) + [str(question_id)]
+    cfg["seen"] = cfg.get("seen", []) + [str(question_id)]
+    cfg["answered"] = answered
+    cfg["correct"] = cfg.get("correct", 0) + (1 if is_correct else 0)
+    cfg["ability"] = new_ability
+    cfg["se"] = new_se
+    if domain_id:
+        cfg["domain_answered"][domain_id] = cfg["domain_answered"].get(domain_id, 0) + 1
+    cfg["last_knowledge_point"] = kp
+    cfg["last_source"] = question.source
+
+    min_items = cfg.get("min_items", cat_engine.MIN_ITEMS_DEFAULT)
+    max_items = cfg.get("max_items", cat_engine.MAX_ITEMS_DEFAULT)
+    pa = cat_engine.passing_ability(
+        cfg.get("passing_score", 700), cfg.get("max_score", 1000)
+    )
+    decision = cat_engine.decide_termination(
+        answered, new_ability, new_se, min_items, max_items, False, pa, params
+    )
+
+    finished = False
+    if decision.must_stop:
+        finished = True
+        es.status = ExamSessionStatus.completed
+        es.ended_at = now
+        es.total_questions = answered
+        es.correct_count = cfg["correct"]
+        cfg["next_question_id"] = None
+    else:
+        bp = session.get(ExamBlueprint, es.blueprint_id)
+        candidates = _cat_candidate_pool(session, org_id=es.organization_id, blueprint=bp)
+        rng = random.Random()
+        next_id = cat_engine.select_next_item(
+            candidates, new_ability, cfg.get("domain_targets", {}),
+            cfg.get("domain_answered", {}), cfg.get("seen", []),
+            kp, question.source, rng,
+        )
+        if next_id is None:
+            # Pool exhausted: terminate.
+            finished = True
+            es.status = ExamSessionStatus.completed
+            es.ended_at = now
+            es.total_questions = answered
+            es.correct_count = cfg["correct"]
+            cfg["next_question_id"] = None
+        else:
+            cfg["next_question_id"] = next_id
+            cfg["position"] = cfg.get("position", 0) + 1
+
+    flag_modified(es, "config")
+    session.flush()
+    log_audit(
+        session, action=AuditAction.edit, actor_id=user_id,
+        organization_id=es.organization_id, entity_type="exam_answer",
+        entity_id=str(ans.id),
+        details={"is_correct": is_correct, "ability": new_ability, "finished": finished},
+    )
+    return ExamAnswerAck(
+        position=body.position, saved=True,
+        time_remaining_ms=_time_remaining_ms(es), finished=finished,
     )
 
 
