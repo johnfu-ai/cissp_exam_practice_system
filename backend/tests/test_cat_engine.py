@@ -122,3 +122,96 @@ def test_termination_early_stop_disabled():
     d = ce.decide_termination(120, 5.0, 0.05, 100, 150, False, 3.8, p)
     assert d.must_stop is False  # convergence disabled, below max
     assert d.reason == "continue"
+
+
+import random
+
+
+def _cand(cid, difficulty=None, domain_id="d1", kp=None, source=None):
+    return {"id": cid, "difficulty": difficulty, "domain_id": domain_id,
+            "knowledge_point_id": kp, "source": source}
+
+
+def test_select_first_item_prefers_medium():
+    candidates = [_cand("hard", 5), _cand("easy", 1), _cand("mid", 3)]
+    rng = random.Random(0)
+    assert ce.select_first_item(candidates, rng) == "mid"
+
+
+def test_select_first_item_falls_back_to_closest():
+    candidates = [_cand("hard", 5), _cand("easy", 1)]
+    rng = random.Random(0)
+    # closest to 3 is 5 (dist 2) vs 1 (dist 2) -> tie, rng picks one of them
+    choice = ce.select_first_item(candidates, rng)
+    assert choice in {"hard", "easy"}
+
+
+def test_select_first_item_empty_pool():
+    assert ce.select_first_item([], random.Random(0)) is None
+
+
+def test_select_next_item_excludes_seen():
+    candidates = [_cand("a", 3), _cand("b", 3)]
+    rng = random.Random(0)
+    choice = ce.select_next_item(
+        candidates, 3.0, {"d1": 2}, {}, ["a"], None, None, rng)
+    assert choice == "b"
+
+
+def test_select_next_item_closest_difficulty():
+    candidates = [_cand("a", 1), _cand("b", 4), _cand("c", 5)]
+    rng = random.Random(0)
+    # ability 4.2 -> closest is b (4)
+    choice = ce.select_next_item(
+        candidates, 4.2, {"d1": 3}, {}, [], None, None, rng)
+    assert choice == "b"
+
+
+def test_select_next_item_domain_deficit_priority():
+    # Two domains; d2 is behind on coverage -> pick from d2 even though its
+    # item is farther from ability.
+    candidates = [
+        _cand("a1", 3, domain_id="d1"),
+        _cand("b1", 5, domain_id="d2"),
+    ]
+    rng = random.Random(0)
+    # targets: d1=1, d2=2; answered: d1=1, d2=0 -> d2 has larger deficit
+    choice = ce.select_next_item(
+        candidates, 3.0, {"d1": 1, "d2": 2}, {"d1": 1},
+        [], None, None, rng)
+    assert choice == "b1"
+
+
+def test_select_next_item_empty_pool():
+    rng = random.Random(0)
+    assert ce.select_next_item([], 3.0, {}, {}, [], None, None, rng) is None
+
+
+def test_select_next_item_anti_cluster_prefers_different_kp_and_source():
+    # Two items equally close to ability; one shares kp+source with last.
+    candidates = [
+        _cand("same", 3, kp="k1", source="s1"),
+        _cand("fresh", 3, kp="k2", source="s2"),
+    ]
+    rng = random.Random(0)
+    choice = ce.select_next_item(
+        candidates, 3.0, {"d1": 2}, {}, [], "k1", "s1", rng)
+    assert choice == "fresh"
+
+
+def test_select_next_item_anti_cluster_falls_back_when_all_same():
+    candidates = [_cand("only", 3, kp="k1", source="s1")]
+    rng = random.Random(0)
+    choice = ce.select_next_item(
+        candidates, 3.0, {"d1": 1}, {}, [], "k1", "s1", rng)
+    assert choice == "only"
+
+
+def test_select_next_item_domain_with_no_candidates_falls_to_other():
+    # d1 has candidates but d2 (higher deficit) has none -> fall back to d1.
+    candidates = [_cand("a1", 3, domain_id="d1")]
+    rng = random.Random(0)
+    choice = ce.select_next_item(
+        candidates, 3.0, {"d1": 1, "d2": 5}, {"d2": 0},
+        [], None, None, rng)
+    assert choice == "a1"

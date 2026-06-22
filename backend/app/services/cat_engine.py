@@ -122,3 +122,60 @@ def decide_termination(
         if hi < pass_ability or lo > pass_ability:
             return TerminationDecision(True, "converged")
     return TerminationDecision(False, "continue")
+
+
+def select_first_item(candidates: list[dict], rng) -> str | None:
+    """FR-CAT-04: start from a medium-difficulty item; fall back to closest-to-3."""
+    if not candidates:
+        return None
+    medium = [c for c in candidates if default_difficulty(c.get("difficulty")) == 3]
+    if medium:
+        return rng.choice(medium)["id"]
+    # fall back to the candidate whose difficulty is closest to 3
+    best_diff = min(abs(default_difficulty(c.get("difficulty")) - 3) for c in candidates)
+    tied = [c for c in candidates if abs(default_difficulty(c.get("difficulty")) - 3) == best_diff]
+    return rng.choice(tied)["id"]
+
+
+def select_next_item(
+    candidates: list[dict],
+    ability: float,
+    domain_targets: dict,
+    domain_answered: dict,
+    seen: list,
+    last_kp,
+    last_source,
+    rng,
+) -> str | None:
+    """FR-CAT-05 + §11.1.5: pick by domain coverage deficit, then closest
+    difficulty to current ability, with anti-clustering by knowledge point
+    and source among ties."""
+    seen_set = set(seen)
+    eligible = [c for c in candidates if c["id"] not in seen_set]
+    if not eligible:
+        return None
+
+    by_domain: dict[str | None, list[dict]] = {}
+    for c in eligible:
+        by_domain.setdefault(c.get("domain_id"), []).append(c)
+
+    def deficit(did) -> int:
+        target = domain_targets.get(did, 0) if domain_targets else 0
+        return target - domain_answered.get(did, 0)
+
+    # Among domains that still have eligible candidates, pick the largest deficit.
+    best_domain = max(by_domain.keys(), key=lambda did: (deficit(did), did or ""))
+    pool = by_domain[best_domain]
+
+    def diff(c) -> float:
+        return abs(default_difficulty(c.get("difficulty")) - ability)
+
+    best_diff = min(diff(c) for c in pool)
+    tied = [c for c in pool if diff(c) == best_diff]
+
+    fresh = [
+        c for c in tied
+        if c.get("knowledge_point_id") != last_kp and c.get("source") != last_source
+    ]
+    chosen_pool = fresh if fresh else tied
+    return rng.choice(chosen_pool)["id"]
