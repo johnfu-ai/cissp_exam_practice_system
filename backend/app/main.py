@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import router as auth_router
 from app.api.etl import router as etl_router
+from app.api.taxonomy import router as taxonomy_router
 from app.core.config import settings
 from app.db.session import get_engine
 
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(etl_router)
+    app.include_router(taxonomy_router)
 
     return app
 
