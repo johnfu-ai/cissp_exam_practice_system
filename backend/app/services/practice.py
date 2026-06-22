@@ -531,5 +531,7 @@ def set_question_state(
         state.is_questioned = payload.is_questioned
     if payload.note is not None:
         state.note = payload.note
+    if payload.error_type is not None:
+        state.error_type = payload.error_type
     session.flush()
     return state

@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.models.enums import ErrorType
+
 
 Subset = Literal["all", "unpracticed", "wrong", "bookmarked", "needs_review"]
 OrderMode = Literal["random", "sequential", "easy_to_hard"]
@@ -107,3 +109,4 @@ class QuestionStateIn(BaseModel):
     is_mastered: bool | None = None
     is_questioned: bool | None = None
     note: str | None = None
+    error_type: ErrorType | None = None

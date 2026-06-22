@@ -180,4 +180,5 @@ def set_question_state(
         "is_mastered": state.is_mastered,
         "is_questioned": state.is_questioned,
         "note": state.note,
+        "error_type": state.error_type.value if state.error_type else None,
     }
