@@ -16,6 +16,8 @@ from app.models.enums import (
     ImportFormat,
     ImportStatus,
     LicenseStatus,
+    QuestionFeedbackStatus,
+    QuestionFeedbackType,
     QuestionStatus,
     QuestionType,
     TextFormat,
@@ -167,3 +169,31 @@ class QuestionRevision(UUIDPrimaryKey, TimestampMixin, Base):
         ForeignKey("users.id"), nullable=True
     )
     change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class QuestionFeedback(
+    UUIDPrimaryKey,
+    TenantScopedMixin,
+    TimestampMixin,
+    SoftDeleteMixin,
+    Base,
+):
+    __tablename__ = "question_feedback"
+
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
+    )
+    reporter_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    feedback_type: Mapped[QuestionFeedbackType] = mapped_column(
+        Enum(QuestionFeedbackType, name="question_feedback_type", create_type=True),
+        nullable=False,
+    )
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[QuestionFeedbackStatus] = mapped_column(
+        Enum(QuestionFeedbackStatus, name="question_feedback_status", create_type=True),
+        nullable=False,
+        server_default=QuestionFeedbackStatus.open.value,
+    )
+

@@ -76,6 +76,20 @@ class EtlRunPhase(str, enum.Enum):
     rolled_back = "rolled_back"
 
 
+class QuestionFeedbackType(str, enum.Enum):
+    unclear_explanation = "unclear_explanation"
+    suspected_wrong_answer = "suspected_wrong_answer"
+    ambiguous_stem = "ambiguous_stem"
+    copyright_issue = "copyright_issue"
+    other = "other"
+
+
+class QuestionFeedbackStatus(str, enum.Enum):
+    open = "open"
+    resolved = "resolved"
+    wont_fix = "wont_fix"
+
+
 class PracticeSessionStatus(str, enum.Enum):
     in_progress = "in_progress"
     completed = "completed"
