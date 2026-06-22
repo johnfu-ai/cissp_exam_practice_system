@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class ExamCreateIn(BaseModel):
+    kind: str = Field(default="fixed", pattern="^(fixed|cat)$")
     count: int | None = Field(default=None, ge=1, le=500)
 
 
@@ -52,6 +53,7 @@ class ExamAnswerAck(BaseModel):
     position: int
     saved: bool
     time_remaining_ms: int
+    finished: bool = False
 
 
 class DomainPerformance(BaseModel):
@@ -85,6 +87,13 @@ class ExamReportOut(BaseModel):
     avg_time_ms: float
     domains: list[DomainPerformance]
     wrong_questions: list[WrongQuestion]
+    # CAT-only (None for fixed exams):
+    ability_estimate: float | None = None
+    ability_ci_lower: float | None = None
+    ability_ci_upper: float | None = None
+    sem: float | None = None
+    readiness_level: str | None = None
+    disclaimer: str | None = None
 
 
 class ReviewOption(BaseModel):

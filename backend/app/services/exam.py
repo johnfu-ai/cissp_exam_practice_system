@@ -33,8 +33,10 @@ from app.schemas.exam import (
     ReviewItemOut,
     WrongQuestion,
 )
+from app.services import cat_engine
 from app.services.audit import log_audit
 from app.services.snapshot import snapshot_question
+from sqlalchemy.orm.attributes import flag_modified
 
 
 class ValidationError(ValueError):
@@ -150,6 +152,8 @@ def create_session(
 ) -> ExamSession:
     body = _as_create_in(payload)
     bp = _current_blueprint(session)
+    if getattr(body, "kind", "fixed") == "cat":
+        return create_cat_session(session, org_id=org_id, actor_id=actor_id, bp=bp)
     count = body.count if body.count else bp.max_items
     if count < bp.min_items:
         count = bp.min_items
@@ -188,6 +192,152 @@ def create_session(
         details={"total_questions": len(question_ids), "kind": "fixed"},
     )
     return es
+
+
+def _cat_candidate_pool(
+    session: Session, *, org_id, blueprint: ExamBlueprint
+) -> list[dict]:
+    """All published, tenant-scoped questions mapped to a domain of this
+    blueprint, as engine-consumable candidate dicts. Deduped by question id
+    (a question mapped to multiple domains counts once, first mapping wins)."""
+    rows = session.execute(
+        select(
+            Question.id,
+            Question.difficulty,
+            QuestionMapping.domain_id,
+            QuestionMapping.knowledge_point_id,
+            Question.source,
+        )
+        .join(QuestionMapping, QuestionMapping.question_id == Question.id)
+        .where(
+            Question.organization_id == org_id,
+            Question.status == QuestionStatus.published,
+            not_deleted(Question),
+            QuestionMapping.domain_id.in_(
+                select(ExamDomain.id).where(ExamDomain.blueprint_id == blueprint.id)
+            ),
+        )
+        .order_by(Question.id)
+    ).all()
+    out: list[dict] = []
+    seen_ids: set[uuid.UUID] = set()
+    for r in rows:
+        if r.id in seen_ids:
+            continue
+        seen_ids.add(r.id)
+        out.append({
+            "id": str(r.id),
+            "difficulty": r.difficulty,
+            "domain_id": str(r.domain_id) if r.domain_id else None,
+            "knowledge_point_id": str(r.knowledge_point_id) if r.knowledge_point_id else None,
+            "source": r.source,
+        })
+    return out
+
+
+def create_cat_session(
+    session: Session, *, org_id, actor_id, bp: ExamBlueprint
+) -> ExamSession:
+    domains = list(
+        session.execute(
+            select(ExamDomain)
+            .where(ExamDomain.blueprint_id == bp.id)
+            .order_by(ExamDomain.number)
+        ).scalars().all()
+    )
+    if not domains:
+        raise ValidationError("current blueprint has no domains configured")
+    targets = _allocate(bp.max_items, [d.weight_pct for d in domains])
+    domain_targets = {str(d.id): t for d, t in zip(domains, targets)}
+    candidates = _cat_candidate_pool(session, org_id=org_id, blueprint=bp)
+    if not candidates:
+        raise ValidationError("not enough published questions for CAT")
+    rng = random.Random()
+    first_id = cat_engine.select_first_item(candidates, rng)
+    if first_id is None:
+        raise ValidationError("not enough published questions for CAT")
+    started = datetime.now(timezone.utc)
+    deadline = started + timedelta(minutes=bp.duration_minutes)
+    config = {
+        "kind": "cat",
+        "question_ids": [],
+        "next_question_id": first_id,
+        "position": 0,
+        "ability": cat_engine.initial_ability(),
+        "se": cat_engine.DEFAULT_PARAMS["base_se"],
+        "answered": 0,
+        "correct": 0,
+        "domain_targets": domain_targets,
+        "domain_answered": {},
+        "seen": [],
+        "last_knowledge_point": None,
+        "last_source": None,
+        "deadline_at": deadline.isoformat(),
+        "max_score": bp.max_score,
+        "passing_score": bp.passing_score,
+        "duration_minutes": bp.duration_minutes,
+        "min_items": bp.min_items,
+        "max_items": bp.max_items,
+        "cat_params": dict(cat_engine.DEFAULT_PARAMS),
+        "disclaimer": cat_engine.DISCLAIMER,
+    }
+    es = ExamSession(
+        user_id=actor_id,
+        organization_id=org_id,
+        blueprint_id=bp.id,
+        session_kind=ExamSessionKind.cat,
+        status=ExamSessionStatus.in_progress,
+        total_questions=0,
+        correct_count=0,
+        config=config,
+    )
+    session.add(es)
+    session.flush()
+    log_audit(
+        session, action=AuditAction.edit, actor_id=actor_id, organization_id=org_id,
+        entity_type="exam_session", entity_id=str(es.id),
+        details={"kind": "cat", "max_items": bp.max_items},
+    )
+    return es
+
+
+def get_next_question(session: Session, *, session_id, user_id) -> dict:
+    es = _load_session(session, session_id, user_id)
+    if _auto_submit_if_expired(session, es) or es.status != ExamSessionStatus.in_progress:
+        raise ConflictError("exam session is not in progress")
+    qid_str = es.config.get("next_question_id")
+    if not qid_str:
+        raise ConflictError("exam session has no next question")
+    question = session.get(Question, uuid.UUID(qid_str))
+    if question is None or question.deleted_at is not None:
+        raise NotFound("question no longer available")
+    options = _options_for(session, question.id)
+    started = es.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    elapsed_ms = int(
+        (datetime.now(timezone.utc) - started).total_seconds() * 1000
+    )
+    return {
+        "session_id": str(es.id),
+        "position": es.config.get("position", 0),
+        "total": es.config.get("max_items", 0),
+        "question_id": str(question.id),
+        "stem": question.stem,
+        "question_type": question.question_type.value,
+        "options": [
+            {
+                "id": str(o.id),
+                "order_index": o.order_index,
+                "content": o.content,
+                "content_format": o.content_format.value,
+            }
+            for o in options
+        ],
+        "elapsed_ms": elapsed_ms,
+        "time_remaining_ms": _time_remaining_ms(es),
+        "previous_answer": None,
+    }
 
 
 def _load_session(session: Session, session_id, user_id) -> ExamSession:
@@ -288,6 +438,8 @@ def get_question_at(session: Session, *, session_id, position: int, user_id) -> 
 def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnswerAck:
     body = payload if isinstance(payload, ExamAnswerIn) else ExamAnswerIn(**payload)
     es = _load_session(session, session_id, user_id)
+    if es.session_kind == ExamSessionKind.cat:
+        return _submit_cat_answer(session, es=es, user_id=user_id, payload=body)
     if _auto_submit_if_expired(session, es) or es.status != ExamSessionStatus.in_progress:
         raise ConflictError("exam session is not in progress")
     qids = es.config.get("question_ids", [])
@@ -334,29 +486,124 @@ def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnsw
     )
 
 
-def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
-    cfg = es.config or {}
-    max_score = cfg.get("max_score", 1000)
-    passing_score = cfg.get("passing_score", 700)
-    qids = [uuid.UUID(q) for q in cfg.get("question_ids", [])]
-    total = len(qids) or es.total_questions
+def _submit_cat_answer(
+    session: Session, *, es: ExamSession, user_id, payload
+) -> ExamAnswerAck:
+    body = payload if isinstance(payload, ExamAnswerIn) else ExamAnswerIn(**payload)
+    if _auto_submit_if_expired(session, es) or es.status != ExamSessionStatus.in_progress:
+        raise ConflictError("exam session is not in progress")
+    cfg = es.config
+    if body.position != cfg.get("position", 0):
+        raise ValidationError("position does not match current CAT position")
+    qid_str = cfg.get("next_question_id")
+    if not qid_str:
+        raise ConflictError("exam session has no next question")
+    question_id = uuid.UUID(qid_str)
+    question = session.get(Question, question_id)
+    if question is None or question.deleted_at is not None:
+        raise NotFound("question no longer available")
+    options = _options_for(session, question_id)
+    snap = snapshot_question(question, options)
+    is_correct = _judge(snap, body.selected)
+    now = datetime.now(timezone.utc)
+    started = body.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    time_spent_ms = max(0, int((now - started).total_seconds() * 1000))
 
-    answers = list(
-        session.execute(
-            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
-        ).scalars().all()
+    params = cfg.get("cat_params", dict(cat_engine.DEFAULT_PARAMS))
+    prev_answered = cfg.get("answered", 0)
+    answered = prev_answered + 1
+    new_ability = cat_engine.update_ability(
+        cfg.get("ability", cat_engine.initial_ability()),
+        question.difficulty, is_correct, prev_answered, params,
     )
-    answer_by_qid = {a.question_id: a for a in answers}
-    answered = len(answers)
-    correct = sum(1 for a in answers if a.is_correct)
+    new_se = cat_engine.sem(answered, params)
 
-    scaled_score = round(correct / total * max_score) if total else 0
-    passed = scaled_score >= passing_score
-    accuracy = correct / answered if answered else 0.0
-    total_time = sum(a.time_spent_ms or 0 for a in answers)
-    avg_time = total_time / answered if answered else 0.0
+    # Domain + knowledge point of the answered item (for coverage + anti-cluster).
+    mapping = session.execute(
+        select(QuestionMapping).where(QuestionMapping.question_id == question_id)
+    ).scalars().first()
+    domain_id = str(mapping.domain_id) if mapping and mapping.domain_id else None
+    kp = str(mapping.knowledge_point_id) if mapping and mapping.knowledge_point_id else None
 
-    # Per-domain grouping via QuestionMapping.domain_id -> ExamDomain.
+    ans = ExamAnswer(session_id=es.id, user_id=user_id, question_id=question_id)
+    session.add(ans)
+    ans.question_snapshot = snap
+    ans.options_snapshot = snap["options"]
+    ans.user_answer = {"selected": body.selected}
+    ans.is_correct = is_correct
+    ans.time_spent_ms = time_spent_ms
+    ans.ability_estimate_after = new_ability
+    ans.se_after = new_se
+    ans.answered_at = now
+
+    # Update CAT runtime state in config.
+    cfg["question_ids"] = cfg.get("question_ids", []) + [str(question_id)]
+    cfg["seen"] = cfg.get("seen", []) + [str(question_id)]
+    cfg["answered"] = answered
+    cfg["correct"] = cfg.get("correct", 0) + (1 if is_correct else 0)
+    cfg["ability"] = new_ability
+    cfg["se"] = new_se
+    if domain_id:
+        cfg["domain_answered"][domain_id] = cfg["domain_answered"].get(domain_id, 0) + 1
+    cfg["last_knowledge_point"] = kp
+    cfg["last_source"] = question.source
+
+    min_items = cfg.get("min_items", cat_engine.MIN_ITEMS_DEFAULT)
+    max_items = cfg.get("max_items", cat_engine.MAX_ITEMS_DEFAULT)
+    pa = cat_engine.passing_ability(
+        cfg.get("passing_score", 700), cfg.get("max_score", 1000)
+    )
+    decision = cat_engine.decide_termination(
+        answered, new_ability, new_se, min_items, max_items, False, pa, params
+    )
+
+    finished = False
+    if decision.must_stop:
+        finished = True
+        es.status = ExamSessionStatus.completed
+        es.ended_at = now
+        es.total_questions = answered
+        es.correct_count = cfg["correct"]
+        cfg["next_question_id"] = None
+    else:
+        bp = session.get(ExamBlueprint, es.blueprint_id)
+        candidates = _cat_candidate_pool(session, org_id=es.organization_id, blueprint=bp)
+        rng = random.Random()
+        next_id = cat_engine.select_next_item(
+            candidates, new_ability, cfg.get("domain_targets", {}),
+            cfg.get("domain_answered", {}), cfg.get("seen", []),
+            kp, question.source, rng,
+        )
+        if next_id is None:
+            # Pool exhausted: terminate.
+            finished = True
+            es.status = ExamSessionStatus.completed
+            es.ended_at = now
+            es.total_questions = answered
+            es.correct_count = cfg["correct"]
+            cfg["next_question_id"] = None
+        else:
+            cfg["next_question_id"] = next_id
+            cfg["position"] = cfg.get("position", 0) + 1
+
+    flag_modified(es, "config")
+    session.flush()
+    log_audit(
+        session, action=AuditAction.edit, actor_id=user_id,
+        organization_id=es.organization_id, entity_type="exam_answer",
+        entity_id=str(ans.id),
+        details={"is_correct": is_correct, "ability": new_ability, "finished": finished},
+    )
+    return ExamAnswerAck(
+        position=body.position, saved=True,
+        time_remaining_ms=_time_remaining_ms(es), finished=finished,
+    )
+
+
+def _domain_and_wrong(session: Session, es: ExamSession, qids, answers):
+    """Shared per-domain grouping + wrong-question list (snapshot-sourced)."""
     domain_rows = list(
         session.execute(
             select(ExamDomain).where(ExamDomain.blueprint_id == es.blueprint_id)
@@ -372,13 +619,11 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
         ).all()
         for qid, did in mapping_rows:
             qid_to_domain.setdefault(qid, did)
-
+    answer_by_qid = {a.question_id: a for a in answers}
     per_domain: dict[uuid.UUID | None, dict] = {}
     for qid in qids:
         did = qid_to_domain.get(qid)
-        bucket = per_domain.setdefault(
-            did, {"answered": 0, "correct": 0}
-        )
+        bucket = per_domain.setdefault(did, {"answered": 0, "correct": 0})
         a = answer_by_qid.get(qid)
         if a is not None:
             bucket["answered"] += 1
@@ -395,7 +640,6 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
         )
         for did, b in per_domain.items()
     ]
-
     wrong = []
     for a in answers:
         if a.is_correct:
@@ -411,6 +655,33 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
             selected_indexes=list(selected),
             correct_indexes=correct_indexes,
         ))
+    return domains, wrong
+
+
+def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
+    if es.session_kind == ExamSessionKind.cat:
+        return _build_cat_report(session, es)
+    cfg = es.config or {}
+    max_score = cfg.get("max_score", 1000)
+    passing_score = cfg.get("passing_score", 700)
+    qids = [uuid.UUID(q) for q in cfg.get("question_ids", [])]
+    total = len(qids) or es.total_questions
+
+    answers = list(
+        session.execute(
+            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+        ).scalars().all()
+    )
+    answered = len(answers)
+    correct = sum(1 for a in answers if a.is_correct)
+
+    scaled_score = round(correct / total * max_score) if total else 0
+    passed = scaled_score >= passing_score
+    accuracy = correct / answered if answered else 0.0
+    total_time = sum(a.time_spent_ms or 0 for a in answers)
+    avg_time = total_time / answered if answered else 0.0
+
+    domains, wrong = _domain_and_wrong(session, es, qids, answers)
 
     return ExamReportOut(
         session_id=es.id,
@@ -430,14 +701,69 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
     )
 
 
+def _build_cat_report(session: Session, es: ExamSession) -> ExamReportOut:
+    cfg = es.config or {}
+    max_score = cfg.get("max_score", 1000)
+    passing_score = cfg.get("passing_score", 700)
+    ability = cfg.get("ability", cat_engine.initial_ability())
+    se_value = cfg.get("se", cat_engine.DEFAULT_PARAMS["base_se"])
+    qids = [uuid.UUID(q) for q in cfg.get("question_ids", [])]
+    total = len(qids) or es.total_questions
+
+    answers = list(
+        session.execute(
+            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+        ).scalars().all()
+    )
+    answered = len(answers)
+    correct = sum(1 for a in answers if a.is_correct)
+
+    scaled_score = cat_engine.scaled_score(ability, max_score)
+    passed = scaled_score >= passing_score
+    accuracy = correct / answered if answered else 0.0
+    total_time = sum(a.time_spent_ms or 0 for a in answers)
+    avg_time = total_time / answered if answered else 0.0
+
+    domains, wrong = _domain_and_wrong(session, es, qids, answers)
+    ci_lo, ci_hi = cat_engine.confidence_interval(ability, se_value)
+
+    return ExamReportOut(
+        session_id=es.id,
+        status=es.status.value if hasattr(es.status, "value") else es.status,
+        total_questions=total,
+        answered_count=answered,
+        correct_count=correct,
+        scaled_score=scaled_score,
+        max_score=max_score,
+        passing_score=passing_score,
+        passed=passed,
+        accuracy=accuracy,
+        total_time_ms=total_time,
+        avg_time_ms=avg_time,
+        domains=domains,
+        wrong_questions=wrong,
+        ability_estimate=ability,
+        ability_ci_lower=ci_lo,
+        ability_ci_upper=ci_hi,
+        sem=se_value,
+        readiness_level=cat_engine.readiness_level(ability),
+        disclaimer=cfg.get("disclaimer"),
+    )
+
+
 def finish_session(session: Session, *, session_id, user_id) -> ExamReportOut:
     es = _load_session(session, session_id, user_id)
     _auto_submit_if_expired(session, es)
     if es.status == ExamSessionStatus.in_progress:
         es.status = ExamSessionStatus.completed
         es.ended_at = datetime.now(timezone.utc)
+        if es.session_kind == ExamSessionKind.cat:
+            cfg = es.config
+            es.total_questions = cfg.get("answered", 0)
+            cfg["next_question_id"] = None
+            flag_modified(es, "config")
         session.flush()
-    # Recompute correct_count from stored answers (answers are revisable).
+    # Recompute correct_count from stored answers.
     answers = list(
         session.execute(
             select(ExamAnswer).where(ExamAnswer.session_id == es.id)
@@ -534,14 +860,32 @@ def get_review(session: Session, *, session_id, user_id) -> list:
     return items
 
 
-def _scaled(es: ExamSession) -> tuple[int, bool, float]:
-    total = es.total_questions or 0
+def _scaled(es: ExamSession) -> tuple[int, bool, float, int, int]:
+    """Return (scaled_score, passed, accuracy, total, correct) for a history row.
+
+    For CAT sessions the stored total_questions/correct_count columns are only
+    reconciled on normal termination (decide_termination in _submit_cat_answer
+    or the in_progress branch of finish_session); _auto_submit_if_expired only
+    flips status + ended_at, so a time-up (auto_submitted) CAT row still reads
+    0/0. Prefer the live CAT runtime state in config ("answered"/"correct")
+    over the stale columns. For fixed-exam sessions the columns are
+    authoritative and are read directly (behavior unchanged).
+    """
     max_score = es.config.get("max_score", 0)
     passing_score = es.config.get("passing_score", 0)
-    scaled = round((es.correct_count / total) * max_score) if total else 0
+    if es.session_kind == ExamSessionKind.cat:
+        total = es.config.get("answered", 0) or es.total_questions or 0
+        correct = es.config.get("correct", 0)
+        ability = es.config.get("ability", cat_engine.initial_ability())
+        scaled = cat_engine.scaled_score(ability, max_score)
+        accuracy = (correct / total) if total else 0.0
+        return scaled, scaled >= passing_score, accuracy, total, correct
+    total = es.total_questions or 0
+    correct = es.correct_count or 0
+    scaled = round((correct / total) * max_score) if total else 0
     passed = scaled >= passing_score
-    accuracy = (es.correct_count / total) if total else 0.0
-    return scaled, passed, accuracy
+    accuracy = (correct / total) if total else 0.0
+    return scaled, passed, accuracy, total, correct
 
 
 def list_history(session: Session, *, user_id) -> list:
@@ -558,15 +902,15 @@ def list_history(session: Session, *, user_id) -> list:
     )
     out: list = []
     for es in rows:
-        scaled, passed, accuracy = _scaled(es)
+        scaled, passed, accuracy, total, correct = _scaled(es)
         out.append(
             ExamHistoryItemOut(
                 id=es.id,
                 started_at=es.started_at,
                 ended_at=es.ended_at,
                 status=es.status.value,
-                total_questions=es.total_questions,
-                correct_count=es.correct_count,
+                total_questions=total,
+                correct_count=correct,
                 scaled_score=scaled,
                 max_score=es.config.get("max_score", 0),
                 passed=passed,

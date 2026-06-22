@@ -21,6 +21,12 @@ from app.services import exam as svc
 router = APIRouter(prefix="/api/exam", tags=["exam"])
 
 
+_INTERNAL_CONFIG_KEYS = {
+    "question_ids", "next_question_id", "seen",
+    "domain_targets", "domain_answered", "cat_params",
+}
+
+
 def _session_out(es) -> ExamSessionOut:
     remaining = None
     if es.status.value == "in_progress":
@@ -32,8 +38,10 @@ def _session_out(es) -> ExamSessionOut:
             remaining = max(0, int((dl - datetime.now(timezone.utc)).total_seconds() * 1000))
         except Exception:
             remaining = None
-    # Strip the full question_ids list from the public config.
-    safe_config = {k: v for k, v in (es.config or {}).items() if k != "question_ids"}
+    safe_config = {
+        k: v for k, v in (es.config or {}).items()
+        if k not in _INTERNAL_CONFIG_KEYS
+    }
     return ExamSessionOut(
         id=es.id, status=es.status.value, session_kind=es.session_kind.value,
         total_questions=es.total_questions, correct_count=es.correct_count,
@@ -82,6 +90,25 @@ def get_exam_question(
     try:
         return svc.get_question_at(
             session, session_id=session_id, position=position, user_id=current.user.id
+        )
+    except svc.NotFound:
+        raise HTTPException(status_code=404, detail="session or question not found")
+    except svc.ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except svc.ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.get("/sessions/{session_id}/next", response_model=QuestionDeliveryOut)
+def get_exam_next(
+    session_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("exam:read")),
+):
+    """CAT-only: deliver the adaptively-selected current item."""
+    try:
+        return svc.get_next_question(
+            session, session_id=session_id, user_id=current.user.id
         )
     except svc.NotFound:
         raise HTTPException(status_code=404, detail="session or question not found")
