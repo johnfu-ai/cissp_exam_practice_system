@@ -841,3 +841,95 @@ def test_cat_time_up_auto_submits(db_session):
     with pytest.raises(svc.ConflictError):
         svc.get_next_question(db_session, session_id=es.id, user_id=actor.id)
     assert db_session.get(ExamSession, es.id).status == ExamSessionStatus.auto_submitted
+
+
+def _finish_cat(db_session, *, passing_score=700, max_score=1000, selected=0,
+                early_stop=False, max_items=3, n_questions=5):
+    org, actor, es = _cat_start(
+        db_session, passing_score=passing_score, max_score=max_score,
+        early_stop=early_stop, max_items=max_items, n_questions=n_questions,
+    )
+    pos = 0
+    ack = _answer(db_session, es, actor, selected=[selected], position=pos)
+    while not ack.finished:
+        pos += 1
+        ack = _answer(db_session, es, actor, selected=[selected], position=pos)
+    return org, actor, es
+
+
+def test_cat_report_carries_ability_and_disclaimer(db_session):
+    org, actor, es = _finish_cat(db_session, early_stop=False, max_items=3)
+    report = svc.get_report(db_session, session_id=es.id, user_id=actor.id)
+    assert report.ability_estimate is not None
+    assert report.sem is not None
+    assert report.ability_ci_lower is not None
+    assert report.ability_ci_upper is not None
+    assert report.readiness_level in {"ready", "almost_ready", "developing", "needs_work"}
+    assert report.disclaimer  # FR-CAT-10
+    # ability-based scoring: all correct -> ability high -> scaled > 500
+    assert report.scaled_score > 500
+    assert report.total_questions == 3
+
+
+def test_cat_report_pass_line_is_ability_based(db_session):
+    # passing_score=1000 -> pass_ability=5.0; even all-correct cannot reach 5.0
+    # exactly, so a 3-item run stays below -> passed False.
+    org, actor, es = _finish_cat(
+        db_session, passing_score=1000, max_score=1000,
+        early_stop=False, max_items=3, selected=0)
+    report = svc.get_report(db_session, session_id=es.id, user_id=actor.id)
+    assert report.passed is False
+
+
+def test_cat_review_is_snapshot_graded(db_session):
+    from app.models.question import QuestionOption
+
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=3, n_questions=5)
+    _answer(db_session, es, actor, selected=[0], position=0)
+    # mutate the live first question's options
+    first_qid = uuid.UUID(es.config["question_ids"][0])
+    opt0 = db_session.query(QuestionOption).filter_by(
+        question_id=first_qid, order_index=0).one()
+    opt1 = db_session.query(QuestionOption).filter_by(
+        question_id=first_qid, order_index=1).one()
+    opt0.is_correct = False
+    opt1.is_correct = True
+    db_session.flush()
+    # finish by answering remaining
+    ack = _answer(db_session, es, actor, selected=[0], position=1)
+    if not ack.finished:
+        _answer(db_session, es, actor, selected=[0], position=2)
+    svc.finish_session(db_session, session_id=es.id, user_id=actor.id)
+    review = svc.get_review(db_session, session_id=es.id, user_id=actor.id)
+    item0 = review[0]
+    # snapshot still says order_index 0 was correct
+    assert item0.options[0].is_correct is True
+    assert item0.options[1].is_correct is False
+    assert item0.your_answer["is_correct"] is True  # judged against snapshot
+
+
+def test_cat_finish_manual_when_in_progress(db_session):
+    from app.models.enums import ExamSessionStatus
+
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5, n_questions=5)
+    _answer(db_session, es, actor, selected=[0], position=0)
+    # manually finish mid-exam
+    report = svc.finish_session(db_session, session_id=es.id, user_id=actor.id)
+    assert db_session.get(ExamSession, es.id).status == ExamSessionStatus.completed
+    assert es.total_questions == 1
+    assert report.total_questions == 1
+
+
+def test_cat_history_ability_based(db_session):
+    org, actor, es = _finish_cat(db_session, early_stop=False, max_items=3, selected=0)
+    hist = svc.list_history(db_session, user_id=actor.id)
+    assert len(hist) == 1
+    # all correct -> ability high -> scaled > 500 (ability-based, not raw)
+    assert hist[0].scaled_score > 500
+    assert hist[0].total_questions == 3
+
+
+def test_cat_history_excludes_in_progress(db_session):
+    org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
+    # leave in progress
+    assert svc.list_history(db_session, user_id=actor.id) == []

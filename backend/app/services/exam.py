@@ -602,29 +602,8 @@ def _submit_cat_answer(
     )
 
 
-def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
-    cfg = es.config or {}
-    max_score = cfg.get("max_score", 1000)
-    passing_score = cfg.get("passing_score", 700)
-    qids = [uuid.UUID(q) for q in cfg.get("question_ids", [])]
-    total = len(qids) or es.total_questions
-
-    answers = list(
-        session.execute(
-            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
-        ).scalars().all()
-    )
-    answer_by_qid = {a.question_id: a for a in answers}
-    answered = len(answers)
-    correct = sum(1 for a in answers if a.is_correct)
-
-    scaled_score = round(correct / total * max_score) if total else 0
-    passed = scaled_score >= passing_score
-    accuracy = correct / answered if answered else 0.0
-    total_time = sum(a.time_spent_ms or 0 for a in answers)
-    avg_time = total_time / answered if answered else 0.0
-
-    # Per-domain grouping via QuestionMapping.domain_id -> ExamDomain.
+def _domain_and_wrong(session: Session, es: ExamSession, qids, answers):
+    """Shared per-domain grouping + wrong-question list (snapshot-sourced)."""
     domain_rows = list(
         session.execute(
             select(ExamDomain).where(ExamDomain.blueprint_id == es.blueprint_id)
@@ -640,13 +619,11 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
         ).all()
         for qid, did in mapping_rows:
             qid_to_domain.setdefault(qid, did)
-
+    answer_by_qid = {a.question_id: a for a in answers}
     per_domain: dict[uuid.UUID | None, dict] = {}
     for qid in qids:
         did = qid_to_domain.get(qid)
-        bucket = per_domain.setdefault(
-            did, {"answered": 0, "correct": 0}
-        )
+        bucket = per_domain.setdefault(did, {"answered": 0, "correct": 0})
         a = answer_by_qid.get(qid)
         if a is not None:
             bucket["answered"] += 1
@@ -663,7 +640,6 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
         )
         for did, b in per_domain.items()
     ]
-
     wrong = []
     for a in answers:
         if a.is_correct:
@@ -679,6 +655,33 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
             selected_indexes=list(selected),
             correct_indexes=correct_indexes,
         ))
+    return domains, wrong
+
+
+def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
+    if es.session_kind == ExamSessionKind.cat:
+        return _build_cat_report(session, es)
+    cfg = es.config or {}
+    max_score = cfg.get("max_score", 1000)
+    passing_score = cfg.get("passing_score", 700)
+    qids = [uuid.UUID(q) for q in cfg.get("question_ids", [])]
+    total = len(qids) or es.total_questions
+
+    answers = list(
+        session.execute(
+            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+        ).scalars().all()
+    )
+    answered = len(answers)
+    correct = sum(1 for a in answers if a.is_correct)
+
+    scaled_score = round(correct / total * max_score) if total else 0
+    passed = scaled_score >= passing_score
+    accuracy = correct / answered if answered else 0.0
+    total_time = sum(a.time_spent_ms or 0 for a in answers)
+    avg_time = total_time / answered if answered else 0.0
+
+    domains, wrong = _domain_and_wrong(session, es, qids, answers)
 
     return ExamReportOut(
         session_id=es.id,
@@ -698,14 +701,69 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
     )
 
 
+def _build_cat_report(session: Session, es: ExamSession) -> ExamReportOut:
+    cfg = es.config or {}
+    max_score = cfg.get("max_score", 1000)
+    passing_score = cfg.get("passing_score", 700)
+    ability = cfg.get("ability", cat_engine.initial_ability())
+    se_value = cfg.get("se", cat_engine.DEFAULT_PARAMS["base_se"])
+    qids = [uuid.UUID(q) for q in cfg.get("question_ids", [])]
+    total = len(qids) or es.total_questions
+
+    answers = list(
+        session.execute(
+            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+        ).scalars().all()
+    )
+    answered = len(answers)
+    correct = sum(1 for a in answers if a.is_correct)
+
+    scaled_score = cat_engine.scaled_score(ability, max_score)
+    passed = scaled_score >= passing_score
+    accuracy = correct / answered if answered else 0.0
+    total_time = sum(a.time_spent_ms or 0 for a in answers)
+    avg_time = total_time / answered if answered else 0.0
+
+    domains, wrong = _domain_and_wrong(session, es, qids, answers)
+    ci_lo, ci_hi = cat_engine.confidence_interval(ability, se_value)
+
+    return ExamReportOut(
+        session_id=es.id,
+        status=es.status.value if hasattr(es.status, "value") else es.status,
+        total_questions=total,
+        answered_count=answered,
+        correct_count=correct,
+        scaled_score=scaled_score,
+        max_score=max_score,
+        passing_score=passing_score,
+        passed=passed,
+        accuracy=accuracy,
+        total_time_ms=total_time,
+        avg_time_ms=avg_time,
+        domains=domains,
+        wrong_questions=wrong,
+        ability_estimate=ability,
+        ability_ci_lower=ci_lo,
+        ability_ci_upper=ci_hi,
+        sem=se_value,
+        readiness_level=cat_engine.readiness_level(ability),
+        disclaimer=cfg.get("disclaimer"),
+    )
+
+
 def finish_session(session: Session, *, session_id, user_id) -> ExamReportOut:
     es = _load_session(session, session_id, user_id)
     _auto_submit_if_expired(session, es)
     if es.status == ExamSessionStatus.in_progress:
         es.status = ExamSessionStatus.completed
         es.ended_at = datetime.now(timezone.utc)
+        if es.session_kind == ExamSessionKind.cat:
+            cfg = es.config
+            es.total_questions = cfg.get("answered", 0)
+            cfg["next_question_id"] = None
+            flag_modified(es, "config")
         session.flush()
-    # Recompute correct_count from stored answers (answers are revisable).
+    # Recompute correct_count from stored answers.
     answers = list(
         session.execute(
             select(ExamAnswer).where(ExamAnswer.session_id == es.id)
@@ -803,9 +861,14 @@ def get_review(session: Session, *, session_id, user_id) -> list:
 
 
 def _scaled(es: ExamSession) -> tuple[int, bool, float]:
-    total = es.total_questions or 0
     max_score = es.config.get("max_score", 0)
     passing_score = es.config.get("passing_score", 0)
+    total = es.total_questions or 0
+    if es.session_kind == ExamSessionKind.cat:
+        ability = es.config.get("ability", cat_engine.initial_ability())
+        scaled = cat_engine.scaled_score(ability, max_score)
+        accuracy = (es.correct_count / total) if total else 0.0
+        return scaled, scaled >= passing_score, accuracy
     scaled = round((es.correct_count / total) * max_score) if total else 0
     passed = scaled >= passing_score
     accuracy = (es.correct_count / total) if total else 0.0
