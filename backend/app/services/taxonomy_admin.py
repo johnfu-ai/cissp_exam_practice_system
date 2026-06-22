@@ -333,3 +333,183 @@ def delete_domain(
         entity_id=str(domain_id),
         details={"op": "delete"},
     )
+
+
+# --- Book + Chapter (tenant-scoped) ---
+
+
+def _chapter_has_mapped_questions(session: Session, chapter_id) -> bool:
+    exists = session.execute(
+        select(QuestionMapping.question_id)
+        .where(QuestionMapping.chapter_id == chapter_id)
+        .limit(1)
+    ).first()
+    return exists is not None
+
+
+def create_book(
+    session: Session, *, org_id, actor_id, payload: BookIn
+) -> Book:
+    if not payload.title or not payload.title.strip():
+        raise ValidationError("book title is required")
+    book = Book(
+        organization_id=org_id,
+        title=payload.title,
+        edition=payload.edition,
+        author=payload.author,
+        publisher=payload.publisher,
+        source_url=payload.source_url,
+    )
+    session.add(book)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        organization_id=org_id,
+        entity_type="book",
+        entity_id=str(book.id),
+        details={"op": "create"},
+    )
+    return book
+
+
+def get_book(session: Session, *, book_id, org_id) -> Book:
+    book = session.get(Book, book_id)
+    if book is None or book.organization_id != org_id:
+        raise NotFound("book not found")
+    return book
+
+
+def update_book(
+    session: Session, *, book_id, org_id, actor_id, payload: BookIn
+) -> Book:
+    book = get_book(session, book_id=book_id, org_id=org_id)
+    if not payload.title or not payload.title.strip():
+        raise ValidationError("book title is required")
+    book.title = payload.title
+    book.edition = payload.edition
+    book.author = payload.author
+    book.publisher = payload.publisher
+    book.source_url = payload.source_url
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.edit,
+        actor_id=actor_id,
+        organization_id=org_id,
+        entity_type="book",
+        entity_id=str(book.id),
+        details={"op": "update"},
+    )
+    return book
+
+
+def delete_book(session: Session, *, book_id, org_id, actor_id) -> None:
+    book = get_book(session, book_id=book_id, org_id=org_id)
+    chapter_ids = select(Chapter.id).where(Chapter.book_id == book_id)
+    blocked = session.execute(
+        select(QuestionMapping.question_id)
+        .where(QuestionMapping.chapter_id.in_(chapter_ids))
+        .limit(1)
+    ).first()
+    if blocked is not None:
+        raise ConflictError("book has chapters referenced by questions")
+    session.delete(book)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.delete,
+        actor_id=actor_id,
+        organization_id=org_id,
+        entity_type="book",
+        entity_id=str(book_id),
+        details={"op": "delete"},
+    )
+
+
+def create_chapter(
+    session: Session, *, book_id, org_id, actor_id, payload: ChapterIn
+) -> Chapter:
+    book = get_book(session, book_id=book_id, org_id=org_id)
+    if payload.order_index < 0:
+        raise ValidationError("order_index must be >= 0")
+    if not payload.title or not payload.title.strip():
+        raise ValidationError("chapter title is required")
+    ch = Chapter(
+        organization_id=org_id,
+        book_id=book.id,
+        order_index=payload.order_index,
+        title=payload.title,
+    )
+    session.add(ch)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        organization_id=org_id,
+        entity_type="chapter",
+        entity_id=str(ch.id),
+        details={"op": "create"},
+    )
+    return ch
+
+
+def _get_chapter(session: Session, *, book_id, chapter_id, org_id) -> Chapter:
+    ch = session.execute(
+        select(Chapter).where(
+            Chapter.id == chapter_id,
+            Chapter.book_id == book_id,
+            Chapter.organization_id == org_id,
+        )
+    ).scalar_one_or_none()
+    if ch is None:
+        raise NotFound("chapter not found")
+    return ch
+
+
+def update_chapter(
+    session: Session, *, book_id, chapter_id, org_id, actor_id, payload: ChapterIn
+) -> Chapter:
+    ch = _get_chapter(
+        session, book_id=book_id, chapter_id=chapter_id, org_id=org_id
+    )
+    if payload.order_index < 0:
+        raise ValidationError("order_index must be >= 0")
+    if not payload.title or not payload.title.strip():
+        raise ValidationError("chapter title is required")
+    ch.order_index = payload.order_index
+    ch.title = payload.title
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.edit,
+        actor_id=actor_id,
+        organization_id=org_id,
+        entity_type="chapter",
+        entity_id=str(ch.id),
+        details={"op": "update"},
+    )
+    return ch
+
+
+def delete_chapter(
+    session: Session, *, book_id, chapter_id, org_id, actor_id
+) -> None:
+    ch = _get_chapter(
+        session, book_id=book_id, chapter_id=chapter_id, org_id=org_id
+    )
+    if _chapter_has_mapped_questions(session, chapter_id):
+        raise ConflictError("chapter is referenced by questions")
+    session.delete(ch)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.delete,
+        actor_id=actor_id,
+        organization_id=org_id,
+        entity_type="chapter",
+        entity_id=str(chapter_id),
+        details={"op": "delete"},
+    )

@@ -236,3 +236,122 @@ def test_delete_domain_ok(db_session):
         db_session, blueprint_id=bp.id, domain_id=domain.id, actor_id=actor.id
     )
     assert len(svc.list_domains_for_blueprint(db_session, bp.id)) == 0
+
+
+# --- Book + Chapter (tenant-scoped) ---
+
+
+def test_create_book(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    book = svc.create_book(
+        db_session, org_id=org.id, actor_id=actor.id, payload=BookIn(title="OSG")
+    )
+    assert book.organization_id == org.id
+    assert book.title == "OSG"
+
+
+def test_create_book_empty_title(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    with pytest.raises(svc.ValidationError):
+        svc.create_book(
+            db_session,
+            org_id=org.id,
+            actor_id=actor.id,
+            payload=BookIn(title="  "),
+        )
+
+
+def test_get_book_tenant_isolation(db_session):
+    org = _org(db_session, slug="t1")
+    actor = _actor(db_session, org)
+    book = svc.create_book(
+        db_session, org_id=org.id, actor_id=actor.id, payload=BookIn(title="OSG")
+    )
+    other_org = _org(db_session, slug="t2")
+    with pytest.raises(svc.NotFound):
+        svc.get_book(db_session, book_id=book.id, org_id=other_org.id)
+
+
+def test_delete_book_with_questions_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    book = svc.create_book(
+        db_session, org_id=org.id, actor_id=actor.id, payload=BookIn(title="B")
+    )
+    ch = svc.create_chapter(
+        db_session,
+        book_id=book.id,
+        org_id=org.id,
+        actor_id=actor.id,
+        payload=ChapterIn(order_index=0, title="C1"),
+    )
+    from app.models.enums import QuestionType
+    from app.models.question import Question, QuestionMapping
+
+    q = Question(
+        organization_id=org.id,
+        question_type=QuestionType.single_choice,
+        stem="x",
+        created_by_id=actor.id,
+    )
+    db_session.add(q)
+    db_session.flush()
+    db_session.add(QuestionMapping(question_id=q.id, chapter_id=ch.id))
+    db_session.flush()
+    with pytest.raises(svc.ConflictError):
+        svc.delete_book(db_session, book_id=book.id, org_id=org.id, actor_id=actor.id)
+
+
+def test_create_chapter(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    book = svc.create_book(
+        db_session, org_id=org.id, actor_id=actor.id, payload=BookIn(title="B")
+    )
+    ch = svc.create_chapter(
+        db_session,
+        book_id=book.id,
+        org_id=org.id,
+        actor_id=actor.id,
+        payload=ChapterIn(order_index=1, title="C1"),
+    )
+    assert ch.book_id == book.id
+    assert ch.order_index == 1
+
+
+def test_delete_chapter_with_questions_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    book = svc.create_book(
+        db_session, org_id=org.id, actor_id=actor.id, payload=BookIn(title="B")
+    )
+    ch = svc.create_chapter(
+        db_session,
+        book_id=book.id,
+        org_id=org.id,
+        actor_id=actor.id,
+        payload=ChapterIn(order_index=0, title="C1"),
+    )
+    from app.models.enums import QuestionType
+    from app.models.question import Question, QuestionMapping
+
+    q = Question(
+        organization_id=org.id,
+        question_type=QuestionType.single_choice,
+        stem="x",
+        created_by_id=actor.id,
+    )
+    db_session.add(q)
+    db_session.flush()
+    db_session.add(QuestionMapping(question_id=q.id, chapter_id=ch.id))
+    db_session.flush()
+    with pytest.raises(svc.ConflictError):
+        svc.delete_chapter(
+            db_session,
+            book_id=book.id,
+            chapter_id=ch.id,
+            org_id=org.id,
+            actor_id=actor.id,
+        )
