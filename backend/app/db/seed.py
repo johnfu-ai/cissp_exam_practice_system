@@ -4,18 +4,21 @@ Run via `python -m app.db.seed` or call run_seed(session). Re-running upserts;
 guarded by SchemaMeta.seed_version.
 """
 
+import secrets
 from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.security import hash_password
 from app.models.admin import SchemaMeta
-from app.models.auth import Organization, Permission, Role, RolePermission
-from app.models.enums import ImportFormat, OrgKind, RoleName
+from app.models.auth import Organization, OrganizationMembership, Permission, Role, RolePermission, User
+from app.models.enums import ImportFormat, OrgKind, RoleName, UserStatus
 from app.models.etl import ChapterDomainMapping, EtlDataset
 from app.models.taxonomy import ExamBlueprint, ExamDomain
 
-SEED_VERSION = "2"
+SEED_VERSION = "3"
 
 # PRD §2 — CISSP 2024-04-15 blueprint weights.
 DOMAINS = [
@@ -140,6 +143,28 @@ def run_seed(session: Session) -> dict:
             ).scalar_one_or_none()
             if existing is None:
                 session.add(RolePermission(role_id=role.id, permission_id=perm.id))
+    session.flush()
+
+    # Bootstrap system_admin (so the system is usable after auth lock-down).
+    admin_email = settings.seed_admin_email.lower()
+    admin = session.execute(select(User).filter_by(email=admin_email)).scalar_one_or_none()
+    if admin is None:
+        pw = settings.seed_admin_password or secrets.token_urlsafe(16)
+        admin = User(email=admin_email, password_hash=hash_password(pw),
+                     display_name="System Admin", status=UserStatus.active,
+                     default_organization_id=personal_org.id)
+        session.add(admin); session.flush()
+        if not settings.seed_admin_password:
+            print(f"[seed] created admin {admin_email} with generated password: {pw}")
+        sa_role = role_by_name[RoleName.system_admin]
+        existing = session.execute(
+            select(OrganizationMembership).filter_by(
+                user_id=admin.id, organization_id=personal_org.id, role_id=sa_role.id)
+        ).scalar_one_or_none()
+        if existing is None:
+            session.add(OrganizationMembership(user_id=admin.id,
+                                               organization_id=personal_org.id,
+                                               role_id=sa_role.id))
     session.flush()
 
     # OSG v10 dataset + chapter->domain mapping (PRD §9.4, spec §9).

@@ -2,7 +2,7 @@ from sqlalchemy import func, select
 
 from app.db.seed import run_seed
 from app.models.admin import SchemaMeta
-from app.models.auth import Organization, Permission, Role, RolePermission
+from app.models.auth import Organization, OrganizationMembership, Permission, Role, RolePermission, User
 from app.models.enums import RoleName
 from app.models.etl import ChapterDomainMapping, EtlDataset
 from app.models.taxonomy import ExamBlueprint, ExamDomain
@@ -59,7 +59,7 @@ def test_seed_is_idempotent(db_session):
     assert counts_1_rp == counts_2_rp
 
     sv = db_session.execute(select(SchemaMeta).filter_by(key="seed_version")).scalar_one()
-    assert sv.value == "2"
+    assert sv.value == "3"
 
 
 def test_system_admin_has_all_permissions(db_session):
@@ -98,3 +98,14 @@ def test_seed_osg10_is_idempotent(db_session):
         ).scalars().all()
     )
     assert count == 21
+
+
+def test_seed_creates_bootstrap_admin(db_session):
+    run_seed(db_session)
+    admin = db_session.execute(select(User).filter_by(email="admin@example.com")).scalar_one()
+    assert admin.password_hash
+    m = db_session.execute(
+        select(OrganizationMembership).filter_by(user_id=admin.id)
+    ).scalar_one()
+    role = db_session.get(Role, m.role_id)
+    assert role.name == RoleName.system_admin
