@@ -504,3 +504,104 @@ def test_get_report_after_finish(db_session):
     svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
     report = svc.get_report(db_session, session_id=s.id, user_id=actor.id)
     assert report.correct_count == 1
+
+
+def test_review_only_after_finish(db_session):
+    from datetime import datetime, timezone
+
+    org, actor, s, _ = _two_question_exam(db_session)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    with pytest.raises(svc.ConflictError):
+        svc.get_review(db_session, session_id=s.id, user_id=actor.id)
+    svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    review = svc.get_review(db_session, session_id=s.id, user_id=actor.id)
+    assert len(review) == 2
+    assert review[0].position == 0
+    assert review[0].your_answer["is_correct"] is True
+    # options expose is_correct (from snapshot)
+    assert any(o.is_correct for o in review[0].options)
+
+
+def test_review_reads_correctness_from_snapshot(db_session):
+    from datetime import datetime, timezone
+
+    from app.models.question import QuestionOption
+
+    org, actor, s, (q1, q2) = _two_question_exam(db_session)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    # Mutate the live question so option 0 is now WRONG and option 1 is RIGHT.
+    opt0 = db_session.query(QuestionOption).filter_by(
+        question_id=q1.id, order_index=0).one()
+    opt1 = db_session.query(QuestionOption).filter_by(
+        question_id=q1.id, order_index=1).one()
+    opt0.is_correct = False
+    opt1.is_correct = True
+    db_session.flush()
+    svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    review = svc.get_review(db_session, session_id=s.id, user_id=actor.id)
+    item0 = review[0]
+    # snapshot still says order_index 0 was correct
+    assert item0.options[0].is_correct is True
+    assert item0.options[1].is_correct is False
+    # the answer was judged correct against the original snapshot
+    assert item0.your_answer["is_correct"] is True
+
+
+def test_history_ordered_and_only_finished(db_session):
+    from datetime import datetime, timezone
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    # first exam: 1 question, finished
+    bp1 = _blueprint(db_session, min_items=1, max_items=1, version="v1")
+    d1 = _domain(db_session, bp1, number=1, name="D1", weight_pct=100)
+    q = _question(db_session, org, actor, stem="q")
+    _map(db_session, q, d1)
+    s1 = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"count": 1})
+    svc.submit_answer(
+        db_session, session_id=s1.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)})
+    svc.finish_session(db_session, session_id=s1.id, user_id=actor.id)
+    # second exam: in progress (should NOT appear)
+    s2 = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"count": 1})
+    hist = svc.list_history(db_session, user_id=actor.id)
+    assert len(hist) == 1
+    assert hist[0].id == s1.id
+    assert hist[0].scaled_score == 1000
+    assert hist[0].passed is True
+
+
+def test_history_uses_historical_scoring_basis(db_session):
+    from datetime import datetime, timezone
+
+    from app.models.taxonomy import ExamBlueprint
+
+    org, actor, s, _ = _two_question_exam(
+        db_session, passing_score=700, max_score=1000)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)})
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 1, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)})
+    svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    # Now lower the blueprint's passing score to 0 -> would pass if recomputed.
+    bp = db_session.get(ExamBlueprint, s.blueprint_id)
+    bp.passing_score = 0  # if history recomputed, passed would flip to True
+    db_session.flush()
+    hist = svc.list_history(db_session, user_id=actor.id)
+    assert hist[0].passed is False  # still judged against original 700 (config basis)
+    assert hist[0].scaled_score == 500

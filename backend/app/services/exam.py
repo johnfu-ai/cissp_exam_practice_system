@@ -461,9 +461,116 @@ def get_report(session: Session, *, session_id, user_id) -> ExamReportOut:
     return _build_report(session, es)
 
 
-def get_review(session, *, session_id, user_id):
-    raise NotImplementedError
+def get_review(session: Session, *, session_id, user_id) -> list:
+    es = _load_session(session, session_id, user_id)
+    if es.status == ExamSessionStatus.in_progress:
+        raise ConflictError("exam session is not finished")
+    qids = es.config.get("question_ids", [])
+    items: list = []
+    for position, qid_str in enumerate(qids):
+        question_id = uuid.UUID(qid_str)
+        question = session.get(Question, question_id)
+        ans = session.execute(
+            select(ExamAnswer).where(
+                ExamAnswer.session_id == es.id,
+                ExamAnswer.question_id == question_id,
+            )
+        ).scalars().first()
+        explanation = session.execute(
+            select(Explanation).where(Explanation.question_id == question_id)
+        ).scalars().first()
+        # Per-option correctness + content come from the stored snapshot
+        # (NFR-DATA-01): later edits to live options never change the review.
+        if ans is not None and ans.options_snapshot:
+            opts = [
+                {
+                    "order_index": o["order_index"],
+                    "content": o["content"],
+                    "is_correct": o["is_correct"],
+                    "explanation": None,
+                }
+                for o in ans.options_snapshot
+            ]
+            stem = ans.question_snapshot.get("stem", question.stem if question else "")
+            qtype = ans.question_snapshot.get("question_type", "")
+        else:
+            # Never answered: fall back to live question for stem/options.
+            live_opts = _options_for(session, question_id) if question else []
+            opts = [
+                {
+                    "order_index": o.order_index,
+                    "content": o.content,
+                    "is_correct": o.is_correct,
+                    "explanation": o.explanation,
+                }
+                for o in live_opts
+            ]
+            stem = question.stem if question else ""
+            qtype = question.question_type.value if question else ""
+        items.append(
+            ReviewItemOut(
+                position=position,
+                question_id=question_id,
+                stem=stem,
+                question_type=qtype,
+                options=opts,
+                correct_rationale=(
+                    explanation.correct_answer_rationale if explanation else None
+                ),
+                key_point_summary=(
+                    explanation.key_point_summary if explanation else None
+                ),
+                your_answer=(
+                    {
+                        "selected": ans.user_answer.get("selected"),
+                        "is_correct": ans.is_correct,
+                    }
+                    if ans
+                    else None
+                ),
+                time_spent_ms=ans.time_spent_ms if ans else None,
+            )
+        )
+    return items
 
 
-def list_history(session, *, user_id):
-    raise NotImplementedError
+def _scaled(es: ExamSession) -> tuple[int, bool, float]:
+    total = es.total_questions or 0
+    max_score = es.config.get("max_score", 0)
+    passing_score = es.config.get("passing_score", 0)
+    scaled = round((es.correct_count / total) * max_score) if total else 0
+    passed = scaled >= passing_score
+    accuracy = (es.correct_count / total) if total else 0.0
+    return scaled, passed, accuracy
+
+
+def list_history(session: Session, *, user_id) -> list:
+    rows = list(
+        session.execute(
+            select(ExamSession).where(
+                ExamSession.user_id == user_id,
+                ExamSession.status.in_([
+                    ExamSessionStatus.completed,
+                    ExamSessionStatus.auto_submitted,
+                ]),
+            ).order_by(ExamSession.started_at.asc())
+        ).scalars().all()
+    )
+    out: list = []
+    for es in rows:
+        scaled, passed, accuracy = _scaled(es)
+        out.append(
+            ExamHistoryItemOut(
+                id=es.id,
+                started_at=es.started_at,
+                ended_at=es.ended_at,
+                status=es.status.value,
+                total_questions=es.total_questions,
+                correct_count=es.correct_count,
+                scaled_score=scaled,
+                max_score=es.config.get("max_score", 0),
+                passed=passed,
+                accuracy=accuracy,
+            )
+        )
+    return out
