@@ -274,3 +274,85 @@ def test_re_answer_refused(db_session):
             db_session, session_id=s.id, user_id=actor.id,
             payload=AnswerIn(position=0, selected=[0], started_at=datetime.now(timezone.utc)),
         )
+
+
+def test_pause_resume(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    _question(db_session, org, actor)
+    s = _start(db_session, org, actor)
+    svc.pause_session(db_session, session_id=s.id, user_id=actor.id)
+    assert db_session.get(PracticeSession, s.id).paused_at is not None
+    with pytest.raises(svc.ConflictError):
+        svc.submit_answer(
+            db_session, session_id=s.id, user_id=actor.id,
+            payload=AnswerIn(position=0, selected=[0], started_at=datetime.now(timezone.utc)),
+        )
+    svc.resume_session(db_session, session_id=s.id, user_id=actor.id)
+    assert db_session.get(PracticeSession, s.id).paused_at is None
+    r = svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload=AnswerIn(position=0, selected=[0], started_at=datetime.now(timezone.utc)),
+    )
+    assert r.is_correct is True
+
+
+def test_finish_summary(db_session):
+    from app.models.question import QuestionMapping
+    from app.models.taxonomy import ExamBlueprint, ExamDomain
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = ExamBlueprint(version_label="v1", effective_date="2026-04-15",
+                       min_items=100, max_items=150, duration_minutes=180,
+                       passing_score=700, max_score=1000, is_current=False)
+    db_session.add(bp)
+    db_session.flush()
+    dom = ExamDomain(blueprint_id=bp.id, number=1, name="D1", weight_pct=10)
+    db_session.add(dom)
+    db_session.flush()
+    q1 = _question(db_session, org, actor, stem="right")  # 0 correct
+    q2 = _question(db_session, org, actor, stem="wrong")  # 0 correct
+    db_session.add(QuestionMapping(question_id=q1.id, domain_id=dom.id))
+    db_session.add(QuestionMapping(question_id=q2.id, domain_id=dom.id))
+    db_session.flush()
+    s = _start(db_session, org, actor, count=2)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload=AnswerIn(position=0, selected=[0], started_at=datetime.now(timezone.utc)),
+    )
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload=AnswerIn(position=1, selected=[1], started_at=datetime.now(timezone.utc)),
+    )
+    summary = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    assert summary.total_questions == 2
+    assert summary.answered_count == 2
+    assert summary.correct_count == 1
+    assert summary.accuracy == 0.5
+    assert len(summary.domains) == 1
+    assert summary.domains[0].answered == 2
+    assert summary.domains[0].correct == 1
+    assert len(summary.wrong_questions) == 1
+    assert summary.wrong_questions[0].question_id == q2.id
+    assert db_session.get(PracticeSession, s.id).status == PracticeSessionStatus.completed
+
+
+def test_finish_idempotent(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    _question(db_session, org, actor)
+    s = _start(db_session, org, actor)
+    a = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    b = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    assert a.correct_count == b.correct_count
+
+
+def test_other_user_session_not_found(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    intruder = _actor(db_session, org, email="other@example.com")
+    _question(db_session, org, actor)
+    s = _start(db_session, org, actor)
+    with pytest.raises(svc.NotFound):
+        svc.finish_session(db_session, session_id=s.id, user_id=intruder.id)

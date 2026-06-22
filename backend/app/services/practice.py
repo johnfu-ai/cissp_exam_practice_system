@@ -407,3 +407,98 @@ def submit_answer(
             exclude_session_id=ps.id,
         ),
     )
+
+
+def pause_session(session: Session, *, session_id, user_id) -> PracticeSession:
+    ps = _load_session(session, session_id, user_id)
+    if ps.status != PracticeSessionStatus.in_progress:
+        raise ConflictError("session is not in progress")
+    ps.paused_at = datetime.now(timezone.utc)
+    session.flush()
+    return ps
+
+
+def resume_session(session: Session, *, session_id, user_id) -> PracticeSession:
+    ps = _load_session(session, session_id, user_id)
+    if ps.status != PracticeSessionStatus.in_progress:
+        raise ConflictError("session is not in progress")
+    ps.paused_at = None
+    session.flush()
+    return ps
+
+
+def _build_summary(session: Session, ps: PracticeSession) -> SessionSummaryOut:
+    from app.models.taxonomy import ExamDomain
+    from app.schemas.practice import DomainBreakdown, WrongQuestion
+
+    answers = list(
+        session.execute(
+            select(PracticeAnswer).where(PracticeAnswer.session_id == ps.id)
+        ).scalars().all()
+    )
+    correct = sum(1 for a in answers if a.is_correct)
+    total_time = sum((a.time_spent_ms or 0) for a in answers)
+
+    domain_ids: dict = {}
+    for a in answers:
+        m = session.execute(
+            select(QuestionMapping).where(QuestionMapping.question_id == a.question_id)
+        ).scalars().first()
+        did = str(m.domain_id) if (m and m.domain_id) else None
+        entry = domain_ids.setdefault(did, {"answered": 0, "correct": 0, "name": None})
+        entry["answered"] += 1
+        if a.is_correct:
+            entry["correct"] += 1
+    for did, entry in domain_ids.items():
+        if did is not None:
+            d = session.get(ExamDomain, uuid.UUID(did))
+            entry["name"] = d.name if d else None
+
+    wrong = [
+        {
+            "question_id": uuid.UUID(a.question_snapshot.get("question_id")) if a.question_snapshot.get("question_id") else a.question_id,
+            "stem": a.question_snapshot.get("stem", ""),
+            "selected_indexes": (a.user_answer or {}).get("selected", []),
+            "correct_indexes": [
+                o["order_index"] for o in a.options_snapshot if o["is_correct"]
+            ],
+        }
+        for a in answers if not a.is_correct
+    ]
+    return SessionSummaryOut(
+        session_id=ps.id,
+        total_questions=ps.total_questions,
+        answered_count=len(answers),
+        correct_count=correct,
+        accuracy=(correct / len(answers)) if answers else 0.0,
+        total_time_spent_ms=total_time,
+        domains=[
+            DomainBreakdown(
+                domain_id=uuid.UUID(did) if did else None,
+                domain_name=entry["name"],
+                answered=entry["answered"],
+                correct=entry["correct"],
+            )
+            for did, entry in domain_ids.items()
+        ],
+        wrong_questions=[WrongQuestion(**w) for w in wrong],
+    )
+
+
+def finish_session(session: Session, *, session_id, user_id) -> SessionSummaryOut:
+    ps = _load_session(session, session_id, user_id)
+    if ps.status != PracticeSessionStatus.completed:
+        ps.status = PracticeSessionStatus.completed
+        ps.ended_at = datetime.now(timezone.utc)
+        session.flush()
+        log_audit(
+            session, action=AuditAction.edit, actor_id=user_id,
+            organization_id=ps.organization_id, entity_type="practice_session",
+            entity_id=str(ps.id), details={"finished": True},
+        )
+    return _build_summary(session, ps)
+
+
+def get_summary(session: Session, *, session_id, user_id) -> SessionSummaryOut:
+    ps = _load_session(session, session_id, user_id)
+    return _build_summary(session, ps)
