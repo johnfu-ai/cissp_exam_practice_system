@@ -271,3 +271,51 @@ def test_soft_delete_excludes_from_list(db_session):
     assert items == []
     with pytest.raises(NotFound):
         get_question(db_session, q.id)
+
+
+# --- Task 8: review state machine ---
+
+from app.schemas.question import ReviewAction  # noqa: E402
+from app.services.question import IllegalTransition, submit_review  # noqa: E402
+
+
+def test_review_draft_to_published(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
+                      action=ReviewAction.submit)
+    assert q.status == QuestionStatus.pending_review
+    q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
+                      action=ReviewAction.approve)
+    assert q.status == QuestionStatus.published
+
+
+def test_review_request_changes(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    submit_review(db_session, question_id=q.id, actor_id=_actor(db_session), action=ReviewAction.submit)
+    q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
+                      action=ReviewAction.request_changes)
+    assert q.status == QuestionStatus.needs_revision
+    q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
+                      action=ReviewAction.submit)
+    assert q.status == QuestionStatus.pending_review
+
+
+def test_review_archive_and_restore(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
+                      action=ReviewAction.archive)
+    assert q.status == QuestionStatus.archived
+    q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
+                      action=ReviewAction.restore)
+    assert q.status == QuestionStatus.draft
+
+
+def test_review_illegal_transition(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    with pytest.raises(IllegalTransition):
+        submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
+                      action=ReviewAction.approve)

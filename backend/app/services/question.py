@@ -320,3 +320,48 @@ def delete_question(session: Session, *, question_id, actor_id) -> None:
     log_audit(session, action=AuditAction.delete, actor_id=actor_id,
               organization_id=q.organization_id, entity_type="question",
               entity_id=str(q.id), details={"action": "soft_delete"})
+
+
+from app.schemas.question import ReviewAction  # noqa: E402
+
+_TRANSITIONS = {
+    ReviewAction.submit: {
+        QuestionStatus.draft: QuestionStatus.pending_review,
+        QuestionStatus.needs_revision: QuestionStatus.pending_review,
+    },
+    ReviewAction.approve: {QuestionStatus.pending_review: QuestionStatus.published},
+    ReviewAction.request_changes: {QuestionStatus.pending_review: QuestionStatus.needs_revision},
+    ReviewAction.archive: {
+        QuestionStatus.draft: QuestionStatus.archived,
+        QuestionStatus.pending_review: QuestionStatus.archived,
+        QuestionStatus.published: QuestionStatus.archived,
+        QuestionStatus.needs_revision: QuestionStatus.archived,
+    },
+    ReviewAction.restore: {QuestionStatus.archived: QuestionStatus.draft},
+}
+
+_AUDIT_ACTION = {
+    ReviewAction.approve: AuditAction.publish,
+    ReviewAction.archive: AuditAction.archive,
+}
+
+
+class IllegalTransition(ValueError):
+    """Review action invalid for the current status (maps to HTTP 409)."""
+
+
+def submit_review(session: Session, *, question_id, actor_id,
+                  action: ReviewAction, comment: str | None = None) -> Question:
+    q = get_question(session, question_id)
+    target = _TRANSITIONS.get(action, {}).get(q.status)
+    if target is None:
+        raise IllegalTransition(
+            f"action {action.value} not allowed from status {q.status.value}"
+        )
+    q.status = target
+    q.updated_by_id = actor_id
+    audit_action = _AUDIT_ACTION.get(action, AuditAction.edit)
+    log_audit(session, action=audit_action, actor_id=actor_id,
+              organization_id=q.organization_id, entity_type="question",
+              entity_id=str(q.id), details={"action": action.value, "comment": comment})
+    return q
