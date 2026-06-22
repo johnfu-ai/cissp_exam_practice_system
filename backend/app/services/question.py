@@ -308,3 +308,15 @@ def list_revisions(session: Session, question_id) -> list[QuestionRevision]:
             .order_by(QuestionRevision.revision_number.asc())
         ).scalars().all()
     )
+
+
+def delete_question(session: Session, *, question_id, actor_id) -> None:
+    """Soft-delete a question (sets ``deleted_at``). Excluded from list/get."""
+    from datetime import datetime, timezone
+
+    q = get_question(session, question_id)
+    q.deleted_at = datetime.now(timezone.utc)
+    q.updated_by_id = actor_id
+    log_audit(session, action=AuditAction.delete, actor_id=actor_id,
+              organization_id=q.organization_id, entity_type="question",
+              entity_id=str(q.id), details={"action": "soft_delete"})

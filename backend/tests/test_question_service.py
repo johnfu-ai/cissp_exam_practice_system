@@ -255,3 +255,19 @@ def test_update_noop_does_not_bump(db_session):
     updated = update_question(db_session, question_id=q.id, actor_id=_actor(db_session),
                               payload=QuestionUpdateIn())
     assert updated.version == 1
+
+
+# --- Task 7: soft delete ---
+
+from app.services.question import delete_question  # noqa: E402
+
+
+def test_soft_delete_excludes_from_list(db_session):
+    org = _org(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
+    delete_question(db_session, question_id=q.id, actor_id=_actor(db_session))
+    items, total = list_questions(db_session, org_id=org.id, page=1, size=20)
+    assert total == 0
+    assert items == []
+    with pytest.raises(NotFound):
+        get_question(db_session, q.id)
