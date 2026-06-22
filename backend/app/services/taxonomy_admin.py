@@ -208,3 +208,128 @@ def delete_blueprint(session: Session, *, blueprint_id, actor_id) -> None:
         entity_id=str(blueprint_id),
         details={"op": "delete"},
     )
+
+
+# --- ExamDomain ---
+
+
+def _validate_domain(*, number, name, weight_pct):
+    if number < 1:
+        raise ValidationError("domain number must be >= 1")
+    if not name or not name.strip():
+        raise ValidationError("domain name is required")
+    if not (0 <= weight_pct <= 100):
+        raise ValidationError("weight_pct must be 0..100")
+
+
+def create_domain(
+    session: Session, *, blueprint_id, actor_id, payload: DomainIn
+) -> ExamDomain:
+    get_blueprint(session, blueprint_id)  # raises NotFound
+    _validate_domain(
+        number=payload.number, name=payload.name, weight_pct=payload.weight_pct
+    )
+    dup = session.execute(
+        select(ExamDomain).where(
+            ExamDomain.blueprint_id == blueprint_id, ExamDomain.number == payload.number
+        )
+    ).first()
+    if dup is not None:
+        raise ConflictError("domain number already exists in blueprint")
+    d = ExamDomain(
+        blueprint_id=blueprint_id,
+        number=payload.number,
+        name=payload.name,
+        weight_pct=payload.weight_pct,
+    )
+    session.add(d)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="exam_domain",
+        entity_id=str(d.id),
+        details={"op": "create", "blueprint_id": str(blueprint_id)},
+    )
+    return d
+
+
+def list_domains_for_blueprint(session: Session, blueprint_id) -> list[ExamDomain]:
+    get_blueprint(session, blueprint_id)
+    return list(
+        session.execute(
+            select(ExamDomain)
+            .where(ExamDomain.blueprint_id == blueprint_id)
+            .order_by(ExamDomain.number)
+        ).scalars().all()
+    )
+
+
+def _get_domain(session: Session, blueprint_id, domain_id) -> ExamDomain:
+    d = session.execute(
+        select(ExamDomain).where(
+            ExamDomain.id == domain_id, ExamDomain.blueprint_id == blueprint_id
+        )
+    ).scalar_one_or_none()
+    if d is None:
+        raise NotFound("domain not found")
+    return d
+
+
+def update_domain(
+    session: Session, *, blueprint_id, domain_id, actor_id, payload: DomainIn
+) -> ExamDomain:
+    d = _get_domain(session, blueprint_id, domain_id)
+    _validate_domain(
+        number=payload.number, name=payload.name, weight_pct=payload.weight_pct
+    )
+    if payload.number != d.number:
+        dup = session.execute(
+            select(ExamDomain).where(
+                ExamDomain.blueprint_id == blueprint_id,
+                ExamDomain.number == payload.number,
+            )
+        ).first()
+        if dup is not None:
+            raise ConflictError("domain number already exists in blueprint")
+    d.number = payload.number
+    d.name = payload.name
+    d.weight_pct = payload.weight_pct
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="exam_domain",
+        entity_id=str(d.id),
+        details={"op": "update"},
+    )
+    return d
+
+
+def _domain_has_mapped_questions(session: Session, domain_id) -> bool:
+    exists = session.execute(
+        select(QuestionMapping.question_id)
+        .where(QuestionMapping.domain_id == domain_id)
+        .limit(1)
+    ).first()
+    return exists is not None
+
+
+def delete_domain(
+    session: Session, *, blueprint_id, domain_id, actor_id
+) -> None:
+    d = _get_domain(session, blueprint_id, domain_id)
+    if _domain_has_mapped_questions(session, domain_id):
+        raise ConflictError("domain is referenced by questions")
+    session.delete(d)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="exam_domain",
+        entity_id=str(domain_id),
+        details={"op": "delete"},
+    )

@@ -112,3 +112,127 @@ def test_delete_current_blueprint_refused(db_session):
     svc.set_current_blueprint(db_session, blueprint_id=bp.id, actor_id=actor.id)
     with pytest.raises(svc.ConflictError):
         svc.delete_blueprint(db_session, blueprint_id=bp.id, actor_id=actor.id)
+
+
+def test_delete_blueprint_with_mapped_questions_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    domain = svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=10),
+    )
+    from app.models.enums import QuestionType
+    from app.models.question import Question, QuestionMapping
+
+    q = Question(
+        organization_id=org.id,
+        question_type=QuestionType.single_choice,
+        stem="x",
+        created_by_id=actor.id,
+    )
+    db_session.add(q)
+    db_session.flush()
+    db_session.add(QuestionMapping(question_id=q.id, domain_id=domain.id))
+    db_session.flush()
+    with pytest.raises(svc.ConflictError):
+        svc.delete_blueprint(db_session, blueprint_id=bp.id, actor_id=actor.id)
+
+
+# --- ExamDomain ---
+
+
+def test_create_domain_validates_weight(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    with pytest.raises(svc.ValidationError):
+        svc.create_domain(
+            db_session,
+            blueprint_id=bp.id,
+            actor_id=actor.id,
+            payload=DomainIn(number=1, name="D1", weight_pct=200),
+        )
+
+
+def test_create_domain(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    d = svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=12),
+    )
+    assert d.blueprint_id == bp.id
+    assert d.weight_pct == 12
+
+
+def test_create_domain_duplicate_number_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=10),
+    )
+    with pytest.raises(svc.ConflictError):
+        svc.create_domain(
+            db_session,
+            blueprint_id=bp.id,
+            actor_id=actor.id,
+            payload=DomainIn(number=1, name="D2", weight_pct=10),
+        )
+
+
+def test_delete_domain_with_mapped_questions_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    domain = svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=10),
+    )
+    from app.models.enums import QuestionType
+    from app.models.question import Question, QuestionMapping
+
+    q = Question(
+        organization_id=org.id,
+        question_type=QuestionType.single_choice,
+        stem="x",
+        created_by_id=actor.id,
+    )
+    db_session.add(q)
+    db_session.flush()
+    db_session.add(QuestionMapping(question_id=q.id, domain_id=domain.id))
+    db_session.flush()
+    with pytest.raises(svc.ConflictError):
+        svc.delete_domain(
+            db_session,
+            blueprint_id=bp.id,
+            domain_id=domain.id,
+            actor_id=actor.id,
+        )
+
+
+def test_delete_domain_ok(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = svc.create_blueprint(db_session, actor_id=actor.id, payload=_bp_payload())
+    domain = svc.create_domain(
+        db_session,
+        blueprint_id=bp.id,
+        actor_id=actor.id,
+        payload=DomainIn(number=1, name="D1", weight_pct=10),
+    )
+    svc.delete_domain(
+        db_session, blueprint_id=bp.id, domain_id=domain.id, actor_id=actor.id
+    )
+    assert len(svc.list_domains_for_blueprint(db_session, bp.id)) == 0
