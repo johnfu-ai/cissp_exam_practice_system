@@ -1,5 +1,7 @@
 """Service-layer tests for practice API (sub-project E)."""
 
+from datetime import datetime, timezone
+
 import pytest
 
 from app.models.auth import Organization, User
@@ -176,3 +178,99 @@ def test_create_session_scope_by_chapter(db_session):
         payload=SessionCreateIn(count=10, chapter_ids=[ch.id], order_mode="sequential"),
     )
     assert s.config["question_ids"] == [str(in_q.id)]
+
+
+def _start(db_session, org, actor, count=1):
+    return svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload=SessionCreateIn(count=count, order_mode="sequential"),
+    )
+
+
+def test_get_question_strips_correctness(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    _question(db_session, org, actor, stem="q1")
+    s = _start(db_session, org, actor)
+    out = svc.get_question_at(
+        db_session, session_id=s.id, position=0, user_id=actor.id
+    )
+    assert out["position"] == 0
+    assert out["total"] == 1
+    assert out["stem"] == "q1"
+    for opt in out["options"]:
+        assert "is_correct" not in opt
+
+
+def test_submit_answer_judges_from_snapshot(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    _question(db_session, org, actor, stem="q1")  # option 0 correct
+    s = _start(db_session, org, actor)
+    started = datetime.now(timezone.utc)
+    result = svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload=AnswerIn(position=0, selected=[0], started_at=started),
+    )
+    assert result.is_correct is True
+    assert result.correct_indexes == [0]
+    assert result.selected_indexes == [0]
+
+
+def test_submit_answer_incorrect(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    _question(db_session, org, actor, stem="q1")  # 0 correct
+    s = _start(db_session, org, actor)
+    result = svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload=AnswerIn(position=0, selected=[1], started_at=datetime.now(timezone.utc)),
+    )
+    assert result.is_correct is False
+    assert s.correct_count == 0
+
+
+def test_submit_answer_multiple_choice(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    _question(
+        db_session, org, actor, stem="multi", qtype=QuestionType.multiple_choice,
+        options=[(0, "A", True), (1, "B", True), (2, "C", False)],
+    )
+    s = _start(db_session, org, actor)
+    r1 = svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload=AnswerIn(position=0, selected=[0], started_at=datetime.now(timezone.utc)),
+    )
+    assert r1.is_correct is False
+
+
+def test_submit_answer_persists_snapshot(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    q = _question(db_session, org, actor, stem="q1")
+    s = _start(db_session, org, actor)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload=AnswerIn(position=0, selected=[0], started_at=datetime.now(timezone.utc)),
+    )
+    ans = db_session.query(PracticeAnswer).filter_by(session_id=s.id).one()
+    assert ans.question_snapshot["question_id"] == str(q.id)
+    assert ans.is_correct is True
+    assert ans.user_answer == {"selected": [0]}
+
+
+def test_re_answer_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    _question(db_session, org, actor)
+    s = _start(db_session, org, actor)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload=AnswerIn(position=0, selected=[0], started_at=datetime.now(timezone.utc)),
+    )
+    with pytest.raises(svc.ConflictError):
+        svc.submit_answer(
+            db_session, session_id=s.id, user_id=actor.id,
+            payload=AnswerIn(position=0, selected=[0], started_at=datetime.now(timezone.utc)),
+        )
