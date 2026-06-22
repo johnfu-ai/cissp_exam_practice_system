@@ -24,7 +24,8 @@ def domains(
     _: CurrentUser = Depends(require_permission("question:read")),
 ):
     return [
-        DomainOut(id=d.id, number=d.number, name=d.name, weight_pct=d.weight_pct)
+        DomainOut(id=d.id, blueprint_id=d.blueprint_id, number=d.number,
+                  name=d.name, weight_pct=d.weight_pct)
         for d in svc.list_domains(session)
     ]
 
