@@ -513,3 +513,139 @@ def delete_chapter(
         entity_id=str(chapter_id),
         details={"op": "delete"},
     )
+
+
+# --- KnowledgePoint (tree) ---
+
+
+def _validate_kp(*, name):
+    if not name or not name.strip():
+        raise ValidationError("knowledge point name is required")
+
+
+def _would_cycle(session: Session, kp_id, proposed_parent_id) -> bool:
+    """True if setting kp_id's parent to proposed_parent_id creates a cycle.
+
+    Walk up from proposed_parent; if we hit kp_id, it's a cycle.
+    """
+    if proposed_parent_id is None:
+        return False
+    cursor = proposed_parent_id
+    seen = set()
+    while cursor is not None and cursor not in seen:
+        if cursor == kp_id:
+            return True
+        seen.add(cursor)
+        row = session.execute(
+            select(KnowledgePoint.parent_id).where(KnowledgePoint.id == cursor)
+        ).first()
+        if row is None:
+            return False
+        cursor = row[0]
+    return False
+
+
+def create_knowledge_point(
+    session: Session, *, actor_id, payload: KnowledgePointIn
+) -> KnowledgePoint:
+    _validate_kp(name=payload.name)
+    if payload.parent_id is not None:
+        parent = session.get(KnowledgePoint, payload.parent_id)
+        if parent is None:
+            raise NotFound("parent knowledge point not found")
+    kp = KnowledgePoint(
+        name=payload.name,
+        description=payload.description,
+        parent_id=payload.parent_id,
+    )
+    session.add(kp)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="knowledge_point",
+        entity_id=str(kp.id),
+        details={"op": "create"},
+    )
+    return kp
+
+
+def get_knowledge_point(session: Session, kp_id) -> KnowledgePoint:
+    kp = session.get(KnowledgePoint, kp_id)
+    if kp is None:
+        raise NotFound("knowledge point not found")
+    return kp
+
+
+def update_knowledge_point(
+    session: Session, *, kp_id, actor_id, payload: KnowledgePointIn
+) -> KnowledgePoint:
+    kp = get_knowledge_point(session, kp_id)
+    _validate_kp(name=payload.name)
+    if payload.parent_id is not None:
+        if payload.parent_id == kp_id:
+            raise ValidationError("knowledge point cannot be its own parent")
+        parent = session.get(KnowledgePoint, payload.parent_id)
+        if parent is None:
+            raise NotFound("parent knowledge point not found")
+        if _would_cycle(session, kp_id, payload.parent_id):
+            raise ValidationError("setting this parent would create a cycle")
+    kp.name = payload.name
+    kp.description = payload.description
+    kp.parent_id = payload.parent_id
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="knowledge_point",
+        entity_id=str(kp.id),
+        details={"op": "update"},
+    )
+    return kp
+
+
+def _kp_has_children(session: Session, kp_id) -> bool:
+    exists = session.execute(
+        select(KnowledgePoint.id).where(KnowledgePoint.parent_id == kp_id).limit(1)
+    ).first()
+    return exists is not None
+
+
+def _kp_has_bindings(session: Session, kp_id) -> bool:
+    exists = session.execute(
+        select(KnowledgePointDomain.domain_id)
+        .where(KnowledgePointDomain.knowledge_point_id == kp_id)
+        .limit(1)
+    ).first()
+    return exists is not None
+
+
+def _kp_has_mapped_questions(session: Session, kp_id) -> bool:
+    exists = session.execute(
+        select(QuestionMapping.question_id)
+        .where(QuestionMapping.knowledge_point_id == kp_id)
+        .limit(1)
+    ).first()
+    return exists is not None
+
+
+def delete_knowledge_point(session: Session, *, kp_id, actor_id) -> None:
+    kp = get_knowledge_point(session, kp_id)
+    if _kp_has_children(session, kp_id):
+        raise ConflictError("knowledge point has children")
+    if _kp_has_bindings(session, kp_id):
+        raise ConflictError("knowledge point has domain bindings")
+    if _kp_has_mapped_questions(session, kp_id):
+        raise ConflictError("knowledge point is referenced by questions")
+    session.delete(kp)
+    session.flush()
+    log_audit(
+        session,
+        action=AuditAction.config_change,
+        actor_id=actor_id,
+        entity_type="knowledge_point",
+        entity_id=str(kp_id),
+        details={"op": "delete"},
+    )

@@ -355,3 +355,78 @@ def test_delete_chapter_with_questions_refused(db_session):
             org_id=org.id,
             actor_id=actor.id,
         )
+
+
+# --- KnowledgePoint (tree) ---
+
+
+def test_create_kp(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    kp = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="KP1")
+    )
+    assert kp.name == "KP1"
+    assert kp.parent_id is None
+
+
+def test_update_kp_cycle_self(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    kp = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="KP1")
+    )
+    with pytest.raises(svc.ValidationError):
+        svc.update_knowledge_point(
+            db_session,
+            kp_id=kp.id,
+            actor_id=actor.id,
+            payload=KnowledgePointIn(name="KP1", parent_id=kp.id),
+        )
+
+
+def test_update_kp_cycle_descendant(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    root = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="root")
+    )
+    child = svc.create_knowledge_point(
+        db_session,
+        actor_id=actor.id,
+        payload=KnowledgePointIn(name="child", parent_id=root.id),
+    )
+    # setting root's parent to child would create a cycle
+    with pytest.raises(svc.ValidationError):
+        svc.update_knowledge_point(
+            db_session,
+            kp_id=root.id,
+            actor_id=actor.id,
+            payload=KnowledgePointIn(name="root", parent_id=child.id),
+        )
+
+
+def test_delete_kp_with_children_refused(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    root = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="root")
+    )
+    svc.create_knowledge_point(
+        db_session,
+        actor_id=actor.id,
+        payload=KnowledgePointIn(name="child", parent_id=root.id),
+    )
+    with pytest.raises(svc.ConflictError):
+        svc.delete_knowledge_point(db_session, kp_id=root.id, actor_id=actor.id)
+
+
+def test_delete_kp_ok(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    kp = svc.create_knowledge_point(
+        db_session, actor_id=actor.id, payload=KnowledgePointIn(name="KP1")
+    )
+    svc.delete_knowledge_point(db_session, kp_id=kp.id, actor_id=actor.id)
+    with pytest.raises(svc.NotFound):
+        svc.get_knowledge_point(db_session, kp.id)
