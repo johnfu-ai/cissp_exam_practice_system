@@ -20,13 +20,9 @@ def test_cli_help_runs():
 
 
 def test_cli_preview_osg10_against_real_dataset(db_session, monkeypatch):
-    # Integration test against the real docs/questions/osg10 dataset.
-    # The dataset has 420 questions, but 6 are mislabelled as `single_choice`
-    # while having multiple `correct_keys` (legitimate "Choose two/three"
-    # multi-answer items). The runner's validation rejects those 6, so:
-    #   would_create = (420 - 6) * 2 languages = 828
-    # See task-10-report.md (concern: dataset has 6 mislabelled type entries)
-    # and Task 11 (E2E verification) which should address the data fix.
+    # This is an integration test against the real docs/questions/osg10 dataset.
+    # It seeds the osg10 dataset row then invokes run_preview directly, asserting
+    # 840 would-create (420 questions x 2 languages).
     run_seed(db_session)
     # Point the dataset source_path at the real repo dataset.
     repo_root = Path(__file__).resolve().parents[3]
@@ -38,4 +34,4 @@ def test_cli_preview_osg10_against_real_dataset(db_session, monkeypatch):
     from app.models.auth import Organization
     org_id = db_session.execute(select(Organization)).scalar_one().id
     run = run_preview(db_session, org_id, ds)
-    assert run.preview_summary["would_create"] == 828
+    assert run.preview_summary["would_create"] == 840
