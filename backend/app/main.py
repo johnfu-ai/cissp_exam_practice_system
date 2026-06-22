@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.etl import router as etl_router
 from app.api.exam import router as exam_router
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
             redis_status = "error"
         return {"status": "ok", "db": db_status, "redis": redis_status}
 
+    app.include_router(analytics_router)
     app.include_router(auth_router)
     app.include_router(etl_router)
     app.include_router(taxonomy_router)

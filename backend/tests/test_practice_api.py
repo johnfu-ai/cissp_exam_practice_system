@@ -125,3 +125,28 @@ def test_other_user_404(client):
 def test_401_without_token(client):
     c, store, db = client
     assert c.post("/api/practice/sessions", json={"count": 1}).status_code == 401
+
+
+def test_set_question_state_returns_error_type(client):
+    c, store, db = client
+    h = _headers(db, store, email="st@example.com")
+    qid = _seed_question(c, h, "state-q")
+    # Setting error_type is reflected in the response, and omitted fields stay None.
+    r = c.put(
+        f"/api/practice/questions/{qid}/state",
+        json={"error_type": "concept_unclear"},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["error_type"] == "concept_unclear"
+    assert body["is_bookmarked"] is False
+    assert body["note"] is None
+    # A second call with no error_type leaves the previously set value unchanged.
+    r2 = c.put(
+        f"/api/practice/questions/{qid}/state",
+        json={"is_bookmarked": True},
+        headers=h,
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["error_type"] == "concept_unclear"

@@ -115,6 +115,14 @@ class MasteryLevel(str, enum.Enum):
     mastered = "mastered"
 
 
+class ErrorType(str, enum.Enum):
+    concept_unclear = "concept_unclear"      # 概念不清
+    misread_stem = "misread_stem"            # 审题错误
+    memory_lapse = "memory_lapse"            # 记忆错误
+    option_confusion = "option_confusion"    # 选项混淆
+    time_pressure = "time_pressure"          # 时间压力
+
+
 class AuditAction(str, enum.Enum):
     login = "login"
     logout = "logout"

@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TenantScopedMixin, TimestampMixin, UUIDPrimaryKey
-from app.models.enums import MasteryLevel, PracticeSessionStatus
+from app.models.enums import ErrorType, MasteryLevel, PracticeSessionStatus
 
 
 class PracticeSession(UUIDPrimaryKey, TenantScopedMixin, TimestampMixin, Base):
@@ -61,4 +61,7 @@ class UserQuestionState(UUIDPrimaryKey, TimestampMixin, Base):
         Enum(MasteryLevel, name="mastery_level", create_type=True),
         nullable=False,
         server_default=MasteryLevel.not_started.value,
+    )
+    error_type: Mapped[ErrorType | None] = mapped_column(
+        Enum(ErrorType, name="error_type", create_type=True), nullable=True
     )

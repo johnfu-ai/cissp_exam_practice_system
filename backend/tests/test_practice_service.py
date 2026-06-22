@@ -6,6 +6,7 @@ import pytest
 
 from app.models.auth import Organization, User
 from app.models.enums import (
+    ErrorType,
     OrgKind,
     PracticeSessionStatus,
     QuestionStatus,
@@ -389,3 +390,37 @@ def test_set_question_state_wrong_tenant_not_found(db_session):
             db_session, user_id=actor.id, org_id=other_org.id, question_id=q.id,
             payload=QuestionStateIn(is_bookmarked=True),
         )
+
+
+def test_set_question_state_persists_error_type(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    q = _question(db_session, org, actor)
+    state = svc.set_question_state(
+        db_session, user_id=actor.id, org_id=org.id, question_id=q.id,
+        payload=QuestionStateIn(error_type=ErrorType.concept_unclear),
+    )
+    assert state.error_type == ErrorType.concept_unclear
+    # re-fetch from DB to confirm the value was persisted, not just in-memory
+    db_session.flush()
+    fresh = db_session.get(UserQuestionState, state.id)
+    assert fresh.error_type == ErrorType.concept_unclear
+
+
+def test_set_question_state_error_type_none_then_update(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    q = _question(db_session, org, actor)
+    # Omitting error_type leaves it None on the initial upsert.
+    state = svc.set_question_state(
+        db_session, user_id=actor.id, org_id=org.id, question_id=q.id,
+        payload=QuestionStateIn(is_bookmarked=True),
+    )
+    assert state.error_type is None
+    # A second call supplying error_type updates the existing row.
+    updated = svc.set_question_state(
+        db_session, user_id=actor.id, org_id=org.id, question_id=q.id,
+        payload=QuestionStateIn(error_type=ErrorType.misread_stem),
+    )
+    assert updated.id == state.id
+    assert updated.error_type == ErrorType.misread_stem
