@@ -334,12 +334,131 @@ def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnsw
     )
 
 
-def finish_session(session, *, session_id, user_id):
-    raise NotImplementedError
+def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
+    cfg = es.config or {}
+    max_score = cfg.get("max_score", 1000)
+    passing_score = cfg.get("passing_score", 700)
+    qids = [uuid.UUID(q) for q in cfg.get("question_ids", [])]
+    total = len(qids) or es.total_questions
+
+    answers = list(
+        session.execute(
+            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+        ).scalars().all()
+    )
+    answer_by_qid = {a.question_id: a for a in answers}
+    answered = len(answers)
+    correct = sum(1 for a in answers if a.is_correct)
+
+    scaled_score = round(correct / total * max_score) if total else 0
+    passed = scaled_score >= passing_score
+    accuracy = correct / answered if answered else 0.0
+    total_time = sum(a.time_spent_ms or 0 for a in answers)
+    avg_time = total_time / answered if answered else 0.0
+
+    # Per-domain grouping via QuestionMapping.domain_id -> ExamDomain.
+    domain_rows = list(
+        session.execute(
+            select(ExamDomain).where(ExamDomain.blueprint_id == es.blueprint_id)
+        ).scalars().all()
+    )
+    domain_by_id = {d.id: d for d in domain_rows}
+    qid_to_domain: dict[uuid.UUID, uuid.UUID | None] = {}
+    if qids:
+        mapping_rows = session.execute(
+            select(QuestionMapping.question_id, QuestionMapping.domain_id).where(
+                QuestionMapping.question_id.in_(qids)
+            )
+        ).all()
+        for qid, did in mapping_rows:
+            qid_to_domain.setdefault(qid, did)
+
+    per_domain: dict[uuid.UUID | None, dict] = {}
+    for qid in qids:
+        did = qid_to_domain.get(qid)
+        bucket = per_domain.setdefault(
+            did, {"answered": 0, "correct": 0}
+        )
+        a = answer_by_qid.get(qid)
+        if a is not None:
+            bucket["answered"] += 1
+            if a.is_correct:
+                bucket["correct"] += 1
+    domains = [
+        DomainPerformance(
+            domain_id=did,
+            domain_name=domain_by_id[did].name if did in domain_by_id else None,
+            weight_pct=domain_by_id[did].weight_pct if did in domain_by_id else None,
+            answered=b["answered"],
+            correct=b["correct"],
+            accuracy=b["correct"] / b["answered"] if b["answered"] else 0.0,
+        )
+        for did, b in per_domain.items()
+    ]
+
+    wrong = []
+    for a in answers:
+        if a.is_correct:
+            continue
+        correct_indexes = [
+            o["order_index"] for o in (a.options_snapshot or []) if o.get("is_correct")
+        ]
+        selected = (a.user_answer or {}).get("selected", [])
+        stem = (a.question_snapshot or {}).get("stem", "")
+        wrong.append(WrongQuestion(
+            question_id=a.question_id,
+            stem=stem,
+            selected_indexes=list(selected),
+            correct_indexes=correct_indexes,
+        ))
+
+    return ExamReportOut(
+        session_id=es.id,
+        status=es.status.value if hasattr(es.status, "value") else es.status,
+        total_questions=total,
+        answered_count=answered,
+        correct_count=correct,
+        scaled_score=scaled_score,
+        max_score=max_score,
+        passing_score=passing_score,
+        passed=passed,
+        accuracy=accuracy,
+        total_time_ms=total_time,
+        avg_time_ms=avg_time,
+        domains=domains,
+        wrong_questions=wrong,
+    )
 
 
-def get_report(session, *, session_id, user_id):
-    raise NotImplementedError
+def finish_session(session: Session, *, session_id, user_id) -> ExamReportOut:
+    es = _load_session(session, session_id, user_id)
+    _auto_submit_if_expired(session, es)
+    if es.status == ExamSessionStatus.in_progress:
+        es.status = ExamSessionStatus.completed
+        es.ended_at = datetime.now(timezone.utc)
+        session.flush()
+    # Recompute correct_count from stored answers (answers are revisable).
+    answers = list(
+        session.execute(
+            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+        ).scalars().all()
+    )
+    es.correct_count = sum(1 for a in answers if a.is_correct)
+    session.flush()
+    log_audit(
+        session, action=AuditAction.edit, actor_id=user_id,
+        organization_id=es.organization_id, entity_type="exam_session",
+        entity_id=str(es.id),
+        details={"status": es.status.value, "correct_count": es.correct_count},
+    )
+    return _build_report(session, es)
+
+
+def get_report(session: Session, *, session_id, user_id) -> ExamReportOut:
+    es = _load_session(session, session_id, user_id)
+    if es.status == ExamSessionStatus.in_progress:
+        raise ConflictError("exam session is not finished")
+    return _build_report(session, es)
 
 
 def get_review(session, *, session_id, user_id):

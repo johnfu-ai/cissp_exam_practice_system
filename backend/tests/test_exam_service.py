@@ -1,5 +1,7 @@
 """Service-layer tests for fixed exam API (sub-project F)."""
 
+import uuid
+
 import pytest
 
 from app.models.auth import Organization, User
@@ -361,3 +363,144 @@ def test_other_user_exam_not_found(db_session):
         svc.get_question_at(
             db_session, session_id=s.id, position=0, user_id=intruder.id
         )
+
+
+def _two_question_exam(db_session, *, passing_score=700, max_score=1000):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = _blueprint(
+        db_session, min_items=2, max_items=2, passing_score=passing_score,
+        max_score=max_score,
+    )
+    d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    q1 = _question(db_session, org, actor, stem="right")  # option 0 correct
+    q2 = _question(db_session, org, actor, stem="wrong")  # option 0 correct
+    _map(db_session, q1, d)
+    _map(db_session, q2, d)
+    s = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"count": 2},
+    )
+    return org, actor, s, (q1, q2)
+
+
+def test_finish_recomputes_correct_count_and_score(db_session):
+    from datetime import datetime, timezone
+
+    org, actor, s, (q1, q2) = _two_question_exam(db_session)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 1, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    report = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    assert report.total_questions == 2
+    assert report.answered_count == 2
+    assert report.correct_count == 1
+    # 1/2 * 1000 = 500
+    assert report.scaled_score == 500
+    assert report.max_score == 1000
+    assert report.passing_score == 700
+    assert report.passed is False
+    assert report.accuracy == 0.5
+    assert len(report.wrong_questions) == 1
+    # position 1 was answered wrong; the wrong question is whichever question
+    # landed at position 1 (assembly shuffles the order).
+    wrong_qid = uuid.UUID(s.config["question_ids"][1])
+    assert report.wrong_questions[0].question_id == wrong_qid
+    assert report.wrong_questions[0].correct_indexes == [0]
+    assert report.wrong_questions[0].selected_indexes == [1]
+
+
+def test_finish_per_domain_performance(db_session):
+    from datetime import datetime, timezone
+
+    org, actor, s, _ = _two_question_exam(db_session)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 1, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    report = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    assert len(report.domains) == 1
+    assert report.domains[0].answered == 2
+    assert report.domains[0].correct == 1
+    assert report.domains[0].accuracy == 0.5
+
+
+def test_finish_passing_line(db_session):
+    from datetime import datetime, timezone
+
+    org, actor, s, _ = _two_question_exam(db_session, passing_score=0, max_score=1000)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    report = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    assert report.passed is True  # 500 >= 0
+
+
+def test_finish_recomputes_after_revision(db_session):
+    from datetime import datetime, timezone
+
+    org, actor, s, _ = _two_question_exam(db_session)
+    # answer both wrong first
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 1, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    # revise position 0 to correct
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    report = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    assert report.correct_count == 1  # only the revised answer counts
+
+
+def test_finish_idempotent(db_session):
+    from datetime import datetime, timezone
+
+    from app.models.enums import ExamSessionStatus
+
+    org, actor, s, _ = _two_question_exam(db_session)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    a = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    b = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    assert a.correct_count == b.correct_count
+    assert db_session.get(ExamSession, s.id).status == ExamSessionStatus.completed
+
+
+def test_get_report_after_finish(db_session):
+    from datetime import datetime, timezone
+
+    org, actor, s, _ = _two_question_exam(db_session)
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    report = svc.get_report(db_session, session_id=s.id, user_id=actor.id)
+    assert report.correct_count == 1
