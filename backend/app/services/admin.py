@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.db.queries import not_deleted
 from app.dependencies import CurrentUser
-from app.models.admin import CatParamsVersion
+from app.models.admin import AuditLog, CatParamsVersion
 from app.models.auth import (
     Class,
     ClassMembership,
@@ -42,6 +42,7 @@ from app.models.question import (
     QuestionStatus,
 )
 from app.schemas.admin import (
+    AuditLogOut,
     CatParamsIn,
     CatParamsVersionOut,
     ClassIn,
@@ -51,6 +52,7 @@ from app.schemas.admin import (
     FeedbackResolveIn,
     LowAccuracyQuestionOut,
     MissingExplanationQuestionOut,
+    PaginatedAudit,
     QualityDashboardOut,
     UserOut,
 )
@@ -551,3 +553,47 @@ def list_missing_explanation_questions(session, *, current, limit=50) -> list[Mi
     out = [MissingExplanationQuestionOut(question_id=p.id, stem=p.stem, status=p.status.value)
            for p in pubs if p.id not in with_expl][:limit]
     return out
+
+
+# ---- FR-ADMIN-06: audit log viewer ----
+#
+# org_admin sees only AuditLog.organization_id == current.org_id (the org_id
+# param must equal their own or be omitted; a different org raises
+# ValidationError). system_admin (scope None) sees ALL logs — including
+# organization_id=None system-level events (e.g. CAT params config_change) —
+# and the org_id param further filters. Supports action / actor_id /
+# entity_type / since / until filters plus limit/offset pagination, ordered
+# most-recent-first.
+
+def list_audit_logs(session, *, current, action=None, actor_id=None, entity_type=None,
+                    since=None, until=None, org_id=None, limit=50, offset=0) -> PaginatedAudit:
+    scope = _admin_org_scope(current)
+    if scope is not None:
+        # org_admin: org_id param different from own is forbidden (param
+        # validation, not a target lookup -> ValidationError, not NotFound).
+        if org_id is not None and org_id != scope:
+            raise ValidationError("cannot target another organization")
+        effective_org = scope
+    else:
+        effective_org = org_id  # None = all orgs (incl. system events) for system_admin
+    q = select(AuditLog)
+    if effective_org is not None:
+        q = q.where(AuditLog.organization_id == effective_org)
+    if action is not None:
+        q = q.where(AuditLog.action == action)
+    if actor_id is not None:
+        q = q.where(AuditLog.actor_id == actor_id)
+    if entity_type is not None:
+        q = q.where(AuditLog.entity_type == entity_type)
+    if since is not None:
+        q = q.where(AuditLog.occurred_at >= since)
+    if until is not None:
+        q = q.where(AuditLog.occurred_at <= until)
+    total = session.execute(select(func.count()).select_from(q.subquery())).scalar_one()
+    rows = session.execute(q.order_by(AuditLog.occurred_at.desc())
+                           .limit(limit).offset(offset)).scalars().all()
+    items = [AuditLogOut(id=r.id, occurred_at=r.occurred_at, action=r.action.value,
+                         actor_id=r.actor_id, organization_id=r.organization_id,
+                         entity_type=r.entity_type, entity_id=r.entity_id,
+                         details=r.details, ip_address=r.ip_address) for r in rows]
+    return PaginatedAudit(items=items, total=total, limit=limit, offset=offset)

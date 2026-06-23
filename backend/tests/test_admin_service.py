@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 
 from app.db.seed import PERMISSIONS
 from app.dependencies import CurrentUser
-from app.models.admin import CatParamsVersion
+from app.models.admin import AuditLog, CatParamsVersion
 from app.models.auth import (
     Organization,
     OrganizationMembership,
@@ -21,6 +21,7 @@ from app.models.auth import (
     User,
 )
 from app.models.enums import (
+    AuditAction,
     OrgKind,
     OrgStatus,
     PracticeSessionStatus,
@@ -422,3 +423,192 @@ def test_quality_org_scoped(session_with_roles):
     assert all(r.question_id != q_o2.id for r in rows)
     assert any(r.question_id == q_o1.id for r in rows)
     assert total >= 1
+
+
+# ---- FR-ADMIN-06: audit log viewer ----
+#
+# list_audit_logs: org_admin sees only own org; system_admin sees all (incl.
+# organization_id=None system events); org_id param forbidden for org_admin
+# when different from own, and filters for system_admin. Supports action /
+# actor_id / entity_type / since / until filters and limit/offset pagination.
+
+def _audit(db, *, action, org_id, actor_id=None, entity_type="user",
+           entity_id="x", occurred_at=None, details=None, ip_address=None):
+    """Direct AuditLog insert. occurred_at is set explicitly for time-filter
+    tests (log_audit doesn't accept it and relies on the now() server default,
+    which is unsuitable when a test needs deterministic timestamps)."""
+    entry = AuditLog(
+        actor_id=actor_id,
+        organization_id=org_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        details=details,
+        ip_address=ip_address,
+    )
+    if occurred_at is not None:
+        entry.occurred_at = occurred_at
+    db.add(entry); db.flush()
+    return entry
+
+
+def test_audit_logs_org_scoped(session_with_roles):
+    # org_admin sees only own org's logs; o2's logs are invisible. Omitting
+    # org_id defaults to the admin's own org.
+    db = session_with_roles
+    o1, o2 = _org(db, "o1"), _org(db, "o2")
+    cur_o1 = _current(db, o1)
+    a1 = cur_o1.user
+    a2 = _user(db, "o2-actor@x.com", o2)
+    _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a1.id, entity_id=str(a1.id))
+    _audit(db, action=AuditAction.edit, org_id=o2.id, actor_id=a2.id, entity_id=str(a2.id))
+    out = svc.list_audit_logs(db, current=cur_o1)
+    assert all(i.organization_id == o1.id for i in out.items)
+    assert all(i.organization_id != o2.id for i in out.items)
+    assert out.total >= 1
+    assert out.limit == 50 and out.offset == 0
+
+
+def test_audit_logs_action_filter(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    a = cur.user
+    _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id)
+    _audit(db, action=AuditAction.publish, org_id=o1.id, actor_id=a.id)
+    out = svc.list_audit_logs(db, current=cur, action=AuditAction.edit)
+    assert out.total >= 1
+    assert all(i.action == "edit" for i in out.items)
+
+
+def test_audit_logs_system_admin_sees_all_including_system_events(session_with_roles):
+    # system_admin (scope None) sees every org's logs AND organization_id=None
+    # system-level events (e.g. CAT params config_change per FR-ADMIN-04).
+    db = session_with_roles
+    o1, o2 = _org(db, "o1"), _org(db, "o2")
+    cur = _sysadmin_current(db, o1)
+    a = cur.user
+    _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id)
+    _audit(db, action=AuditAction.edit, org_id=o2.id, actor_id=a.id)
+    _audit(db, action=AuditAction.config_change, org_id=None, actor_id=a.id,
+           entity_type="cat_params")
+    out = svc.list_audit_logs(db, current=cur)
+    orgs = {i.organization_id for i in out.items}
+    assert o1.id in orgs and o2.id in orgs
+    assert None in orgs  # system-level event visible to system_admin
+    assert out.total >= 3
+
+
+def test_audit_logs_system_admin_org_id_param_filters(session_with_roles):
+    # For system_admin the org_id param further filters (does not forbid).
+    db = session_with_roles
+    o1, o2 = _org(db, "o1"), _org(db, "o2")
+    cur = _sysadmin_current(db, o1)
+    a = cur.user
+    _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id)
+    _audit(db, action=AuditAction.edit, org_id=o2.id, actor_id=a.id)
+    out = svc.list_audit_logs(db, current=cur, org_id=o1.id)
+    assert all(i.organization_id == o1.id for i in out.items)
+    assert all(i.organization_id != o2.id for i in out.items)
+
+
+def test_audit_logs_org_admin_forbidden_other_org(session_with_roles):
+    # org_admin passing a different org_id raises ValidationError (not NotFound
+    # — this is a param validation, not a target lookup).
+    db = session_with_roles
+    o1, o2 = _org(db, "o1"), _org(db, "o2")
+    cur_o1 = _current(db, o1)
+    with pytest.raises(svc.ValidationError):
+        svc.list_audit_logs(db, current=cur_o1, org_id=o2.id)
+
+
+def test_audit_logs_actor_and_entity_filters(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    a = cur.user
+    other = _user(db, "other@x.com", o1)
+    _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id,
+           entity_type="user", entity_id="u1")
+    _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=other.id,
+           entity_type="class", entity_id="c1")
+    out_actor = svc.list_audit_logs(db, current=cur, actor_id=a.id)
+    assert all(i.actor_id == a.id for i in out_actor.items)
+    out_entity = svc.list_audit_logs(db, current=cur, entity_type="class")
+    assert all(i.entity_type == "class" for i in out_entity.items)
+
+
+def test_audit_logs_since_until_time_filter(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    a = cur.user
+    t_old = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    t_mid = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    t_new = datetime(2026, 12, 1, tzinfo=timezone.utc)
+    e_old = _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id, occurred_at=t_old)
+    e_mid = _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id, occurred_at=t_mid)
+    e_new = _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id, occurred_at=t_new)
+    out = svc.list_audit_logs(db, current=cur,
+                              since=datetime(2026, 3, 1, tzinfo=timezone.utc),
+                              until=datetime(2026, 9, 1, tzinfo=timezone.utc))
+    ids = {i.id for i in out.items}
+    assert e_mid.id in ids
+    assert e_old.id not in ids
+    assert e_new.id not in ids
+
+
+def test_audit_logs_pagination(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    a = cur.user
+    for i in range(5):
+        _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id, entity_id=str(i))
+    page1 = svc.list_audit_logs(db, current=cur, limit=2, offset=0)
+    page2 = svc.list_audit_logs(db, current=cur, limit=2, offset=2)
+    assert len(page1.items) == 2
+    assert len(page2.items) == 2
+    assert page1.total == page2.total
+    assert page1.total >= 5
+    # pages must not overlap
+    p1_ids = {i.id for i in page1.items}
+    p2_ids = {i.id for i in page2.items}
+    assert not (p1_ids & p2_ids)
+    assert page1.limit == 2 and page1.offset == 0
+    assert page2.limit == 2 and page2.offset == 2
+
+
+def test_audit_logs_output_mapping(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _sysadmin_current(db, o1)
+    a = cur.user
+    entry = _audit(db, action=AuditAction.edit, org_id=o1.id, actor_id=a.id,
+                   entity_type="user", entity_id=str(a.id),
+                   details={"k": "v"}, ip_address="10.0.0.1")
+    out = svc.list_audit_logs(db, current=cur)
+    match = next(i for i in out.items if i.id == entry.id)
+    assert match.action == "edit"
+    assert match.actor_id == a.id
+    assert match.organization_id == o1.id
+    assert match.entity_type == "user"
+    assert match.entity_id == str(a.id)
+    assert match.details == {"k": "v"}
+    assert match.ip_address == "10.0.0.1"
+    assert match.occurred_at is not None
+
+
+def test_audit_logs_sees_service_emitted_rows(session_with_roles):
+    # Rows written by log_audit (via service mutations) are readable by
+    # list_audit_logs — verifies the viewer reads the same AuditLog table the
+    # services write to, and org-scoping holds for org_admin.
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _current(db, o1)
+    target = _user(db, "t@x.com", o1)
+    svc.set_user_status(db, current=cur, user_id=target.id, status=UserStatus.disabled)
+    db.flush()
+    out = svc.list_audit_logs(db, current=cur, action=AuditAction.permission_change)
+    assert any(i.entity_id == str(target.id) for i in out.items)
+    assert all(i.organization_id == o1.id for i in out.items)
