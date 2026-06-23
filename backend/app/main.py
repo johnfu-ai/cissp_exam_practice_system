@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.admin import router as admin_router
 from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.etl import router as etl_router
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(questions_router)
     app.include_router(practice_router)
     app.include_router(exam_router)
+    app.include_router(admin_router)
 
     return app
 
