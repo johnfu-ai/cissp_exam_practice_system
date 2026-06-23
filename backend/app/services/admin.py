@@ -14,7 +14,7 @@ quality, audit, and reports functions to this same file.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Integer, func, or_, select
 from sqlalchemy.orm import Session
@@ -31,8 +31,8 @@ from app.models.auth import (
     User,
 )
 from app.models.enums import AuditAction, UserStatus
-from app.models.exam import ExamAnswer
-from app.models.practice import PracticeAnswer
+from app.models.exam import ExamAnswer, ExamSession
+from app.models.practice import PracticeAnswer, PracticeSession
 from app.models.question import (
     Explanation,
     Question,
@@ -54,6 +54,7 @@ from app.schemas.admin import (
     MissingExplanationQuestionOut,
     PaginatedAudit,
     QualityDashboardOut,
+    ReportSummaryOut,
     UserOut,
 )
 from app.services.audit import log_audit
@@ -597,3 +598,115 @@ def list_audit_logs(session, *, current, action=None, actor_id=None, entity_type
                          entity_type=r.entity_type, entity_id=r.entity_id,
                          details=r.details, ip_address=r.ip_address) for r in rows]
     return PaginatedAudit(items=items, total=total, limit=limit, offset=offset)
+
+
+# ---- FR-ADMIN-07: operational reports ----
+#
+# report_summary: window_days ∈ {30, 90} else ValidationError. org_admin is
+# scoped to own org (the org_id param must equal own or be omitted, else
+# ValidationError); system_admin is global, with the optional org_id param
+# filtering the question-bank dimension (published/used/usage%) to that org
+# while answer/session stats stay global per the brief's rule. Active users =
+# distinct users with ≥1 answer in window. total/correct/accuracy are computed
+# over BOTH practice + exam answers in window. Published count is in-scope;
+# used = distinct in-scope published questions appearing in ≥1 session's
+# config.question_ids (window-agnostic); usage% = used/published*100.
+# top_error_questions delegates to list_low_accuracy_questions(limit=10).
+#
+# NOTE: session config.question_ids are stored as JSON *strings* (see
+# practice.py / exam.py: ``[str(q) for q in question_ids]``), so they must be
+# normalized to ``uuid.UUID`` before intersecting with ``Question.id`` (UUID) —
+# otherwise the set intersection is always empty and usage silently reports 0%.
+
+_REPORT_WINDOWS = (30, 90)
+
+
+def _scoped_user_ids(session, current):
+    """Set of user_ids in the admin's org (org_admin), or None for system_admin
+    (all users — no user filtering on answer/session stats)."""
+    scope = _admin_org_scope(current)
+    if scope is None:
+        return None
+    rows = session.execute(
+        select(OrganizationMembership.user_id).where(
+            OrganizationMembership.organization_id == scope
+        )
+    ).scalars().all()
+    return set(rows)
+
+
+def report_summary(session, *, current, org_id=None, window_days=30) -> ReportSummaryOut:
+    if window_days not in _REPORT_WINDOWS:
+        raise ValidationError("window_days must be 30 or 90")
+    scope = _admin_org_scope(current)
+    if scope is not None:
+        if org_id is not None and org_id != scope:
+            raise ValidationError("cannot target another organization")
+        report_org = scope
+        scope_str = f"org:{scope}"
+    else:
+        report_org = org_id
+        scope_str = f"org:{org_id}" if org_id is not None else "global"
+
+    user_ids = _scoped_user_ids(session, current)  # None or set
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+
+    # answer stats in window (both practice + exam)
+    def _filtered_answers(model):
+        q = select(model).where(model.answered_at >= cutoff)
+        if user_ids is not None:
+            q = q.where(model.user_id.in_(user_ids))
+        return session.execute(q).scalars().all()
+
+    prac_ans = _filtered_answers(PracticeAnswer)
+    exam_ans = _filtered_answers(ExamAnswer)
+    total_answers = len(prac_ans) + len(exam_ans)
+    correct_answers = (
+        sum(1 for a in prac_ans if a.is_correct)
+        + sum(1 for a in exam_ans if a.is_correct)
+    )
+    accuracy = round(correct_answers / total_answers, 4) if total_answers else 0.0
+    active_users = len({a.user_id for a in list(prac_ans) + list(exam_ans)})
+
+    # session counts in window
+    def _session_count(model):
+        q = select(func.count()).select_from(model).where(model.started_at >= cutoff)
+        if user_ids is not None:
+            q = q.where(model.user_id.in_(user_ids))
+        return session.execute(q).scalar_one()
+
+    practice_session_count = _session_count(PracticeSession)
+    exam_session_count = _session_count(ExamSession)
+
+    # question bank usage (in scope)
+    qq = select(Question).where(not_deleted(Question), Question.status == QuestionStatus.published)
+    if report_org is not None:
+        qq = qq.where(Question.organization_id == report_org)
+    published = session.execute(qq).scalars().all()
+    published_question_count = len(published)
+    used_qids = set()
+    for model in (PracticeSession, ExamSession):
+        sq = select(model)
+        if user_ids is not None:
+            sq = sq.where(model.user_id.in_(user_ids))
+        for s in session.execute(sq).scalars().all():
+            raw = (s.config or {}).get("question_ids") or []
+            # config stores question_ids as JSON strings; normalize to UUID so
+            # the intersection with Question.id (UUID) is non-empty.
+            used_qids.update(uuid.UUID(q) if isinstance(q, str) else q for q in raw)
+    used_in_scope = {q.id for q in published} & used_qids
+    used_question_count = len(used_in_scope)
+    question_bank_usage_pct = (
+        round(used_question_count / published_question_count * 100, 2)
+        if published_question_count else 0.0
+    )
+
+    top_error = list_low_accuracy_questions(session, current=current, limit=10)
+
+    return ReportSummaryOut(
+        scope=scope_str, window_days=window_days, active_users=active_users,
+        practice_session_count=practice_session_count, exam_session_count=exam_session_count,
+        total_answers=total_answers, correct_answers=correct_answers, accuracy=accuracy,
+        published_question_count=published_question_count, used_question_count=used_question_count,
+        question_bank_usage_pct=question_bank_usage_pct, top_error_questions=top_error,
+    )

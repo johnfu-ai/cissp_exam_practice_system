@@ -22,6 +22,7 @@ from app.models.auth import (
 )
 from app.models.enums import (
     AuditAction,
+    ExamSessionKind,
     OrgKind,
     OrgStatus,
     PracticeSessionStatus,
@@ -32,6 +33,7 @@ from app.models.enums import (
     TextFormat,
     UserStatus,
 )
+from app.models.exam import ExamAnswer, ExamSession
 from app.models.practice import PracticeAnswer, PracticeSession
 from app.models.question import Explanation, Question, QuestionFeedback, QuestionOption
 from app.schemas.admin import CatParams, CatParamsIn, ClassIn, FeedbackResolveIn
@@ -612,3 +614,120 @@ def test_audit_logs_sees_service_emitted_rows(session_with_roles):
     out = svc.list_audit_logs(db, current=cur, action=AuditAction.permission_change)
     assert any(i.entity_id == str(target.id) for i in out.items)
     assert all(i.organization_id == o1.id for i in out.items)
+
+
+# ---- FR-ADMIN-07: operational reports ----
+#
+# report_summary: window_days ∈ {30,90}; org_admin scoped to own org (org_id
+# param must equal own or omitted, else ValidationError); system_admin global
+# or filtered by org_id. Active users = distinct users with ≥1 answer in
+# window. total/correct/accuracy over both practice + exam answers in window.
+# Published count in scope; used = distinct in-scope published questions in
+# ≥1 session's config.question_ids (window-agnostic); usage% = used/published*100.
+# top_error_questions delegates to list_low_accuracy_questions(limit=10).
+
+def test_report_summary_computed_values(session_with_roles):
+    # 2 o1 users with practice answers + 1 exam answer; 2 published questions;
+    # one practice + one exam session referencing them via config.question_ids.
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur_o1 = _current(db, o1)
+    a = cur_o1.user                       # o1 admin (also an answering user)
+    b = _user(db, "b@x.com", o1)          # second o1 answerer
+
+    q1 = _question(db, o1, a, stem="q1")  # published
+    q2 = _question(db, o1, a, stem="q2")  # published
+
+    now = datetime.now(timezone.utc)
+
+    # practice session by A, config references q1 (stored as JSON strings, like
+    # the real practice service: [str(q) for q in question_ids]).
+    ps = PracticeSession(
+        user_id=a.id, organization_id=o1.id,
+        status=PracticeSessionStatus.completed, total_questions=2,
+        started_at=now, config={"question_ids": [str(q1.id)]},
+    )
+    db.add(ps); db.flush()
+    _practice_answer(db, session=ps, actor=a, question=q1, is_correct=True)
+    _practice_answer(db, session=ps, actor=b, question=q1, is_correct=False)
+
+    # exam session by A, config references q1 + q2
+    from app.models.taxonomy import ExamBlueprint
+    bp = ExamBlueprint(version_label="rep-v1", effective_date="2026-04-15",
+                       min_items=1, max_items=10, duration_minutes=30,
+                       passing_score=700, max_score=1000, is_current=True)
+    db.add(bp); db.flush()
+    es = ExamSession(
+        user_id=a.id, organization_id=o1.id, blueprint_id=bp.id,
+        session_kind=ExamSessionKind.fixed, total_questions=1,
+        started_at=now, config={"question_ids": [str(q1.id), str(q2.id)]},
+    )
+    db.add(es); db.flush()
+    db.add(ExamAnswer(
+        session_id=es.id, user_id=a.id, question_id=q2.id,
+        question_snapshot={}, options_snapshot=[],
+        user_answer={"selected": [0]}, is_correct=True,
+        time_spent_ms=1000, answered_at=now,
+    )); db.flush()
+
+    out = svc.report_summary(db, current=cur_o1, window_days=30)
+    assert out.scope == f"org:{o1.id}"
+    assert out.window_days == 30
+    assert out.active_users == 2                # A + B (o2 has none here)
+    assert out.total_answers == 3               # 2 practice + 1 exam
+    assert out.correct_answers == 2             # A practice + A exam
+    assert out.accuracy == round(2 / 3, 4)
+    assert 0.0 <= out.accuracy <= 1.0
+    assert out.practice_session_count == 1
+    assert out.exam_session_count == 1
+    assert out.published_question_count == 2
+    assert out.used_question_count == 2         # q1 + q2 both used & in-scope
+    assert out.question_bank_usage_pct == 100.0
+    # nothing meets the answered>=5 low-accuracy threshold
+    assert out.top_error_questions == []
+
+
+def test_report_summary_invalid_window(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _current(db, o1)
+    with pytest.raises(svc.ValidationError):
+        svc.report_summary(db, current=cur, window_days=7)
+    # 90 is also valid — sanity check it does not raise
+    svc.report_summary(db, current=cur, window_days=90)
+
+
+def test_report_summary_org_admin_cross_org_forbidden(session_with_roles):
+    db = session_with_roles
+    o1, o2 = _org(db, "o1"), _org(db, "o2")
+    cur_o1 = _current(db, o1)
+    with pytest.raises(svc.ValidationError):
+        svc.report_summary(db, current=cur_o1, org_id=o2.id, window_days=30)
+
+
+def test_report_summary_system_admin_global(session_with_roles):
+    # system_admin (scope None) sees all orgs; scope string == "global".
+    db = session_with_roles
+    o1, o2 = _org(db, "o1"), _org(db, "o2")
+    cur = _sysadmin_current(db, o1)
+    u1 = _user(db, "u1@x.com", o1)
+    u2 = _user(db, "u2@x.com", o2)
+    q1 = _question(db, o1, u1, stem="g1")
+    q2 = _question(db, o2, u2, stem="g2")
+    ps1 = _practice_session(db, o1, u1)
+    ps2 = _practice_session(db, o2, u2)
+    _practice_answer(db, session=ps1, actor=u1, question=q1, is_correct=True)
+    _practice_answer(db, session=ps2, actor=u2, question=q2, is_correct=False)
+    out = svc.report_summary(db, current=cur, window_days=30)
+    assert out.scope == "global"
+    assert out.active_users == 2                # u1 + u2 across both orgs
+    assert out.total_answers == 2
+    assert out.practice_session_count == 2
+    assert out.published_question_count == 2    # both orgs' published questions
+    assert 0.0 <= out.accuracy <= 1.0
+
+    # system_admin may further filter to one org via org_id (no ValidationError);
+    # the question-bank dimension narrows to that org.
+    out_o1 = svc.report_summary(db, current=cur, org_id=o1.id, window_days=30)
+    assert out_o1.scope == f"org:{o1.id}"
+    assert out_o1.published_question_count == 1
