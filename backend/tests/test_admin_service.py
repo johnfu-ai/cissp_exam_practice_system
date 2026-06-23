@@ -8,7 +8,7 @@ matrix already exist for ``OrganizationMembership`` and role lookups.
 """
 
 import pytest
-from datetime import date
+from datetime import date, datetime, timezone
 
 from app.db.seed import PERMISSIONS
 from app.dependencies import CurrentUser
@@ -20,8 +20,20 @@ from app.models.auth import (
     RoleName,
     User,
 )
-from app.models.enums import OrgKind, OrgStatus, UserStatus
-from app.schemas.admin import CatParams, CatParamsIn, ClassIn
+from app.models.enums import (
+    OrgKind,
+    OrgStatus,
+    PracticeSessionStatus,
+    QuestionFeedbackStatus,
+    QuestionFeedbackType,
+    QuestionStatus,
+    QuestionType,
+    TextFormat,
+    UserStatus,
+)
+from app.models.practice import PracticeAnswer, PracticeSession
+from app.models.question import Explanation, Question, QuestionFeedback, QuestionOption
+from app.schemas.admin import CatParams, CatParamsIn, ClassIn, FeedbackResolveIn
 from app.services import admin as svc
 
 
@@ -221,3 +233,192 @@ def test_create_cat_params_audits_config_change(session_with_roles):
         entity_type="cat_params", entity_id=str(v1.id)).all()
     assert any(l.action.value == "config_change" for l in logs)
     assert all(l.organization_id is None for l in logs)
+
+
+# ---- FR-ADMIN-05: content quality queue ----
+#
+# Seed helpers mirror the conventions in test_analytics.py
+# (_question / _practice_session / _practice_answer) but live here so the
+# admin tests stay self-contained.
+
+def _question(db, org, actor, *, stem="q", status=QuestionStatus.published):
+    """Single-choice question with option 0 correct, option 1 wrong."""
+    q = Question(
+        organization_id=org.id,
+        question_type=QuestionType.single_choice,
+        stem=stem,
+        stem_format=TextFormat.markdown,
+        status=status,
+        created_by_id=actor.id,
+    )
+    db.add(q); db.flush()
+    db.add(QuestionOption(
+        question_id=q.id, order_index=0, content="A",
+        content_format=TextFormat.markdown, is_correct=True,
+    ))
+    db.add(QuestionOption(
+        question_id=q.id, order_index=1, content="B",
+        content_format=TextFormat.markdown, is_correct=False,
+    ))
+    db.flush()
+    return q
+
+
+def _practice_session(db, org, actor):
+    s = PracticeSession(
+        user_id=actor.id,
+        organization_id=org.id,
+        status=PracticeSessionStatus.completed,
+        total_questions=1,
+    )
+    db.add(s); db.flush()
+    return s
+
+
+def _practice_answer(db, *, session, actor, question, is_correct):
+    ans = PracticeAnswer(
+        session_id=session.id,
+        user_id=actor.id,
+        question_id=question.id,
+        question_snapshot={},
+        options_snapshot=[],
+        user_answer={"selected": [0]},
+        is_correct=is_correct,
+        time_spent_ms=1000,
+        answered_at=datetime.now(timezone.utc),
+    )
+    db.add(ans); db.flush()
+    return ans
+
+
+def _feedback(db, question, actor, *,
+              feedback_type=QuestionFeedbackType.other,
+              status=QuestionFeedbackStatus.open, comment="c"):
+    fb = QuestionFeedback(
+        organization_id=question.organization_id,
+        question_id=question.id,
+        reporter_id=actor.id,
+        feedback_type=feedback_type,
+        comment=comment,
+        status=status,
+    )
+    db.add(fb); db.flush()
+    return fb
+
+
+def test_quality_dashboard_counts(session_with_roles):
+    # seed: 1 open feedback, 1 low-acc question (answered>=5, acc<0.6),
+    # 1 published question with no Explanation, 1 disputed (open
+    # suspected_wrong_answer).
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _current(db, o1)
+    actor = cur.user
+    ps = _practice_session(db, o1, actor)
+    # disputed: open suspected_wrong_answer feedback (also counts as open)
+    q_disputed = _question(db, o1, actor, stem="disputed")
+    _feedback(db, q_disputed, actor,
+              feedback_type=QuestionFeedbackType.suspected_wrong_answer)
+    # low-acc: 5 answers, 1 correct (acc 0.2 < 0.6)
+    q_low = _question(db, o1, actor, stem="low")
+    for i in range(5):
+        _practice_answer(db, session=ps, actor=actor, question=q_low,
+                         is_correct=(i == 0))
+    # missing-explanation: published question with no Explanation row
+    q_missing = _question(db, o1, actor, stem="missing")
+    assert db.query(Explanation).filter_by(question_id=q_missing.id).count() == 0
+    out = svc.quality_dashboard(db, current=cur)
+    assert out.open_feedback_count >= 1
+    assert out.disputed_question_count >= 1
+    assert out.low_accuracy_question_count >= 1
+    assert out.missing_explanation_count >= 1
+
+
+def test_resolve_feedback(session_with_roles):
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _current(db, o1)
+    actor = cur.user
+    q = _question(db, o1, actor, stem="fb-q")
+    fb = _feedback(db, q, actor,
+                   feedback_type=QuestionFeedbackType.unclear_explanation)
+    out = svc.resolve_feedback(db, current=cur, feedback_id=fb.id,
+                               payload=FeedbackResolveIn(
+                                   status=QuestionFeedbackStatus.resolved))
+    assert out.status == "resolved"
+    assert out.id == fb.id
+    db.flush()
+    from app.models.admin import AuditLog
+    logs = db.query(AuditLog).filter_by(
+        entity_type="feedback", entity_id=str(fb.id)).all()
+    assert any(l.action.value == "edit" for l in logs)
+    assert all(l.organization_id == o1.id for l in logs)
+
+
+def test_resolve_feedback_out_of_scope_not_found(session_with_roles):
+    # Out-of-scope feedback resolves to NotFound (not 403) — binding rule.
+    db = session_with_roles
+    o1, o2 = _org(db, "o1"), _org(db, "o2")
+    cur_o1 = _current(db, o1)
+    actor_o2 = _user(db, "o2-user@x.com", o2)
+    q_o2 = _question(db, o2, actor_o2, stem="o2-fb-q")
+    fb = _feedback(db, q_o2, actor_o2,
+                   feedback_type=QuestionFeedbackType.unclear_explanation)
+    with pytest.raises(svc.NotFound):
+        svc.resolve_feedback(db, current=cur_o1, feedback_id=fb.id,
+                             payload=FeedbackResolveIn(
+                                 status=QuestionFeedbackStatus.resolved))
+
+
+def test_low_accuracy_threshold_and_order(session_with_roles):
+    # a question answered 5x with 1 correct (acc 0.2) and one answered 4x
+    # (below threshold).
+    db = session_with_roles
+    o1 = _org(db, "o1")
+    cur = _current(db, o1)
+    actor = cur.user
+    ps = _practice_session(db, o1, actor)
+    # q_below: 4 answers -> below the answered>=5 threshold (excluded)
+    q_below = _question(db, o1, actor, stem="below")
+    for _ in range(4):
+        _practice_answer(db, session=ps, actor=actor, question=q_below,
+                         is_correct=False)
+    # q_low: 5 answers, 1 correct -> acc 0.2 (low)
+    q_low = _question(db, o1, actor, stem="low")
+    for i in range(5):
+        _practice_answer(db, session=ps, actor=actor, question=q_low,
+                         is_correct=(i == 0))
+    # q_zero: 5 answers, 0 correct -> acc 0.0 (lowest)
+    q_zero = _question(db, o1, actor, stem="zero")
+    for _ in range(5):
+        _practice_answer(db, session=ps, actor=actor, question=q_zero,
+                         is_correct=False)
+    rows = svc.list_low_accuracy_questions(db, current=cur, limit=10)
+    assert all(r.accuracy < 0.6 and r.answered >= 5 for r in rows)
+    assert rows == sorted(rows, key=lambda r: r.accuracy)
+    # q_below (4 answered) is excluded
+    assert all(r.question_id != q_below.id for r in rows)
+    # q_low and q_zero are included
+    ids = {r.question_id for r in rows}
+    assert q_low.id in ids
+    assert q_zero.id in ids
+
+
+def test_quality_org_scoped(session_with_roles):
+    # feedback in o2 invisible to o1 admin; o1 feedback visible.
+    db = session_with_roles
+    o1, o2 = _org(db, "o1"), _org(db, "o2")
+    cur_o1 = _current(db, o1)
+    actor_o1 = cur_o1.user
+    actor_o2 = _user(db, "o2-user@x.com", o2)
+    q_o1 = _question(db, o1, actor_o1, stem="o1-q")
+    _feedback(db, q_o1, actor_o1,
+              feedback_type=QuestionFeedbackType.unclear_explanation)
+    q_o2 = _question(db, o2, actor_o2, stem="o2-q")
+    _feedback(db, q_o2, actor_o2,
+              feedback_type=QuestionFeedbackType.unclear_explanation)
+    rows, total = svc.list_open_feedback(db, current=cur_o1, feedback_type=None,
+                                         limit=50, offset=0)
+    assert all(r.question_id != q_o2.id for r in rows)
+    assert any(r.question_id == q_o1.id for r in rows)
+    assert total >= 1

@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Integer, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.queries import not_deleted
@@ -31,12 +31,27 @@ from app.models.auth import (
     User,
 )
 from app.models.enums import AuditAction, UserStatus
+from app.models.exam import ExamAnswer
+from app.models.practice import PracticeAnswer
+from app.models.question import (
+    Explanation,
+    Question,
+    QuestionFeedback,
+    QuestionFeedbackStatus as _QFStatus,
+    QuestionFeedbackType,
+    QuestionStatus,
+)
 from app.schemas.admin import (
     CatParamsIn,
     CatParamsVersionOut,
     ClassIn,
     ClassMemberOut,
     ClassOut,
+    FeedbackOut,
+    FeedbackResolveIn,
+    LowAccuracyQuestionOut,
+    MissingExplanationQuestionOut,
+    QualityDashboardOut,
     UserOut,
 )
 from app.services.audit import log_audit
@@ -377,3 +392,162 @@ def get_current_cat_params(session) -> CatParamsVersion | None:
     return session.execute(
         select(CatParamsVersion).where(CatParamsVersion.is_current.is_(True))
     ).scalar_one_or_none()
+
+
+# ---- FR-ADMIN-05: content quality ----
+#
+# Org-scoped for org_admin (current.org_id), global for system_admin (None
+# scope). Out-of-scope targets raise NotFound (not 403) to avoid leaking
+# existence. Thresholds: low-accuracy = accuracy < 0.6 AND answered >= 5;
+# missing-explanation = published Question with no Explanation row; disputed =
+# question has >=1 OPEN suspected_wrong_answer feedback.
+
+_LOW_ACC = 0.6
+_LOW_ACC_MIN_ANSWERED = 5
+
+
+def _q_scope(current):
+    return _admin_org_scope(current)  # None for system_admin
+
+
+def _scoped_questions_q(current):
+    q = select(Question).where(not_deleted(Question))
+    scope = _q_scope(current)
+    if scope is not None:
+        q = q.where(Question.organization_id == scope)
+    return q
+
+
+def _answer_stats(session, current):
+    """Returns (stats, qids): stats is {question_id: (answered, correct)} for
+    in-scope questions that have answers; qids is the set of in-scope question
+    ids (used by callers that need the full in-scope set, not just those with
+    answers)."""
+    sq = _scoped_questions_q(current).subquery()
+    qids = session.execute(select(sq.c.id)).scalars().all()
+    stats: dict[uuid.UUID, tuple[int, int]] = {}
+    if not qids:
+        return stats, set(qids)
+    prac = session.execute(
+        select(PracticeAnswer.question_id,
+               func.count(),
+               func.coalesce(func.sum(PracticeAnswer.is_correct.cast(Integer)), 0))
+        .where(PracticeAnswer.question_id.in_(qids))
+        .group_by(PracticeAnswer.question_id)
+    ).all()
+    exam = session.execute(
+        select(ExamAnswer.question_id,
+               func.count(),
+               func.coalesce(func.sum(ExamAnswer.is_correct.cast(Integer)), 0))
+        .where(ExamAnswer.question_id.in_(qids))
+        .group_by(ExamAnswer.question_id)
+    ).all()
+    for qid, n, c in list(prac) + list(exam):
+        a, cc = stats.get(qid, (0, 0))
+        stats[qid] = (a + n, cc + int(c))
+    return stats, set(qids)
+
+
+def quality_dashboard(session, *, current) -> QualityDashboardOut:
+    stats, _qids = _answer_stats(session, current)
+    scope = _q_scope(current)
+    org_filter = [Question.organization_id == scope] if scope is not None else []
+    open_fb = session.execute(
+        select(func.count(QuestionFeedback.id))
+        .join(Question, Question.id == QuestionFeedback.question_id)
+        .where(not_deleted(Question), QuestionFeedback.status == _QFStatus.open,
+               *org_filter)
+    ).scalar_one()
+    disputed = session.execute(
+        select(func.count(func.distinct(QuestionFeedback.question_id)))
+        .join(Question, Question.id == QuestionFeedback.question_id)
+        .where(not_deleted(Question), QuestionFeedback.status == _QFStatus.open,
+               QuestionFeedback.feedback_type == QuestionFeedbackType.suspected_wrong_answer,
+               *org_filter)
+    ).scalar_one()
+    low = sum(1 for (a, c) in stats.values()
+              if a >= _LOW_ACC_MIN_ANSWERED and (c / a if a else 0.0) < _LOW_ACC)
+    # published questions without an Explanation
+    published_q = session.execute(
+        select(Question.id).where(not_deleted(Question), Question.status == QuestionStatus.published,
+               *org_filter)
+    ).scalars().all()
+    with_expl = set(session.execute(
+        select(Explanation.question_id).where(Explanation.question_id.in_(published_q))
+    ).scalars().all()) if published_q else set()
+    missing = len(set(published_q) - with_expl)
+    return QualityDashboardOut(open_feedback_count=open_fb, disputed_question_count=disputed,
+                               low_accuracy_question_count=low, missing_explanation_count=missing)
+
+
+def list_open_feedback(session, *, current, feedback_type=None, limit=50, offset=0):
+    q = (select(QuestionFeedback).join(Question, Question.id == QuestionFeedback.question_id)
+         .where(not_deleted(Question), QuestionFeedback.status == _QFStatus.open))
+    scope = _q_scope(current)
+    if scope is not None:
+        q = q.where(Question.organization_id == scope)
+    if feedback_type is not None:
+        q = q.where(QuestionFeedback.feedback_type == feedback_type)
+    total = session.execute(select(func.count()).select_from(q.subquery())).scalar_one()
+    rows = session.execute(q.order_by(QuestionFeedback.created_at.desc())
+                           .limit(limit).offset(offset)).scalars().all()
+    out = [FeedbackOut(id=f.id, question_id=f.question_id, reporter_id=f.reporter_id,
+                       feedback_type=f.feedback_type.value, comment=f.comment,
+                       status=f.status.value, created_at=f.created_at) for f in rows]
+    return out, total
+
+
+def resolve_feedback(session, *, current, feedback_id, payload: FeedbackResolveIn) -> FeedbackOut:
+    f = session.get(QuestionFeedback, feedback_id)
+    if f is None:
+        raise NotFound("feedback not found")
+    # scope check via the question (soft-deleted questions still resolve via
+    # session.get; the binding rule is the org-scope comparison only).
+    q = session.get(Question, f.question_id)
+    if q is None:
+        raise NotFound("feedback not found")
+    scope = _q_scope(current)
+    if scope is not None and q.organization_id != scope:
+        raise NotFound("feedback not found")
+    f.status = payload.status
+    session.flush()
+    log_audit(session, action=AuditAction.edit, actor_id=current.user.id,
+              organization_id=q.organization_id, entity_type="feedback",
+              entity_id=str(f.id), details={"status": payload.status.value})
+    return FeedbackOut(id=f.id, question_id=f.question_id, reporter_id=f.reporter_id,
+                       feedback_type=f.feedback_type.value, comment=f.comment,
+                       status=f.status.value, created_at=f.created_at)
+
+
+def list_low_accuracy_questions(session, *, current, limit=10) -> list[LowAccuracyQuestionOut]:
+    stats, _qids = _answer_stats(session, current)
+    rows = []
+    for qid, (a, c) in stats.items():
+        if a >= _LOW_ACC_MIN_ANSWERED:
+            acc = round(c / a, 4)
+            if acc < _LOW_ACC:
+                rows.append((qid, a, c, acc))
+    rows.sort(key=lambda r: r[3])
+    rows = rows[:limit]
+    if not rows:
+        return []
+    stems = {q.id: q.stem for q in session.execute(
+        select(Question).where(Question.id.in_([r[0] for r in rows]))).scalars().all()}
+    return [LowAccuracyQuestionOut(question_id=qid, stem=stems[qid], answered=a,
+                                   correct=c, accuracy=acc) for qid, a, c, acc in rows]
+
+
+def list_missing_explanation_questions(session, *, current, limit=50) -> list[MissingExplanationQuestionOut]:
+    q = select(Question).where(not_deleted(Question), Question.status == QuestionStatus.published)
+    scope = _q_scope(current)
+    if scope is not None:
+        q = q.where(Question.organization_id == scope)
+    pubs = session.execute(q.order_by(Question.created_at.desc()).limit(limit * 2)).scalars().all()
+    if not pubs:
+        return []
+    with_expl = set(session.execute(
+        select(Explanation.question_id).where(Explanation.question_id.in_([p.id for p in pubs]))
+    ).scalars().all())
+    out = [MissingExplanationQuestionOut(question_id=p.id, stem=p.stem, status=p.status.value)
+           for p in pubs if p.id not in with_expl][:limit]
+    return out
