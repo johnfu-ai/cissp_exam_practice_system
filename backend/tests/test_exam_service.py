@@ -981,3 +981,50 @@ def test_cat_history_excludes_in_progress(db_session):
     org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
     # leave in progress
     assert svc.list_history(db_session, user_id=actor.id) == []
+
+
+def test_cat_session_snapshots_current_cat_params(db_session):
+    """NFR-DATA-01: a new CAT session snapshots the current CatParamsVersion
+    into config["cat_params"] so later edits to the version never change
+    existing sessions."""
+    from datetime import date
+
+    from app.models.admin import CatParamsVersion
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
+    _seed_cat_questions(db_session, org, actor, d1, n=5, difficulty=3)
+    cpv = CatParamsVersion(
+        version_label="v1", effective_date=date(2026, 1, 1),
+        is_current=True,
+        params={"k0": 0.42, "decay": 0.1, "base_se": 1.0,
+                "early_stop_enabled": True},
+    )
+    db_session.add(cpv); db_session.flush()
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+    )
+    assert es.config["cat_params"]["k0"] == 0.42
+    assert es.config["cat_params"]["early_stop_enabled"] is True
+    # mutating the live version after session creation does NOT change the
+    # snapshot already stored on the session (historical integrity).
+    cpv.params["k0"] = 0.99
+    db_session.flush()
+    assert es.config["cat_params"]["k0"] == 0.42
+
+
+def test_cat_session_falls_back_to_default_params(db_session):
+    """Without a CatParamsVersion, config["cat_params"] falls back to
+    cat_engine.DEFAULT_PARAMS (the default test state)."""
+    from app.services import cat_engine
+
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
+    _seed_cat_questions(db_session, org, actor, d1, n=5, difficulty=3)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+    )
+    assert es.config["cat_params"]["k0"] == cat_engine.DEFAULT_PARAMS["k0"]
+    assert es.config["cat_params"] == dict(cat_engine.DEFAULT_PARAMS)

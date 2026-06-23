@@ -18,7 +18,7 @@ from app.models.enums import ImportFormat, OrgKind, RoleName, UserStatus
 from app.models.etl import ChapterDomainMapping, EtlDataset
 from app.models.taxonomy import ExamBlueprint, ExamDomain
 
-SEED_VERSION = "3"
+SEED_VERSION = "4"
 
 # PRD §2 — CISSP 2024-04-15 blueprint weights.
 DOMAINS = [
@@ -43,6 +43,7 @@ PERMISSIONS = [
     ("admin:manage_users", "Manage users and roles"),
     ("admin:manage_taxonomy", "Manage exam config and taxonomy"),
     ("admin:view_audit", "View audit logs"),
+    ("admin:view_reports", "View operational reports"),
 ]
 
 # Role -> permission codes. system_admin gets everything.
@@ -53,6 +54,7 @@ ROLE_PERMISSIONS = {
     RoleName.org_admin: [
         "question:read", "question:write", "question:publish", "question:import",
         "practice:read", "exam:read", "admin:manage_users", "admin:view_audit",
+        "admin:view_reports",
     ],
     RoleName.system_admin: [code for code, _ in PERMISSIONS],
 }

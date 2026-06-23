@@ -51,6 +51,19 @@ class ConflictError(ValueError):
     pass
 
 
+def _current_cat_params_or_default(session) -> dict:
+    """NFR-DATA-01: snapshot the current CatParamsVersion into each new CAT
+    session's config so later edits to the version never change existing
+    sessions. Lazy import avoids a circular admin<->exam dependency at module
+    load. Falls back to cat_engine.DEFAULT_PARAMS when no version is current
+    (the default test state)."""
+    from app.services.admin import get_current_cat_params
+    v = get_current_cat_params(session)
+    if v is not None:
+        return dict(v.params)
+    return dict(cat_engine.DEFAULT_PARAMS)
+
+
 def _as_create_in(payload) -> ExamCreateIn:
     if isinstance(payload, ExamCreateIn):
         return payload
@@ -278,7 +291,7 @@ def create_cat_session(
         "duration_minutes": bp.duration_minutes,
         "min_items": bp.min_items,
         "max_items": bp.max_items,
-        "cat_params": dict(cat_engine.DEFAULT_PARAMS),
+        "cat_params": _current_cat_params_or_default(session),
         "disclaimer": cat_engine.DISCLAIMER,
     }
     es = ExamSession(

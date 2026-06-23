@@ -2,8 +2,10 @@
 so Alembic autogenerate and Base.metadata.create_all see every table.
 """
 
-from app.models.admin import AuditLog, SchemaMeta  # noqa: F401
+from app.models.admin import AuditLog, CatParamsVersion, SchemaMeta  # noqa: F401
 from app.models.auth import (  # noqa: F401
+    Class,
+    ClassMembership,
     Organization,
     OrganizationMembership,
     Permission,
@@ -49,6 +51,8 @@ __all__ = [
     "Permission",
     "RolePermission",
     "OrganizationMembership",
+    "Class",
+    "ClassMembership",
     "ExamBlueprint",
     "ExamDomain",
     "KnowledgePoint",
@@ -70,6 +74,7 @@ __all__ = [
     "ExamAnswer",
     "AuditLog",
     "SchemaMeta",
+    "CatParamsVersion",
     "EtlDataset",
     "EtlRun",
     "QuestionExternalKey",
