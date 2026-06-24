@@ -1,9 +1,5 @@
 import { useAuthStore } from "./auth-store";
-
-const BACKEND =
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://localhost:8000";
+import { BACKEND } from "./config";
 
 export class ApiError extends Error {
   status: number;
@@ -19,10 +15,9 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
-  let resp = await fetch(`${BACKEND}${path}`, { ...init, headers, credentials: "include" });
+  const resp = await fetch(`${BACKEND}${path}`, { ...init, headers, credentials: "include" });
   if (resp.status !== 401) return resp;
 
-  // try one refresh
   if (!refreshToken) return resp;
   const r = await fetch(`${BACKEND}/api/auth/refresh`, {
     method: "POST",
