@@ -1,6 +1,7 @@
-"""ETL Load: apply CleanedQuestion create-or-update within one transaction.
+"""ETL Load: one Question + N translations per external_id.
 
-Owns all DB access and dedup by (dataset_slug, external_id, language).
+Owns all DB access and dedup by (dataset_slug, external_id) — language is NOT
+part of the lookup (matches the unique constraint on QuestionExternalKey).
 Savepoint-per-record for error isolation. Caller controls commit.
 """
 
@@ -15,11 +16,11 @@ from app.models.etl import ChapterDomainMapping, QuestionExternalKey
 from app.models.question import (
     Book,
     Chapter,
-    Explanation,
     Question,
     QuestionMapping,
     QuestionOption,
     QuestionRevision,
+    QuestionTranslation,
 )
 from app.services.snapshot import snapshot_question
 
@@ -96,12 +97,54 @@ class _Resolvers:
         return self._domains[cleaned.source_chapter]
 
 
-def _existing_key(session, dataset_slug, external_id, language) -> QuestionExternalKey | None:
+def _existing_key(session, dataset_slug, external_id) -> QuestionExternalKey | None:
+    """Dedup lookup — language is intentionally NOT part of the key."""
     return session.execute(
         select(QuestionExternalKey).filter_by(
-            dataset_slug=dataset_slug, external_id=external_id, language=language
+            dataset_slug=dataset_slug, external_id=external_id
         )
     ).scalar_one_or_none()
+
+
+def _translation_payload(cleaned, language):
+    """Return (stem, rationale, [option_contents]) for one language.
+
+    For zh, falls back to the en text when a field is empty so the translation
+    row is never blank. A zh translation is only written when `has_zh`
+    (i.e. zh is in cleaned.available_languages).
+    """
+    if language == "en":
+        stem, rationale = cleaned.stem_en, cleaned.explanation_en
+        opts = [(o.text_en if o.text_en else "") for o in cleaned.options]
+    else:
+        stem = cleaned.stem_zh if cleaned.stem_zh else cleaned.stem_en
+        rationale = cleaned.explanation_zh if cleaned.explanation_zh else cleaned.explanation_en
+        opts = [(o.text_zh if o.text_zh else o.text_en) for o in cleaned.options]
+    return stem, rationale, opts
+
+
+def _write_translations(session, q, cleaned):
+    """Write one QuestionTranslation per language in cleaned.available_languages."""
+    langs = list(cleaned.available_languages)
+    for lang in langs:
+        stem, rationale, opts = _translation_payload(cleaned, lang)
+        session.add(QuestionTranslation(
+            question_id=q.id,
+            language=lang,
+            stem=stem,
+            stem_format=TextFormat.markdown,
+            correct_answer_rationale=rationale,
+            options=[
+                {
+                    "order_index": i,
+                    "content": opts[i],
+                    "content_format": "markdown",
+                    "explanation": None,
+                }
+                for i in range(len(opts))
+            ],
+        ))
+    q.available_languages = sorted(langs)
 
 
 def _current_options(session, question_id) -> list[QuestionOption]:
@@ -112,12 +155,22 @@ def _current_options(session, question_id) -> list[QuestionOption]:
     )
 
 
-def _differs(q: Question, options: list[QuestionOption], cleaned) -> bool:
-    if q.stem != cleaned.stem:
-        return True
-    if q.question_type != cleaned.question_type:
-        return True
-    if [o.content for o in options] != [o.content for o in cleaned.options]:
+def _current_translations(session, question_id) -> list[QuestionTranslation]:
+    return list(
+        session.execute(
+            select(QuestionTranslation).where(QuestionTranslation.question_id == question_id)
+        ).scalars().all()
+    )
+
+
+def _differs(q: Question, options: list[QuestionOption],
+             translations: list[QuestionTranslation], cleaned) -> bool:
+    """Compare the en translation stem + canonical option correctness to cleaned.
+
+    Kept simple: a stem or answer-key change counts as a diff.
+    """
+    t_en = next((t for t in translations if t.language == "en"), None)
+    if t_en is None or t_en.stem != cleaned.stem_en:
         return True
     if [o.is_correct for o in options] != [o.is_correct for o in cleaned.options]:
         return True
@@ -125,37 +178,35 @@ def _differs(q: Question, options: list[QuestionOption], cleaned) -> bool:
 
 
 def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
-    """Apply one cleaned record. Returns 'created'|'updated'|'unchanged'."""
-    existing = _existing_key(session, dataset_slug, cleaned.external_id, cleaned.language)
+    """Apply one cleaned record. Returns 'created' | 'updated' | 'unchanged'."""
+    existing = _existing_key(session, dataset_slug, cleaned.external_id)
     status = QuestionStatus.needs_revision if cleaned.needs_revision else QuestionStatus.draft
 
     if existing is None:
         q = Question(
             organization_id=resolvers.org_id,
             question_type=cleaned.question_type,
-            stem=cleaned.stem,
-            stem_format=TextFormat.markdown,
             difficulty=cleaned.difficulty,
-            language=cleaned.language,
             status=status,
             source=cleaned.external_id,
             license_status=LicenseStatus.unconfirmed,
             import_job_id=import_job_id,
             prompt_items=cleaned.prompt_items,
+            available_languages=sorted(cleaned.available_languages),
         )
         session.add(q)
         session.flush()
+        # canonical options carry only order_index + is_correct (content is per-translation)
         for i, opt in enumerate(cleaned.options):
             session.add(QuestionOption(
-                question_id=q.id, order_index=i, content=opt.content,
-                content_format=TextFormat.markdown, is_correct=opt.is_correct,
+                question_id=q.id, order_index=i, is_correct=opt.is_correct,
             ))
-        session.add(Explanation(
-            question_id=q.id, correct_answer_rationale=cleaned.explanation,
-        ))
+        _write_translations(session, q, cleaned)
+        # one external key per external_id (language = first available, or None)
+        first_lang = cleaned.available_languages[0] if cleaned.available_languages else None
         session.add(QuestionExternalKey(
             dataset_slug=dataset_slug, external_id=cleaned.external_id,
-            language=cleaned.language, question_id=q.id,
+            language=first_lang, question_id=q.id,
         ))
         ch = resolvers.chapter(cleaned)
         session.add(QuestionMapping(
@@ -165,36 +216,34 @@ def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
 
     q = session.get(Question, existing.question_id)
     options = _current_options(session, q.id)
-    if not _differs(q, options, cleaned):
+    translations = _current_translations(session, q.id)
+    if not _differs(q, options, translations, cleaned):
         return "unchanged"
 
-    # historical integrity: snapshot BEFORE update
-    old_snap = snapshot_question(q, options)
+    # historical integrity: snapshot BEFORE update (translations included)
+    old_snap = snapshot_question(q, translations, options)
     session.add(QuestionRevision(
         question_id=q.id, revision_number=q.version, snapshot=old_snap,
         change_summary="etl update",
     ))
-    q.stem = cleaned.stem
     q.question_type = cleaned.question_type
     q.difficulty = cleaned.difficulty
     q.status = status
     q.prompt_items = cleaned.prompt_items
     q.version = (q.version or 1) + 1
-    # replace options
+    # replace canonical options
     for o in options:
         session.delete(o)
     session.flush()
     for i, opt in enumerate(cleaned.options):
         session.add(QuestionOption(
-            question_id=q.id, order_index=i, content=opt.content,
-            content_format=TextFormat.markdown, is_correct=opt.is_correct,
+            question_id=q.id, order_index=i, is_correct=opt.is_correct,
         ))
-    # update explanation
-    expl = session.execute(select(Explanation).filter_by(question_id=q.id)).scalar_one_or_none()
-    if expl is None:
-        session.add(Explanation(question_id=q.id, correct_answer_rationale=cleaned.explanation))
-    else:
-        expl.correct_answer_rationale = cleaned.explanation
+    # replace translations
+    for t in translations:
+        session.delete(t)
+    session.flush()
+    _write_translations(session, q, cleaned)
     return "updated"
 
 
@@ -221,7 +270,7 @@ def apply_load(session, org_id, dataset_slug, import_job_id, cleaned_list) -> Lo
                 pass
             result.errors.append({
                 "external_id": cleaned.external_id,
-                "language": cleaned.language,
+                "language": None,
                 "reason": f"{type(exc).__name__}: {exc}",
             })
     return result
@@ -230,14 +279,21 @@ def apply_load(session, org_id, dataset_slug, import_job_id, cleaned_list) -> Lo
 def apply_dry_run(session, org_id, dataset_slug, cleaned_list) -> DryRunSummary:
     summary = DryRunSummary()
     for cleaned in cleaned_list:
-        summary.by_type[cleaned.question_type.value] = summary.by_type.get(cleaned.question_type.value, 0) + 1
-        summary.by_language[cleaned.language] = summary.by_language.get(cleaned.language, 0) + 1
-        existing = _existing_key(session, dataset_slug, cleaned.external_id, cleaned.language)
+        summary.by_type[cleaned.question_type.value] = (
+            summary.by_type.get(cleaned.question_type.value, 0) + 1
+        )
+        # each cleaned record contributes one count per available language
+        for lang in cleaned.available_languages:
+            summary.by_language[lang] = summary.by_language.get(lang, 0) + 1
+        existing = _existing_key(session, dataset_slug, cleaned.external_id)
         if existing is None:
             summary.would_create += 1
             continue
         q = session.get(Question, existing.question_id)
         options = _current_options(session, q.id)
-        summary.would_update += 1 if _differs(q, options, cleaned) else 0
-        summary.unchanged += 0 if _differs(q, options, cleaned) else 1
+        translations = _current_translations(session, q.id)
+        if _differs(q, options, translations, cleaned):
+            summary.would_update += 1
+        else:
+            summary.unchanged += 1
     return summary

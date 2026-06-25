@@ -1,18 +1,18 @@
 """ETL Runner: orchestrate extract -> transform -> load across preview/commit.
 
-Owns the session lifecycle and writes EtlRun/ImportJob.
+Owns the session lifecycle and writes EtlRun/ImportJob. One bilingual
+CleanedQuestion is produced per raw record (no per-language fan-out).
 """
 
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.etl.extract import DatasetReader
 from app.etl.load import apply_dry_run, apply_load
 from app.etl.transform import transform, validate
-from app.models.enums import AuditAction, EtlRunPhase, ImportFormat, ImportStatus, LicenseStatus
+from app.models.enums import AuditAction, EtlRunPhase, ImportStatus, LicenseStatus
 from app.models.etl import EtlDataset, EtlRun
 from app.models.question import ImportJob
 from app.services.audit import log_audit
@@ -22,7 +22,8 @@ class EtlDriftError(Exception):
     """Dataset files changed between preview and commit."""
 
 
-def _build_cleaned(raws, languages, pending_ids):
+def _build_cleaned(raws, pending_ids):
+    """Transform each raw into one bilingual CleanedQuestion (no language fan-out)."""
     cleaned = []
     errors = []
     for raw in raws:
@@ -34,8 +35,7 @@ def _build_cleaned(raws, languages, pending_ids):
                 "reason": "validation: " + "; ".join(issues),
             })
             continue
-        for lang in languages:
-            cleaned.append(transform(raw, lang, pending_ids))
+        cleaned.append(transform(raw, pending_ids))
     return cleaned, errors
 
 
@@ -62,7 +62,7 @@ def run_preview(session: Session, org_id: uuid.UUID, dataset: EtlDataset, initia
 
     raws, extract_errors, content_hash = DatasetReader(dataset.source_path).read()
     pending_ids = set()  # translate_queue.json empty for osg10; read from manifest if present
-    cleaned, transform_errors = _build_cleaned(raws, dataset.languages, pending_ids)
+    cleaned, transform_errors = _build_cleaned(raws, pending_ids)
 
     summary = apply_dry_run(session, org_id, dataset.slug, cleaned)
     all_errors = (
@@ -98,7 +98,7 @@ def run_commit(session: Session, org_id: uuid.UUID, run_id: uuid.UUID) -> EtlRun
         raise EtlDriftError("dataset changed since preview; re-preview required")
 
     pending_ids = set()
-    cleaned, transform_errors = _build_cleaned(raws, dataset.languages, pending_ids)
+    cleaned, transform_errors = _build_cleaned(raws, pending_ids)
     load_result = apply_load(session, org_id, dataset.slug, run.import_job_id, cleaned)
 
     run.phase = EtlRunPhase.committed
