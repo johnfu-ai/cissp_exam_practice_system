@@ -43,8 +43,8 @@ describe("apiJson silent refresh", () => {
   });
 
   it("throws ApiError with status when a non-401 error response is returned", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response("bad scope", { status: 422 })
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response("bad scope", { status: 422 })
     );
     await expect(apiJson("/api/practice/sessions")).rejects.toMatchObject({
       status: 422,
