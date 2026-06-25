@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useSessionSummary } from "@/lib/api/practice";
+import { useSessionSummary, useSession } from "@/lib/api/practice";
+import { localizedText } from "@/components/bilingual-text";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import type { LanguageMode } from "@/lib/api/types";
 
 function fmtPct(n: number): string {
   return `${Math.round(n * 100)}%`;
@@ -22,6 +24,12 @@ function fmtDuration(ms: number): string {
 
 export function Summary({ sessionId }: { sessionId: string }) {
   const summary = useSessionSummary(sessionId);
+  // Read the session's language mode (stored in `config`) so wrong-question
+  // stems render in the language the session was practised in. Falls back to
+  // English while the session query is still loading or if unset.
+  const session = useSession(sessionId);
+  const sessionMode: LanguageMode =
+    (session.data?.config?.language_mode as LanguageMode | undefined) ?? "en";
 
   if (summary.isLoading) return <Loading label="Loading summary…" />;
   if (summary.isError || !summary.data) {
@@ -91,7 +99,7 @@ export function Summary({ sessionId }: { sessionId: string }) {
           ) : (
             s.wrong_questions.map((w) => (
               <div key={w.question_id} className="rounded-md border p-3">
-                <p className="text-sm">{w.stem}</p>
+                <p className="text-sm">{localizedText(sessionMode, w.stem)}</p>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs">
                   <Badge variant="destructive">Your answer: {w.selected_indexes.join(", ") || "—"}</Badge>
                   <Badge variant="success">Correct: {w.correct_indexes.join(", ")}</Badge>

@@ -2,8 +2,9 @@
 
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BilingualText } from "@/components/bilingual-text";
 import { cn } from "@/lib/utils";
-import type { OptionDelivery, QuestionType, AnswerResult } from "@/lib/api/types";
+import type { OptionDelivery, QuestionType, AnswerResult, LanguageMode } from "@/lib/api/types";
 
 export function OptionList({
   questionType,
@@ -12,6 +13,7 @@ export function OptionList({
   onToggle,
   disabled = false,
   result = null,
+  mode = "en",
 }: {
   questionType: QuestionType;
   options: OptionDelivery[];
@@ -19,6 +21,12 @@ export function OptionList({
   onToggle: (orderIndex: number) => void;
   disabled?: boolean;
   result?: AnswerResult | null;
+  /**
+   * Language mode used to render each option's content. Defaults to `"en"` so
+   * callers that have not been migrated to bilingual delivery (e.g. the exam
+   * runners in T13) keep typechecking and rendering English.
+   */
+  mode?: LanguageMode;
 }) {
   const isMulti = questionType === "multiple_choice";
   const correct = new Set(result?.correct_indexes ?? []);
@@ -45,7 +53,7 @@ export function OptionList({
               disabled={disabled}
               onCheckedChange={() => onToggle(o.order_index)}
             />
-            <span className="text-sm">{o.content}</span>
+            <BilingualText mode={mode} en={o.content.en} zh={o.content.zh} className="text-sm" />
           </label>
         ))}
       </div>
@@ -65,7 +73,7 @@ export function OptionList({
           className={cn("flex cursor-pointer items-start gap-3 rounded-md border p-3", rowClass(o.order_index))}
         >
           <RadioGroupItem value={String(o.order_index)} />
-          <span className="text-sm">{o.content}</span>
+          <BilingualText mode={mode} en={o.content.en} zh={o.content.zh} className="text-sm" />
         </label>
       ))}
     </RadioGroup>

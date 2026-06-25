@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useDomains, useBooks, useChapters, useTags } from "@/lib/api/taxonomy";
 import { useCreateSession } from "@/lib/api/practice";
+import { useAuthStore } from "@/lib/auth-store";
 import { ApiError } from "@/lib/api";
 import {
   buildSessionPayload,
@@ -23,7 +24,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
-import type { Subset, OrderMode, QuestionType } from "@/lib/api/types";
+import type { Subset, OrderMode, QuestionType, LanguageMode } from "@/lib/api/types";
 
 const ANY = "__any__";
 const SUBSETS: Subset[] = ["all", "unpracticed", "wrong", "bookmarked", "needs_review"];
@@ -37,6 +38,12 @@ const TYPES: QuestionType[] = [
   "drag_drop",
   "hotspot",
 ];
+const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
+const LANGUAGE_LABELS: Record<LanguageMode, string> = {
+  en: "English",
+  zh: "中文",
+  bilingual: "Both",
+};
 
 function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -50,6 +57,17 @@ export function CreateSessionForm() {
   const chapters = useChapters(form.bookId);
   const tags = useTags();
   const create = useCreateSession();
+  const user = useAuthStore((s) => s.user);
+
+  // Pre-select the user's preferred language mode once it is available. The
+  // select itself also falls back to this value while `form.languageMode` is
+  // still null, so the UI never shows an empty selection before the effect runs.
+  useEffect(() => {
+    if (form.languageMode === null && user?.language_mode) {
+      set("languageMode", user.language_mode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.language_mode]);
 
   function set<K extends keyof SessionFormState>(key: K, value: SessionFormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -80,6 +98,25 @@ export function CreateSessionForm() {
         <CardTitle>New practice session</CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-5 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Language mode</Label>
+          <Select
+            value={form.languageMode ?? user?.language_mode ?? "en"}
+            onValueChange={(v) => set("languageMode", v as LanguageMode)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LANGUAGE_MODES.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {LANGUAGE_LABELS[m]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="space-y-2">
           <Label htmlFor="count">Number of questions</Label>
           <Input

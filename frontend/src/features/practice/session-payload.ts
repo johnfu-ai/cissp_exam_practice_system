@@ -1,4 +1,4 @@
-import type { Subset, OrderMode, SessionCreateInput } from "@/lib/api/types";
+import type { Subset, OrderMode, SessionCreateInput, LanguageMode } from "@/lib/api/types";
 
 export interface SessionFormState {
   count: number;
@@ -10,6 +10,7 @@ export interface SessionFormState {
   questionType: string | null;
   difficulty: number | null;
   tagId: string | null;
+  languageMode: LanguageMode | null;
 }
 
 export const defaultSessionFormState: SessionFormState = {
@@ -22,6 +23,7 @@ export const defaultSessionFormState: SessionFormState = {
   questionType: null,
   difficulty: null,
   tagId: null,
+  languageMode: null,
 };
 
 export function buildSessionPayload(f: SessionFormState): SessionCreateInput {
@@ -36,5 +38,6 @@ export function buildSessionPayload(f: SessionFormState): SessionCreateInput {
   if (f.questionType) payload.question_type = f.questionType;
   if (f.difficulty != null) payload.difficulty = f.difficulty;
   if (f.tagId) payload.tag_id = f.tagId;
+  if (f.languageMode) payload.language_mode = f.languageMode;
   return payload;
 }
