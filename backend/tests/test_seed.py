@@ -101,18 +101,6 @@ def test_seed_osg10_is_idempotent(db_session):
     assert count == 21
 
 
-@pytest.mark.skip(
-    reason=(
-        "Pre-existing failure unrelated to the translations migration: the "
-        "uncommitted working-tree app/db/seed.py moved OrganizationMembership "
-        "creation into the `elif settings.seed_admin_password:` branch, so when "
-        "seed_admin_password is empty (the test default) a freshly-created admin "
-        "gets NO membership. The real fix is to restore membership creation in "
-        "seed.py's `if admin is None:` branch, but seed.py is a pre-existing "
-        "working-tree file that T9 must not modify. At HEAD (committed seed.py) "
-        "this test passes. Re-enable once seed.py is corrected."
-    )
-)
 def test_seed_creates_bootstrap_admin(db_session):
     run_seed(db_session)
     admin = db_session.execute(select(User).filter_by(email="admin@example.com")).scalar_one()
