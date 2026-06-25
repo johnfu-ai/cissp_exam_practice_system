@@ -37,4 +37,15 @@ export const qk = {
   },
   blueprints: ["blueprints"] as const,
   knowledgePoints: ["knowledge-points"] as const,
+  admin: {
+    users: (q: Record<string, unknown>) => ["admin", "users", q] as const,
+    classes: ["admin", "classes"] as const,
+    classMembers: (id: string) => ["admin", "classes", id, "members"] as const,
+    catParams: ["admin", "cat-params"] as const,
+    qualityDashboard: ["admin", "quality", "dashboard"] as const,
+    feedback: (q: Record<string, unknown>) => ["admin", "quality", "feedback", q] as const,
+    lowAccuracy: ["admin", "quality", "low-accuracy"] as const,
+    audit: (q: Record<string, unknown>) => ["admin", "audit", q] as const,
+    report: (windowDays: number) => ["admin", "report", windowDays] as const,
+  },
 };

@@ -510,6 +510,113 @@ export interface Tag {
   description: string | null;
 }
 
+// Admin backoffice (mirrors app/schemas/admin.py)
+export type UserStatus = "active" | "disabled";
+export type RoleName =
+  | "individual_learner"
+  | "instructor"
+  | "content_editor"
+  | "org_admin"
+  | "system_admin";
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  display_name: string | null;
+  status: string;
+  default_organization_id: string | null;
+  roles: string[];
+}
+
+export interface AdminClass {
+  id: string;
+  name: string;
+  description: string | null;
+  instructor_id: string | null;
+  organization_id: string;
+  member_count: number;
+}
+
+export interface ClassMember {
+  user_id: string;
+  email: string;
+  display_name: string | null;
+}
+
+export interface CatParamsVersion {
+  id: string;
+  version_label: string;
+  effective_date: string;
+  is_current: boolean;
+  params: Record<string, number | boolean>;
+}
+
+export interface CatParamsInput {
+  version_label: string;
+  effective_date: string;
+  params: { k0: number; decay: number; base_se: number; early_stop_enabled: boolean };
+  set_current: boolean;
+}
+
+export interface QualityDashboard {
+  open_feedback_count: number;
+  low_accuracy_question_count: number;
+  missing_explanation_count: number;
+  disputed_question_count: number;
+}
+
+export interface AdminFeedback {
+  id: string;
+  question_id: string;
+  reporter_id: string | null;
+  feedback_type: string;
+  comment: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface LowAccuracyQuestion {
+  question_id: string;
+  stem: string;
+  answered: number;
+  correct: number;
+  accuracy: number;
+}
+
+export interface AuditLog {
+  id: string;
+  occurred_at: string;
+  action: string;
+  actor_id: string | null;
+  organization_id: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  details: Record<string, unknown> | null;
+  ip_address: string | null;
+}
+
+export interface PaginatedAudit {
+  items: AuditLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ReportSummary {
+  scope: string;
+  window_days: number;
+  active_users: number;
+  practice_session_count: number;
+  exam_session_count: number;
+  total_answers: number;
+  correct_answers: number;
+  accuracy: number;
+  published_question_count: number;
+  used_question_count: number;
+  question_bank_usage_pct: number;
+  top_error_questions: LowAccuracyQuestion[];
+}
+
 export interface Blueprint {
   id: string;
   version_label: string;
