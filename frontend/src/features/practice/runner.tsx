@@ -45,7 +45,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { Bookmark, Flag, PauseCircle, PlayCircle } from "lucide-react";
+import { Bookmark, Flag, CheckCircle2, PauseCircle, PlayCircle } from "lucide-react";
 import type { ErrorType } from "@/lib/api/types";
 
 const ERROR_TYPES: ErrorType[] = [
@@ -223,6 +223,9 @@ export function Runner({ sessionId }: { sessionId: string }) {
             </Button>
             <Button variant="outline" size="sm" onClick={() => setQuestionState({ is_flagged_review: true })}>
               <Flag className="h-4 w-4" /> Flag for review
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setQuestionState({ is_mastered: true })}>
+              <CheckCircle2 className="h-4 w-4" /> Mark mastered
             </Button>
             <NoteDialog onSave={(note) => setQuestionState({ note })} />
             <Select onValueChange={(v) => setQuestionState({ error_type: v as ErrorType })}>

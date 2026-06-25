@@ -128,7 +128,7 @@ export function Dashboard() {
                     </div>
                     <div className="flex gap-2">
                       <Button asChild size="sm">
-                        <Link href="/wrong">Review wrong questions</Link>
+                        <Link href="/review">Review wrong questions</Link>
                       </Button>
                     </div>
                   </>
