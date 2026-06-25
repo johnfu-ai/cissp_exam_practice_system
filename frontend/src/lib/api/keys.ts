@@ -29,4 +29,10 @@ export const qk = {
     datasets: ["etl", "datasets"] as const,
     run: (id: string) => ["etl", "run", id] as const,
   },
+  questions: {
+    list: (filters: Record<string, unknown>) => ["questions", "list", filters] as const,
+    detail: (id: string) => ["questions", "detail", id] as const,
+    revisions: (id: string) => ["questions", id, "revisions"] as const,
+    feedback: (id: string) => ["questions", id, "feedback"] as const,
+  },
 };

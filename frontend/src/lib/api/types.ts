@@ -209,6 +209,131 @@ export interface PersonalReport {
   recommendation: ReviewRecommendation;
 }
 
+// Question bank (mirrors app/schemas/question.py)
+export type QuestionStatus =
+  | "draft"
+  | "pending_review"
+  | "published"
+  | "needs_revision"
+  | "archived";
+export type LicenseStatus =
+  | "user_owned"
+  | "third_party_licensed"
+  | "public_domain"
+  | "unconfirmed";
+export type TextFormat = "plain" | "markdown";
+export type ReviewAction = "submit" | "approve" | "request_changes" | "archive" | "restore";
+export type FeedbackType =
+  | "unclear_explanation"
+  | "suspected_wrong_answer"
+  | "ambiguous_stem"
+  | "copyright_issue"
+  | "other";
+export type FeedbackStatus = "open" | "resolved" | "wont_fix";
+
+export interface QuestionOption {
+  id?: string;
+  order_index?: number | null;
+  content: string;
+  content_format?: TextFormat;
+  is_correct: boolean;
+  explanation?: string | null;
+}
+
+export interface QuestionExplanation {
+  correct_answer_rationale: string;
+  key_point_summary?: string | null;
+  further_reading?: string | null;
+}
+
+export interface QuestionMappings {
+  domain_id: string | null;
+  chapter_id: string | null;
+  knowledge_point_id: string | null;
+  tag_ids: string[];
+}
+
+export interface QuestionDetail {
+  id: string;
+  question_type: QuestionType;
+  stem: string;
+  stem_format: TextFormat;
+  difficulty: number | null;
+  language: string;
+  status: QuestionStatus;
+  source: string | null;
+  license_status: LicenseStatus;
+  version: number;
+  prompt_items: unknown[] | null;
+  created_at: string;
+  updated_at: string;
+  options: QuestionOption[];
+  explanation: QuestionExplanation | null;
+  mappings: QuestionMappings;
+}
+
+export interface QuestionCreateInput {
+  question_type: QuestionType;
+  stem: string;
+  stem_format?: TextFormat;
+  difficulty?: number | null;
+  language?: string;
+  source?: string | null;
+  license_status?: LicenseStatus;
+  options: QuestionOption[];
+  explanation?: QuestionExplanation | null;
+  mappings?: Partial<QuestionMappings>;
+}
+
+export type QuestionUpdateInput = Partial<QuestionCreateInput>;
+
+export interface QuestionListItem {
+  id: string;
+  question_type: QuestionType;
+  stem: string;
+  status: QuestionStatus;
+  difficulty: number | null;
+  language: string;
+  domain_id: string | null;
+  created_at: string;
+}
+
+export interface QuestionListResponse {
+  items: QuestionListItem[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface QuestionFilters {
+  page?: number;
+  size?: number;
+  status?: QuestionStatus;
+  question_type?: QuestionType;
+  language?: string;
+  difficulty?: number;
+  search?: string;
+  domain_id?: string;
+}
+
+export interface Feedback {
+  id: string;
+  question_id: string;
+  reporter_id: string | null;
+  feedback_type: FeedbackType;
+  comment: string | null;
+  status: FeedbackStatus;
+  created_at: string;
+}
+
+export interface Revision {
+  revision_number: number;
+  edited_by_id: string | null;
+  edited_at: string;
+  change_summary: string | null;
+  snapshot: Record<string, unknown>;
+}
+
 // ETL / import (mirrors app/api/etl.py)
 export interface EtlDataset {
   id: string;
