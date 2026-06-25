@@ -158,3 +158,46 @@ def test_question_option(db_session):
     db_session.add(opt)
     db_session.flush()
     assert opt.is_correct is True
+
+
+def test_question_translation_model_columns(db_session):
+    from app.models.enums import QuestionStatus, TextFormat
+    from app.models.question import Question, QuestionOption, QuestionTranslation
+
+    org = _make_org(db_session)
+    q = Question(
+        organization_id=org.id,
+        question_type=QuestionType.single_choice,
+        status=QuestionStatus.draft,
+        available_languages=["en", "zh"],
+    )
+    db_session.add(q)
+    db_session.flush()
+    db_session.add(QuestionOption(question_id=q.id, order_index=0, is_correct=True))
+    db_session.add(QuestionOption(question_id=q.id, order_index=1, is_correct=False))
+    t = QuestionTranslation(
+        question_id=q.id,
+        language="en",
+        stem="Which principle?",
+        stem_format=TextFormat.markdown,
+        correct_answer_rationale="Because.",
+        options=[
+            {"order_index": 0, "content": "A", "content_format": "markdown", "explanation": None},
+            {"order_index": 1, "content": "B", "content_format": "markdown", "explanation": None},
+        ],
+    )
+    db_session.add(t)
+    db_session.flush()
+    assert q.available_languages == ["en", "zh"]
+    assert not hasattr(q, "stem")
+    assert not hasattr(QuestionOption, "content") or "content" not in QuestionOption.__table__.columns
+    assert t.options[0]["content"] == "A"
+
+
+def test_user_has_language_mode(db_session):
+    from app.models.auth import User
+
+    u = User(email="x@y.com", language_mode="bilingual")
+    db_session.add(u)
+    db_session.flush()
+    assert u.language_mode == "bilingual"

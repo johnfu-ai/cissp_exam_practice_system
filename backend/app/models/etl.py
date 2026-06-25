@@ -59,14 +59,12 @@ class EtlRun(UUIDPrimaryKey, TenantScopedMixin, TimestampMixin, Base):
 class QuestionExternalKey(UUIDPrimaryKey, TimestampMixin, Base):
     __tablename__ = "question_external_keys"
     __table_args__ = (
-        UniqueConstraint(
-            "dataset_slug", "external_id", "language", name="uq_qek_dataset_ext_lang"
-        ),
+        UniqueConstraint("dataset_slug", "external_id", name="uq_qek_dataset_ext"),
     )
 
     dataset_slug: Mapped[str] = mapped_column(String(100), nullable=False)
     external_id: Mapped[str] = mapped_column(String(200), nullable=False)
-    language: Mapped[str] = mapped_column(String(5), nullable=False)
+    language: Mapped[str | None] = mapped_column(String(5), nullable=True)
     question_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
     )

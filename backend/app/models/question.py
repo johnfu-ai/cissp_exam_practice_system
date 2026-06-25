@@ -1,7 +1,7 @@
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Enum, ForeignKey, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import (
@@ -83,14 +83,10 @@ class Question(
     question_type: Mapped[QuestionType] = mapped_column(
         Enum(QuestionType, name="question_type", create_type=True), nullable=False
     )
-    stem: Mapped[str] = mapped_column(Text, nullable=False)
-    stem_format: Mapped[TextFormat] = mapped_column(
-        Enum(TextFormat, name="text_format", create_type=True),
-        nullable=False,
-        server_default=TextFormat.markdown.value,
-    )
     difficulty: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    language: Mapped[str] = mapped_column(String(5), nullable=False, server_default=text("'en'"))
+    available_languages: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String(5)), nullable=True
+    )
     status: Mapped[QuestionStatus] = mapped_column(
         Enum(QuestionStatus, name="question_status", create_type=True),
         nullable=False,
@@ -116,25 +112,29 @@ class QuestionOption(UUIDPrimaryKey, TimestampMixin, Base):
         ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
     )
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    content_format: Mapped[TextFormat] = mapped_column(
-        Enum(TextFormat, name="text_format", create_type=True),
-        nullable=False,
-        server_default=TextFormat.markdown.value,
-    )
     is_correct: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
-    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class Explanation(UUIDPrimaryKey, TimestampMixin, Base):
-    __tablename__ = "explanations"
+class QuestionTranslation(UUIDPrimaryKey, TimestampMixin, Base):
+    __tablename__ = "question_translations"
+    __table_args__ = (
+        UniqueConstraint("question_id", "language", name="uq_question_translations_qid_lang"),
+    )
 
     question_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
     )
+    language: Mapped[str] = mapped_column(String(5), nullable=False)
+    stem: Mapped[str] = mapped_column(Text, nullable=False)
+    stem_format: Mapped[TextFormat] = mapped_column(
+        Enum(TextFormat, name="text_format", create_type=True),
+        nullable=False,
+        server_default=TextFormat.markdown.value,
+    )
     correct_answer_rationale: Mapped[str] = mapped_column(Text, nullable=False)
     key_point_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     further_reading: Mapped[str | None] = mapped_column(Text, nullable=True)
+    options: Mapped[list] = mapped_column(JSONB, nullable=False)
 
 
 class QuestionMapping(UUIDPrimaryKey, Base):
