@@ -25,4 +25,8 @@ export const qk = {
     review: (id: string) => ["exam", "session", id, "review"] as const,
     history: ["exam", "history"] as const,
   },
+  etl: {
+    datasets: ["etl", "datasets"] as const,
+    run: (id: string) => ["etl", "run", id] as const,
+  },
 };

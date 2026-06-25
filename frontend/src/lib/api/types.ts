@@ -209,6 +209,41 @@ export interface PersonalReport {
   recommendation: ReviewRecommendation;
 }
 
+// ETL / import (mirrors app/api/etl.py)
+export interface EtlDataset {
+  id: string;
+  slug: string;
+  name: string;
+  source_path: string;
+  total_questions: number;
+  languages: string[];
+}
+
+export type EtlRunPhase = "preview" | "committed" | "rolled_back";
+
+export interface EtlPreviewError {
+  external_id: string | null;
+  language: string | null;
+  reason: string;
+}
+
+export interface EtlPreviewSummary {
+  would_create: number;
+  would_update: number;
+  unchanged: number;
+  by_type: Record<string, number>;
+  by_language: Record<string, number>;
+  errors: EtlPreviewError[];
+  content_hash: string;
+}
+
+export interface EtlRun {
+  run_id: string;
+  phase: EtlRunPhase;
+  preview_summary: EtlPreviewSummary | null;
+  committed_at?: string | null;
+}
+
 // Exam (mirrors app/schemas/exam.py)
 export type ExamKind = "fixed" | "cat";
 

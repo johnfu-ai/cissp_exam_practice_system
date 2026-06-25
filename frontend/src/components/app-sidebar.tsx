@@ -2,7 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, BookOpen, Repeat, GraduationCap, BarChart3, Shield, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  BookOpen,
+  Repeat,
+  GraduationCap,
+  BarChart3,
+  Upload,
+  FileText,
+  FolderTree,
+  Shield,
+  LogOut,
+} from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
 import { BACKEND } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -16,11 +27,20 @@ const NAV = [
   { href: "/analytics", label: "Analytics", icon: BarChart3, enabled: true },
 ];
 
+// Management links, each shown only when the user holds the required permission.
+const MANAGE = [
+  { href: "/import", label: "Import", icon: Upload, perm: "question:import" },
+  { href: "/questions", label: "Questions", icon: FileText, perm: "question:read" },
+  { href: "/taxonomy", label: "Taxonomy", icon: FolderTree, perm: "admin:manage_taxonomy" },
+];
+
 export function AppSidebar() {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
   const perms = user?.perms ?? [];
   const isAdmin = perms.some((p) => p.startsWith("admin:"));
+  const manageLinks = MANAGE.filter((m) => perms.includes(m.perm));
+  const showManage = manageLinks.length > 0 || isAdmin;
 
   async function logout() {
     const { refreshToken, clear } = useAuthStore.getState();
@@ -35,10 +55,17 @@ export function AppSidebar() {
     window.location.href = "/login";
   }
 
+  function linkClass(active: boolean): string {
+    return cn(
+      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+      active ? "bg-primary text-primary-foreground" : "hover:bg-accent hover:text-accent-foreground"
+    );
+  }
+
   return (
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r bg-card">
       <div className="px-5 py-4 text-lg font-semibold tracking-tight">CISSP Practice</div>
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3">
         {NAV.map(({ href, label, icon: Icon, enabled }) => {
           const active = pathname.startsWith(href);
           if (!enabled) {
@@ -55,32 +82,31 @@ export function AppSidebar() {
             );
           }
           return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                active ? "bg-primary text-primary-foreground" : "hover:bg-accent hover:text-accent-foreground"
-              )}
-            >
+            <Link key={href} href={href} className={linkClass(active)}>
               <Icon className="h-4 w-4" />
               {label}
             </Link>
           );
         })}
-        {isAdmin && (
-          <Link
-            href="/admin"
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              pathname.startsWith("/admin")
-                ? "bg-primary text-primary-foreground"
-                : "hover:bg-accent hover:text-accent-foreground"
+
+        {showManage && (
+          <div className="pt-4">
+            <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
+              Manage
+            </div>
+            {manageLinks.map(({ href, label, icon: Icon }) => (
+              <Link key={href} href={href} className={linkClass(pathname.startsWith(href))}>
+                <Icon className="h-4 w-4" />
+                {label}
+              </Link>
+            ))}
+            {isAdmin && (
+              <Link href="/admin" className={linkClass(pathname.startsWith("/admin"))}>
+                <Shield className="h-4 w-4" />
+                Admin
+              </Link>
             )}
-          >
-            <Shield className="h-4 w-4" />
-            Admin
-          </Link>
+          </div>
         )}
       </nav>
       <div className="border-t p-3">
