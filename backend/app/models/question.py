@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -79,6 +79,13 @@ class Question(
     Base,
 ):
     __tablename__ = "questions"
+    __table_args__ = (
+        Index(
+            "ix_questions_available_languages",
+            "available_languages",
+            postgresql_using="gin",
+        ),
+    )
 
     question_type: Mapped[QuestionType] = mapped_column(
         Enum(QuestionType, name="question_type", create_type=True), nullable=False
