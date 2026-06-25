@@ -35,4 +35,6 @@ export const qk = {
     revisions: (id: string) => ["questions", id, "revisions"] as const,
     feedback: (id: string) => ["questions", id, "feedback"] as const,
   },
+  blueprints: ["blueprints"] as const,
+  knowledgePoints: ["knowledge-points"] as const,
 };

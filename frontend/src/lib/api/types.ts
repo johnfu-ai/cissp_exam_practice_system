@@ -509,3 +509,63 @@ export interface Tag {
   name: string;
   description: string | null;
 }
+
+export interface Blueprint {
+  id: string;
+  version_label: string;
+  effective_date: string;
+  min_items: number;
+  max_items: number;
+  duration_minutes: number;
+  passing_score: number;
+  max_score: number;
+  is_current: boolean;
+  domains: Domain[];
+}
+
+export interface BlueprintInput {
+  version_label: string;
+  effective_date: string;
+  min_items: number;
+  max_items: number;
+  duration_minutes: number;
+  passing_score: number;
+  max_score: number;
+}
+
+export interface DomainInput {
+  number: number;
+  name: string;
+  weight_pct: number;
+}
+
+export interface BookInput {
+  title: string;
+  edition?: string | null;
+  author?: string | null;
+  publisher?: string | null;
+  source_url?: string | null;
+}
+
+export interface ChapterInput {
+  order_index: number;
+  title: string;
+}
+
+export interface KnowledgePoint {
+  id: string;
+  name: string;
+  description: string | null;
+  parent_id: string | null;
+}
+
+export interface KnowledgePointInput {
+  name: string;
+  description?: string | null;
+  parent_id?: string | null;
+}
+
+export interface TagInput {
+  name: string;
+  description?: string | null;
+}
