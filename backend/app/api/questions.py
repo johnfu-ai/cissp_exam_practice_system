@@ -11,11 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.queries import not_deleted
 from app.db.session import get_session
 from app.dependencies import CurrentUser, require_permission
-from app.models.question import Explanation, QuestionMapping, QuestionOption
+from app.models.question import Question, QuestionMapping, QuestionOption, QuestionTranslation
 from app.schemas.question import (
-    ExplanationOut,
     FeedbackIn,
     FeedbackOut,
     MappingsOut,
@@ -27,6 +27,8 @@ from app.schemas.question import (
     ReviewAction,
     ReviewActionIn,
     RevisionOut,
+    TranslationOut,
+    TranslationOptionOut,
 )
 from app.services import question as svc
 
@@ -52,16 +54,17 @@ def _question_out(session: Session, q) -> QuestionOut:
         ).scalars().all(),
         key=lambda o: o.order_index,
     )
-    ex = session.execute(
-        select(Explanation).where(Explanation.question_id == q.id)
-    ).scalar_one_or_none()
+    translations = sorted(
+        session.execute(
+            select(QuestionTranslation).where(QuestionTranslation.question_id == q.id)
+        ).scalars().all(),
+        key=lambda t: t.language,
+    )
     return QuestionOut(
         id=q.id,
         question_type=q.question_type,
-        stem=q.stem,
-        stem_format=q.stem_format,
         difficulty=q.difficulty,
-        language=q.language,
+        available_languages=list(q.available_languages or []),
         status=q.status,
         source=q.source,
         license_status=q.license_status,
@@ -70,20 +73,21 @@ def _question_out(session: Session, q) -> QuestionOut:
         created_at=q.created_at,
         updated_at=q.updated_at,
         options=[
-            OptionOut(
-                id=o.id, order_index=o.order_index, content=o.content,
-                content_format=o.content_format, is_correct=o.is_correct,
-                explanation=o.explanation,
-            )
+            OptionOut(id=o.id, order_index=o.order_index, is_correct=o.is_correct)
             for o in options
         ],
-        explanation=None
-        if ex is None
-        else ExplanationOut(
-            correct_answer_rationale=ex.correct_answer_rationale,
-            key_point_summary=ex.key_point_summary,
-            further_reading=ex.further_reading,
-        ),
+        translations=[
+            TranslationOut(
+                language=t.language,
+                stem=t.stem,
+                stem_format=t.stem_format,
+                correct_answer_rationale=t.correct_answer_rationale,
+                key_point_summary=t.key_point_summary,
+                further_reading=t.further_reading,
+                options=[TranslationOptionOut(**o) for o in t.options],
+            )
+            for t in translations
+        ],
         mappings=MappingsOut(**_mappings_out(session, q.id)),
     )
 
@@ -102,8 +106,8 @@ def list_questions(
     size: int = Query(20, ge=1, le=100),
     status: str | None = None,
     question_type: str | None = None,
-    language: str | None = None,
     difficulty: int | None = None,
+    missing_language: str | None = None,
     search: str | None = None,
     domain_id: uuid.UUID | None = None,
     chapter_id: uuid.UUID | None = None,
@@ -119,10 +123,10 @@ def list_questions(
         filters["status"] = QuestionStatus(status)
     if question_type is not None:
         filters["question_type"] = QuestionType(question_type)
-    if language is not None:
-        filters["language"] = language
     if difficulty is not None:
         filters["difficulty"] = difficulty
+    if missing_language is not None:
+        filters["missing_language"] = missing_language
     if search is not None:
         filters["search"] = search
     if domain_id is not None:
@@ -139,8 +143,11 @@ def list_questions(
     return {
         "items": [
             QuestionListItem(
-                id=q.id, question_type=q.question_type, stem=q.stem, status=q.status,
-                difficulty=q.difficulty, language=q.language,
+                id=q.id,
+                question_type=q.question_type,
+                status=q.status,
+                difficulty=q.difficulty,
+                available_languages=list(q.available_languages or []),
                 domain_id=_mappings_out(session, q.id)["domain_id"],
                 created_at=q.created_at,
             )
@@ -165,6 +172,37 @@ def create_question(
     session.commit()
     session.refresh(q)
     return _question_out(session, q)
+
+
+@router.get("/language-coverage", response_model=dict)
+def language_coverage(
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("admin:view_reports")),
+):
+    """FR-LANG coverage report: count questions by en-only / zh-only / both / neither."""
+    rows = session.execute(
+        select(Question.available_languages).where(
+            Question.organization_id == current.org_id, not_deleted(Question)
+        )
+    ).all()
+    en_only = zh_only = both = neither = 0
+    for (langs,) in rows:
+        s = set(langs or [])
+        if {"en", "zh"} <= s:
+            both += 1
+        elif "en" in s:
+            en_only += 1
+        elif "zh" in s:
+            zh_only += 1
+        else:
+            neither += 1
+    return {
+        "en_only": en_only,
+        "zh_only": zh_only,
+        "both": both,
+        "neither": neither,
+        "total": en_only + zh_only + both + neither,
+    }
 
 
 @router.get("/{question_id}", response_model=QuestionOut)
@@ -234,6 +272,8 @@ def review_question(
         raise HTTPException(status_code=404, detail="question not found")
     except svc.IllegalTransition as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except svc.ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     session.commit()
     session.refresh(q)
     return _question_out(session, q)

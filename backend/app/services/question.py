@@ -1,5 +1,11 @@
 """Question bank service: CRUD, lifecycle, revisions, feedback.
 
+Translations-based: question content (stem, options, rationale) lives in
+per-language ``QuestionTranslation`` rows. The canonical ``QuestionOption``
+carries only ``order_index`` + ``is_correct`` (the answer key).
+``Question.available_languages`` is derived from the translation rows and is
+recomputed on every create/update.
+
 Route handlers in ``app/api/questions.py`` delegate here. All queries are
 ORM/parameterized. Questions are tenant-scoped (``organization_id``) and
 soft-deleted (``not_deleted``). The caller is responsible for committing the
@@ -21,20 +27,21 @@ from app.models.enums import (
     QuestionType,
 )
 from app.models.question import (
-    Explanation,
     Question,
     QuestionFeedback,
     QuestionMapping,
     QuestionOption,
     QuestionRevision,
+    QuestionTranslation,
 )
 from app.schemas.question import (
-    ExplanationIn,
     FeedbackIn,
     MappingsIn,
     OptionIn,
     QuestionCreateIn,
     QuestionUpdateIn,
+    ReviewAction,
+    TranslationIn,
 )
 from app.services.audit import log_audit
 from app.services.snapshot import snapshot_question
@@ -46,6 +53,13 @@ class ValidationError(ValueError):
 
 class NotFound(LookupError):
     """Question does not exist or is soft-deleted (maps to HTTP 404)."""
+
+
+class IllegalTransition(ValueError):
+    """Review action invalid for the current status (maps to HTTP 409)."""
+
+
+# --- canonical option validation --------------------------------------------
 
 
 def _validate_options(qtype: QuestionType, options: list[OptionIn]) -> None:
@@ -72,6 +86,65 @@ def _validate_options(qtype: QuestionType, options: list[OptionIn]) -> None:
             raise ValidationError("question requires 2-8 options")
 
 
+# --- translation helpers -----------------------------------------------------
+
+
+def get_translations(session: Session, question_id) -> list[QuestionTranslation]:
+    """Return all translation rows for a question, ordered by language."""
+    return list(
+        session.execute(
+            select(QuestionTranslation)
+            .where(QuestionTranslation.question_id == question_id)
+            .order_by(QuestionTranslation.language)
+        ).scalars().all()
+    )
+
+
+def _recompute_available_languages(session: Session, q: Question) -> None:
+    """Derive ``available_languages`` from the current translation rows."""
+    langs = [t.language for t in get_translations(session, q.id)]
+    q.available_languages = sorted(langs)
+
+
+def _translation_is_complete(t: TranslationIn, n_options: int) -> bool:
+    """FR-LANG-09: a translation is publishable when stem + rationale are
+    non-empty, option count matches the canonical key, and every option has
+    non-empty content."""
+    if not t.stem.strip() or not t.correct_answer_rationale.strip():
+        return False
+    if len(t.options) != n_options:
+        return False
+    return all(o.content.strip() for o in t.options)
+
+
+def _write_translation_rows(
+    session: Session, q: Question, translations: list[TranslationIn], option_count: int
+) -> None:
+    """Persist translation rows, validating stem non-empty and option count."""
+    for t in translations:
+        if not t.stem.strip():
+            raise ValidationError(f"{t.language} stem must not be empty")
+        if len(t.options) != option_count:
+            raise ValidationError(
+                f"{t.language} options must match canonical option count"
+            )
+        session.add(
+            QuestionTranslation(
+                question_id=q.id,
+                language=t.language,
+                stem=t.stem,
+                stem_format=t.stem_format,
+                correct_answer_rationale=t.correct_answer_rationale,
+                key_point_summary=t.key_point_summary,
+                further_reading=t.further_reading,
+                options=[o.model_dump() for o in t.options],
+            )
+        )
+
+
+# --- revision helpers --------------------------------------------------------
+
+
 def _next_revision_number(session: Session, question_id) -> int:
     last = session.execute(
         select(QuestionRevision.revision_number)
@@ -81,19 +154,23 @@ def _next_revision_number(session: Session, question_id) -> int:
     return (last or 0) + 1
 
 
-def _write_revision(session: Session, question: Question, *, actor_id,
-                    change_summary: str | None) -> QuestionRevision:
+def _write_revision(
+    session: Session, q: Question, *, actor_id, change_summary: str | None
+) -> QuestionRevision:
+    """Capture a pre-edit snapshot of the question (canonical options + all
+    translations) into a revision row."""
     options = list(
         session.execute(
             select(QuestionOption)
-            .where(QuestionOption.question_id == question.id)
+            .where(QuestionOption.question_id == q.id)
             .order_by(QuestionOption.order_index)
         ).scalars().all()
     )
+    translations = get_translations(session, q.id)
     rev = QuestionRevision(
-        question_id=question.id,
-        revision_number=_next_revision_number(session, question.id),
-        snapshot=snapshot_question(question, options),
+        question_id=q.id,
+        revision_number=_next_revision_number(session, q.id),
+        snapshot=snapshot_question(q, translations, options),
         edited_by_id=actor_id,
         change_summary=change_summary,
     )
@@ -107,26 +184,40 @@ def _apply_mappings(session: Session, question_id, mappings: MappingsIn) -> None
     if mappings.chapter_id is not None:
         session.add(QuestionMapping(question_id=question_id, chapter_id=mappings.chapter_id))
     if mappings.knowledge_point_id is not None:
-        session.add(QuestionMapping(
-            question_id=question_id, knowledge_point_id=mappings.knowledge_point_id
-        ))
+        session.add(
+            QuestionMapping(
+                question_id=question_id, knowledge_point_id=mappings.knowledge_point_id
+            )
+        )
     for tag_id in mappings.tag_ids:
         session.add(QuestionMapping(question_id=question_id, tag_id=tag_id))
 
 
-def create_question(session: Session, *, org_id, actor_id,
-                    payload: QuestionCreateIn) -> Question:
-    if not payload.stem.strip():
-        raise ValidationError("stem must not be empty")
+def _current_options(session: Session, question_id) -> list[QuestionOption]:
+    return list(
+        session.execute(
+            select(QuestionOption)
+            .where(QuestionOption.question_id == question_id)
+            .order_by(QuestionOption.order_index)
+        ).scalars().all()
+    )
+
+
+# --- create / get / list -----------------------------------------------------
+
+
+def create_question(
+    session: Session, *, org_id, actor_id, payload: QuestionCreateIn
+) -> Question:
+    if not payload.translations:
+        raise ValidationError("at least one translation is required")
     _validate_options(payload.question_type, payload.options)
+    option_count = len(payload.options)
 
     q = Question(
         organization_id=org_id,
         question_type=payload.question_type,
-        stem=payload.stem,
-        stem_format=payload.stem_format,
         difficulty=payload.difficulty,
-        language=payload.language,
         status=QuestionStatus.draft,
         source=payload.source,
         license_status=payload.license_status,
@@ -134,34 +225,33 @@ def create_question(session: Session, *, org_id, actor_id,
         version=1,
         created_by_id=actor_id,
         updated_by_id=actor_id,
+        available_languages=sorted({t.language for t in payload.translations}),
     )
     session.add(q)
     session.flush()
 
     for i, opt in enumerate(payload.options):
-        session.add(QuestionOption(
-            question_id=q.id,
-            order_index=opt.order_index if opt.order_index is not None else i,
-            content=opt.content,
-            content_format=opt.content_format,
-            is_correct=opt.is_correct,
-            explanation=opt.explanation,
-        ))
+        session.add(
+            QuestionOption(
+                question_id=q.id,
+                order_index=opt.order_index if opt.order_index is not None else i,
+                is_correct=opt.is_correct,
+            )
+        )
 
-    if payload.explanation is not None:
-        session.add(Explanation(
-            question_id=q.id,
-            correct_answer_rationale=payload.explanation.correct_answer_rationale,
-            key_point_summary=payload.explanation.key_point_summary,
-            further_reading=payload.explanation.further_reading,
-        ))
-
+    _write_translation_rows(session, q, payload.translations, option_count)
     _apply_mappings(session, q.id, payload.mappings)
     _write_revision(session, q, actor_id=actor_id, change_summary="initial creation")
 
-    log_audit(session, action=AuditAction.edit, actor_id=actor_id,
-              organization_id=org_id, entity_type="question", entity_id=str(q.id),
-              details={"action": "create"})
+    log_audit(
+        session,
+        action=AuditAction.edit,
+        actor_id=actor_id,
+        organization_id=org_id,
+        entity_type="question",
+        entity_id=str(q.id),
+        details={"action": "create"},
+    )
     return q
 
 
@@ -183,9 +273,10 @@ def list_questions(
 ) -> tuple[list[Question], int]:
     """Tenant-scoped, paginated list of live questions.
 
-    ``filters`` may contain any of: status, question_type, language, difficulty,
-    search (stem ILIKE), domain_id, chapter_id, knowledge_point_id, tag_id.
-    Returns (items, total).
+    ``filters`` may contain any of: status, question_type, difficulty,
+    missing_language (questions whose available_languages does NOT contain it),
+    search (translation stem ILIKE), domain_id, chapter_id,
+    knowledge_point_id, tag_id. Returns (items, total).
     """
     from sqlalchemy import func
 
@@ -195,30 +286,46 @@ def list_questions(
         stmt = stmt.where(Question.status == st)
     if (qt := filters.get("question_type")) is not None:
         stmt = stmt.where(Question.question_type == qt)
-    if (lang := filters.get("language")) is not None:
-        stmt = stmt.where(Question.language == lang)
     if (diff := filters.get("difficulty")) is not None:
         stmt = stmt.where(Question.difficulty == diff)
+    if (ml := filters.get("missing_language")) is not None:
+        # Questions whose available_languages does NOT contain ml.
+        stmt = stmt.where(~Question.available_languages.any(ml))
     if (search := filters.get("search")) is not None:
-        stmt = stmt.where(Question.stem.ilike(f"%{search}%"))
-    if (domain_id := filters.get("domain_id")) is not None:
-        stmt = stmt.where(Question.id.in_(
-            select(QuestionMapping.question_id).where(QuestionMapping.domain_id == domain_id)
-        ))
-    if (chapter_id := filters.get("chapter_id")) is not None:
-        stmt = stmt.where(Question.id.in_(
-            select(QuestionMapping.question_id).where(QuestionMapping.chapter_id == chapter_id)
-        ))
-    if (knowledge_point_id := filters.get("knowledge_point_id")) is not None:
-        stmt = stmt.where(Question.id.in_(
-            select(QuestionMapping.question_id).where(
-                QuestionMapping.knowledge_point_id == knowledge_point_id
+        # Search across translation stems (en/zh).
+        stmt = stmt.where(
+            Question.id.in_(
+                select(QuestionTranslation.question_id).where(
+                    QuestionTranslation.stem.ilike(f"%{search}%")
+                )
             )
-        ))
+        )
+    if (domain_id := filters.get("domain_id")) is not None:
+        stmt = stmt.where(
+            Question.id.in_(
+                select(QuestionMapping.question_id).where(QuestionMapping.domain_id == domain_id)
+            )
+        )
+    if (chapter_id := filters.get("chapter_id")) is not None:
+        stmt = stmt.where(
+            Question.id.in_(
+                select(QuestionMapping.question_id).where(QuestionMapping.chapter_id == chapter_id)
+            )
+        )
+    if (knowledge_point_id := filters.get("knowledge_point_id")) is not None:
+        stmt = stmt.where(
+            Question.id.in_(
+                select(QuestionMapping.question_id).where(
+                    QuestionMapping.knowledge_point_id == knowledge_point_id
+                )
+            )
+        )
     if (tag_id := filters.get("tag_id")) is not None:
-        stmt = stmt.where(Question.id.in_(
-            select(QuestionMapping.question_id).where(QuestionMapping.tag_id == tag_id)
-        ))
+        stmt = stmt.where(
+            Question.id.in_(
+                select(QuestionMapping.question_id).where(QuestionMapping.tag_id == tag_id)
+            )
+        )
 
     total = session.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     page = max(page, 1)
@@ -231,46 +338,47 @@ def list_questions(
     return items, total
 
 
+# --- update / delete ---------------------------------------------------------
+
+
 def _delete_rows(session: Session, model, question_id) -> None:
     rows = list(
         session.execute(select(model).where(model.question_id == question_id)).scalars().all()
     )
     for r in rows:
         session.delete(r)
+    # Flush deletes so subsequent INSERTs of rows with the same unique key
+    # (e.g. QuestionTranslation (question_id, language)) don't violate the
+    # constraint — SQLAlchemy's unit-of-work emits INSERTs before DELETEs.
+    if rows:
+        session.flush()
 
 
-def update_question(session: Session, *, question_id, actor_id,
-                    payload: QuestionUpdateIn) -> Question:
+def update_question(
+    session: Session, *, question_id, actor_id, payload: QuestionUpdateIn
+) -> Question:
     """Partial update. Writes a pre-edit revision snapshot, bumps version, and
-    revalidates options when supplied. A no-op payload (nothing set) does not
-    bump the version.
+    revalidates options when supplied. Replaces (not appends) translations and
+    options when supplied. A no-op payload (nothing set) does not bump the
+    version.
     """
     q = get_question(session, question_id)
     data = payload.model_dump(exclude_unset=True)
     changed = bool(data)
 
     if "options" in data:
-        opts = data["options"]  # list of dicts
-        opt_objs = [OptionIn(**o) for o in opts]
+        opts = [OptionIn(**o) for o in data["options"]]
         qtype = data.get("question_type", q.question_type)
-        _validate_options(qtype, opt_objs)
+        _validate_options(qtype, opts)
 
     # capture pre-edit snapshot BEFORE mutating (revision records the prior state)
     if changed:
         _write_revision(session, q, actor_id=actor_id, change_summary="update")
 
-    if "stem" in data:
-        if not data["stem"].strip():
-            raise ValidationError("stem must not be empty")
-        q.stem = data["stem"]
-    if "stem_format" in data:
-        q.stem_format = data["stem_format"]
     if "question_type" in data:
         q.question_type = data["question_type"]
     if "difficulty" in data:
         q.difficulty = data["difficulty"]
-    if "language" in data:
-        q.language = data["language"]
     if "source" in data:
         q.source = data["source"]
     if "license_status" in data:
@@ -279,31 +387,43 @@ def update_question(session: Session, *, question_id, actor_id,
         q.prompt_items = data["prompt_items"]
     if "options" in data:
         _delete_rows(session, QuestionOption, q.id)
-        for i, opt in enumerate(opt_objs):
-            session.add(QuestionOption(
-                question_id=q.id,
-                order_index=opt.order_index if opt.order_index is not None else i,
-                content=opt.content, content_format=opt.content_format,
-                is_correct=opt.is_correct, explanation=opt.explanation,
-            ))
-    if "explanation" in data:
-        _delete_rows(session, Explanation, q.id)
-        if data["explanation"] is not None:
-            ex = ExplanationIn(**data["explanation"])
-            session.add(Explanation(
-                question_id=q.id, correct_answer_rationale=ex.correct_answer_rationale,
-                key_point_summary=ex.key_point_summary, further_reading=ex.further_reading,
-            ))
+        for i, opt in enumerate(opts):
+            session.add(
+                QuestionOption(
+                    question_id=q.id,
+                    order_index=opt.order_index if opt.order_index is not None else i,
+                    is_correct=opt.is_correct,
+                )
+            )
+    if "translations" in data and data["translations"] is not None:
+        langs = {t["language"] for t in data["translations"]}
+        if not langs:
+            raise ValidationError("at least one translation is required")
+        if "options" in data:
+            option_count = len(opts)
+        else:
+            option_count = len(_current_options(session, q.id))
+        _delete_rows(session, QuestionTranslation, q.id)
+        _write_translation_rows(
+            session, q, [TranslationIn(**t) for t in data["translations"]], option_count
+        )
     if "mappings" in data:
         _delete_rows(session, QuestionMapping, q.id)
         _apply_mappings(session, q.id, MappingsIn(**data["mappings"]))
 
     if changed:
+        _recompute_available_languages(session, q)
         q.version = (q.version or 1) + 1
         q.updated_by_id = actor_id
-        log_audit(session, action=AuditAction.edit, actor_id=actor_id,
-                  organization_id=q.organization_id, entity_type="question",
-                  entity_id=str(q.id), details={"action": "update"})
+        log_audit(
+            session,
+            action=AuditAction.edit,
+            actor_id=actor_id,
+            organization_id=q.organization_id,
+            entity_type="question",
+            entity_id=str(q.id),
+            details={"action": "update"},
+        )
     return q
 
 
@@ -324,12 +444,18 @@ def delete_question(session: Session, *, question_id, actor_id) -> None:
     q = get_question(session, question_id)
     q.deleted_at = datetime.now(timezone.utc)
     q.updated_by_id = actor_id
-    log_audit(session, action=AuditAction.delete, actor_id=actor_id,
-              organization_id=q.organization_id, entity_type="question",
-              entity_id=str(q.id), details={"action": "soft_delete"})
+    log_audit(
+        session,
+        action=AuditAction.delete,
+        actor_id=actor_id,
+        organization_id=q.organization_id,
+        entity_type="question",
+        entity_id=str(q.id),
+        details={"action": "soft_delete"},
+    )
 
 
-from app.schemas.question import ReviewAction  # noqa: E402
+# --- review state machine ----------------------------------------------------
 
 _TRANSITIONS = {
     ReviewAction.submit: {
@@ -353,13 +479,38 @@ _AUDIT_ACTION = {
 }
 
 
-class IllegalTransition(ValueError):
-    """Review action invalid for the current status (maps to HTTP 409)."""
-
-
-def submit_review(session: Session, *, question_id, actor_id,
-                  action: ReviewAction, comment: str | None = None) -> Question:
+def submit_review(
+    session: Session,
+    *,
+    question_id,
+    actor_id,
+    action: ReviewAction,
+    comment: str | None = None,
+) -> Question:
     q = get_question(session, question_id)
+    if action == ReviewAction.approve:
+        # FR-LANG-09: require >=1 complete translation; if multiple present,
+        # all must be complete.
+        translations = get_translations(session, q.id)
+        options = _current_options(session, q.id)
+        n = len(options)
+        complete = [
+            t
+            for t in translations
+            if _translation_is_complete(
+                TranslationIn(
+                    language=t.language,
+                    stem=t.stem,
+                    correct_answer_rationale=t.correct_answer_rationale,
+                    options=t.options,
+                ),
+                n,
+            )
+        ]
+        if not complete:
+            raise ValidationError("cannot publish: no complete translation")
+        if len(translations) >= 2 and len(complete) < len(translations):
+            raise ValidationError("cannot publish: present translations must all be complete")
     target = _TRANSITIONS.get(action, {}).get(q.status)
     if target is None:
         raise IllegalTransition(
@@ -368,14 +519,29 @@ def submit_review(session: Session, *, question_id, actor_id,
     q.status = target
     q.updated_by_id = actor_id
     audit_action = _AUDIT_ACTION.get(action, AuditAction.edit)
-    log_audit(session, action=audit_action, actor_id=actor_id,
-              organization_id=q.organization_id, entity_type="question",
-              entity_id=str(q.id), details={"action": action.value, "comment": comment})
+    log_audit(
+        session,
+        action=audit_action,
+        actor_id=actor_id,
+        organization_id=q.organization_id,
+        entity_type="question",
+        entity_id=str(q.id),
+        details={"action": action.value, "comment": comment},
+    )
     return q
 
 
-def create_feedback(session: Session, *, org_id, question_id, reporter_id,
-                    payload: FeedbackIn) -> QuestionFeedback:
+# --- correction feedback -----------------------------------------------------
+
+
+def create_feedback(
+    session: Session,
+    *,
+    org_id,
+    question_id,
+    reporter_id,
+    payload: FeedbackIn,
+) -> QuestionFeedback:
     """Create a correction-feedback entry on a live question (FR-Q-07)."""
     get_question(session, question_id)  # raises NotFound if missing/deleted
     fb = QuestionFeedback(
