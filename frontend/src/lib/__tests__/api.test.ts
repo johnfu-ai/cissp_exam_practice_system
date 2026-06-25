@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { apiJson, ApiError } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 
-const user = { id: "u1", email: "a@b.c", display_name: null, roles: [], perms: [] };
+const user = { id: "u1", email: "a@b.c", display_name: null, roles: [], perms: [], language_mode: "en" as const };
 
 beforeEach(() => {
   useAuthStore.setState({ user, accessToken: "stale", refreshToken: "r1" });
