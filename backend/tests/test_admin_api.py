@@ -39,7 +39,12 @@ from app.models.enums import (
     TextFormat,
     UserStatus,
 )
-from app.models.question import Question, QuestionFeedback, QuestionOption
+from app.models.question import (
+    Question,
+    QuestionFeedback,
+    QuestionOption,
+    QuestionTranslation,
+)
 from app.services.auth import InMemoryLockoutStore, register_user
 
 
@@ -83,16 +88,28 @@ def _headers(db, store, email, role=RoleName.individual_learner, perms=None):
 
 
 def _question(db, org, actor, stem="q", status=QuestionStatus.published):
+    """Translations-based published question: canonical QuestionOption rows
+    (order_index + is_correct) + one ``en`` QuestionTranslation carrying the
+    stem/rationale/options content. ``Question`` no longer has ``stem`` and
+    ``QuestionOption`` no longer has ``content`` — content lives in the
+    translation."""
     q = Question(
         organization_id=org.id, question_type=QuestionType.single_choice,
-        stem=stem, stem_format=TextFormat.markdown, status=status,
-        created_by_id=actor.id,
+        status=status, available_languages=["en"], created_by_id=actor.id,
     )
     db.add(q); db.flush()
-    db.add(QuestionOption(question_id=q.id, order_index=0, content="A",
-                          content_format=TextFormat.markdown, is_correct=True))
-    db.add(QuestionOption(question_id=q.id, order_index=1, content="B",
-                          content_format=TextFormat.markdown, is_correct=False))
+    db.add(QuestionOption(question_id=q.id, order_index=0, is_correct=True))
+    db.add(QuestionOption(question_id=q.id, order_index=1, is_correct=False))
+    db.add(QuestionTranslation(
+        question_id=q.id, language="en", stem=stem,
+        stem_format=TextFormat.markdown, correct_answer_rationale="r",
+        options=[
+            {"order_index": 0, "content": "A",
+             "content_format": TextFormat.markdown.value, "explanation": ""},
+            {"order_index": 1, "content": "B",
+             "content_format": TextFormat.markdown.value, "explanation": ""},
+        ],
+    ))
     db.flush()
     return q
 

@@ -34,12 +34,12 @@ from app.models.enums import AuditAction, UserStatus
 from app.models.exam import ExamAnswer, ExamSession
 from app.models.practice import PracticeAnswer, PracticeSession
 from app.models.question import (
-    Explanation,
     Question,
     QuestionFeedback,
     QuestionFeedbackStatus as _QFStatus,
     QuestionFeedbackType,
     QuestionStatus,
+    QuestionTranslation,
 )
 from app.schemas.admin import (
     AuditLogOut,
@@ -402,8 +402,11 @@ def get_current_cat_params(session) -> CatParamsVersion | None:
 # Org-scoped for org_admin (current.org_id), global for system_admin (None
 # scope). Out-of-scope targets raise NotFound (not 403) to avoid leaking
 # existence. Thresholds: low-accuracy = accuracy < 0.6 AND answered >= 5;
-# missing-explanation = published Question with no Explanation row; disputed =
-# question has >=1 OPEN suspected_wrong_answer feedback.
+# missing-explanation = published Question with NO QuestionTranslation whose
+# correct_answer_rationale is non-empty (no translation row, or all
+# translations have empty/whitespace-only rationale) — the bilingual
+# translations model superseded the old single-language Explanation table;
+# disputed = question has >=1 OPEN suspected_wrong_answer feedback.
 
 _LOW_ACC = 0.6
 _LOW_ACC_MIN_ANSWERED = 5
@@ -419,6 +422,51 @@ def _scoped_questions_q(current):
     if scope is not None:
         q = q.where(Question.organization_id == scope)
     return q
+
+
+def _stems_for(session, question_ids) -> dict:
+    """Return ``{question_id: stem}`` for the given question ids, preferring
+    the ``en`` translation, then ``zh``, then any available translation, then
+    ``""``. Used to populate ``*.stem`` output fields now that ``Question.stem``
+    no longer exists — question content lives in ``QuestionTranslation``."""
+    if not question_ids:
+        return {}
+    rows = session.execute(
+        select(
+            QuestionTranslation.question_id,
+            QuestionTranslation.language,
+            QuestionTranslation.stem,
+        ).where(QuestionTranslation.question_id.in_(question_ids))
+    ).all()
+    by_q: dict[uuid.UUID, dict[str, str]] = {}
+    for qid, lang, stem in rows:
+        by_q.setdefault(qid, {})[lang] = stem
+    out: dict[uuid.UUID, str] = {}
+    for qid in question_ids:
+        langs = by_q.get(qid, {})
+        # en preferred, then zh, then any (empty/whitespace stems fall through
+        # to the next option since "" is falsy).
+        out[qid] = (
+            langs.get("en") or langs.get("zh") or next(iter(langs.values()), "")
+        )
+    return out
+
+
+def _question_ids_with_rationale(session, question_ids) -> set:
+    """Return the subset of ``question_ids`` that have at least one
+    ``QuestionTranslation`` whose ``correct_answer_rationale`` is non-empty
+    after trimming. Used for the "missing-explanation" (now missing-rationale)
+    count — a published question is "missing" if its id is NOT in this set."""
+    if not question_ids:
+        return set()
+    return set(
+        session.execute(
+            select(QuestionTranslation.question_id).where(
+                QuestionTranslation.question_id.in_(question_ids),
+                func.trim(QuestionTranslation.correct_answer_rationale) != "",
+            )
+        ).scalars().all()
+    )
 
 
 def _answer_stats(session, current):
@@ -470,15 +518,13 @@ def quality_dashboard(session, *, current) -> QualityDashboardOut:
     ).scalar_one()
     low = sum(1 for (a, c) in stats.values()
               if a >= _LOW_ACC_MIN_ANSWERED and (c / a if a else 0.0) < _LOW_ACC)
-    # published questions without an Explanation
+    # published questions with NO QuestionTranslation whose rationale is non-empty
     published_q = session.execute(
         select(Question.id).where(not_deleted(Question), Question.status == QuestionStatus.published,
                *org_filter)
     ).scalars().all()
-    with_expl = set(session.execute(
-        select(Explanation.question_id).where(Explanation.question_id.in_(published_q))
-    ).scalars().all()) if published_q else set()
-    missing = len(set(published_q) - with_expl)
+    with_rationale = _question_ids_with_rationale(session, published_q)
+    missing = len(set(published_q) - with_rationale)
     return QualityDashboardOut(open_feedback_count=open_fb, disputed_question_count=disputed,
                                low_accuracy_question_count=low, missing_explanation_count=missing)
 
@@ -534,9 +580,8 @@ def list_low_accuracy_questions(session, *, current, limit=10) -> list[LowAccura
     rows = rows[:limit]
     if not rows:
         return []
-    stems = {q.id: q.stem for q in session.execute(
-        select(Question).where(Question.id.in_([r[0] for r in rows]))).scalars().all()}
-    return [LowAccuracyQuestionOut(question_id=qid, stem=stems[qid], answered=a,
+    stems = _stems_for(session, [r[0] for r in rows])
+    return [LowAccuracyQuestionOut(question_id=qid, stem=stems.get(qid, ""), answered=a,
                                    correct=c, accuracy=acc) for qid, a, c, acc in rows]
 
 
@@ -548,11 +593,11 @@ def list_missing_explanation_questions(session, *, current, limit=50) -> list[Mi
     pubs = session.execute(q.order_by(Question.created_at.desc()).limit(limit * 2)).scalars().all()
     if not pubs:
         return []
-    with_expl = set(session.execute(
-        select(Explanation.question_id).where(Explanation.question_id.in_([p.id for p in pubs]))
-    ).scalars().all())
-    out = [MissingExplanationQuestionOut(question_id=p.id, stem=p.stem, status=p.status.value)
-           for p in pubs if p.id not in with_expl][:limit]
+    with_rationale = _question_ids_with_rationale(session, [p.id for p in pubs])
+    stems = _stems_for(session, [p.id for p in pubs])
+    out = [MissingExplanationQuestionOut(question_id=p.id, stem=stems.get(p.id, ""),
+                                         status=p.status.value)
+           for p in pubs if p.id not in with_rationale][:limit]
     return out
 
 
@@ -710,3 +755,38 @@ def report_summary(session, *, current, org_id=None, window_days=30) -> ReportSu
         published_question_count=published_question_count, used_question_count=used_question_count,
         question_bank_usage_pct=question_bank_usage_pct, top_error_questions=top_error,
     )
+
+
+# ---- FR-LANG: admin language-coverage alias ----
+#
+# Alias of GET /api/questions/language-coverage (T4) under the admin router,
+# org-scoped for org_admin (current.org_id) and global for system_admin (None
+# scope) via _q_scope — mirroring the other admin question queries — rather
+# than hard-scoped to current.org_id like the question-bank original. Returns
+# the same {en_only, zh_only, both, neither, total} shape so the admin
+# backoffice can surface the same coverage breakdown it already renders.
+
+def language_coverage(session, *, current) -> dict:
+    q = select(Question.available_languages).where(not_deleted(Question))
+    scope = _q_scope(current)
+    if scope is not None:
+        q = q.where(Question.organization_id == scope)
+    rows = session.execute(q).all()
+    en_only = zh_only = both = neither = 0
+    for (langs,) in rows:
+        s = set(langs or [])
+        if {"en", "zh"} <= s:
+            both += 1
+        elif "en" in s:
+            en_only += 1
+        elif "zh" in s:
+            zh_only += 1
+        else:
+            neither += 1
+    return {
+        "en_only": en_only,
+        "zh_only": zh_only,
+        "both": both,
+        "neither": neither,
+        "total": en_only + zh_only + both + neither,
+    }

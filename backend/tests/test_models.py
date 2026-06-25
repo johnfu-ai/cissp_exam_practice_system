@@ -130,8 +130,6 @@ def test_question_tenant_scoped_and_soft_delete(db_session):
     q = Question(
         organization_id=org.id,
         question_type=QuestionType.single_choice,
-        stem="What is CIA?",
-        stem_format="markdown",
     )
     db_session.add(q)
     db_session.flush()
@@ -148,12 +146,11 @@ def test_question_option(db_session):
     q = Question(
         organization_id=org.id,
         question_type=QuestionType.multiple_choice,
-        stem="Pick two",
     )
     db_session.add(q)
     db_session.flush()
     opt = QuestionOption(
-        question_id=q.id, order_index=0, content="Option A", is_correct=True
+        question_id=q.id, order_index=0, is_correct=True
     )
     db_session.add(opt)
     db_session.flush()
