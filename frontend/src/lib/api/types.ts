@@ -209,6 +209,117 @@ export interface PersonalReport {
   recommendation: ReviewRecommendation;
 }
 
+// Exam (mirrors app/schemas/exam.py)
+export type ExamKind = "fixed" | "cat";
+
+export interface ExamCreateInput {
+  kind: ExamKind;
+  count?: number | null;
+}
+
+export interface ExamSession {
+  id: string;
+  status: string;
+  session_kind: ExamKind;
+  total_questions: number;
+  correct_count: number;
+  started_at: string;
+  ended_at: string | null;
+  time_remaining_ms: number | null;
+  config: Record<string, unknown>;
+}
+
+export interface ExamQuestionDelivery {
+  session_id: string;
+  position: number;
+  total: number;
+  question_id: string;
+  stem: string;
+  question_type: QuestionType;
+  options: OptionDelivery[];
+  elapsed_ms: number;
+  time_remaining_ms: number;
+  previous_answer: { selected: number[] } | null;
+}
+
+export interface ExamAnswerInput {
+  position: number;
+  selected: number[];
+  started_at: string;
+}
+
+export interface ExamAnswerAck {
+  position: number;
+  saved: boolean;
+  time_remaining_ms: number;
+  finished: boolean;
+}
+
+export interface DomainPerformance {
+  domain_id: string | null;
+  domain_name: string | null;
+  weight_pct: number | null;
+  answered: number;
+  correct: number;
+  accuracy: number;
+}
+
+export interface ExamReport {
+  session_id: string;
+  status: string;
+  total_questions: number;
+  answered_count: number;
+  correct_count: number;
+  scaled_score: number;
+  max_score: number;
+  passing_score: number;
+  passed: boolean;
+  accuracy: number;
+  total_time_ms: number;
+  avg_time_ms: number;
+  domains: DomainPerformance[];
+  wrong_questions: WrongQuestion[];
+  // CAT-only (null for fixed exams):
+  ability_estimate: number | null;
+  ability_ci_lower: number | null;
+  ability_ci_upper: number | null;
+  sem: number | null;
+  readiness_level: string | null;
+  disclaimer: string | null;
+}
+
+export interface ReviewOption {
+  order_index: number;
+  content: string;
+  is_correct: boolean;
+  explanation: string | null;
+}
+
+export interface ReviewItem {
+  position: number;
+  question_id: string;
+  stem: string;
+  question_type: QuestionType;
+  options: ReviewOption[];
+  correct_rationale: string | null;
+  key_point_summary: string | null;
+  your_answer: { selected: number[] } | null;
+  time_spent_ms: number | null;
+}
+
+export interface ExamHistoryItem {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  status: string;
+  total_questions: number;
+  correct_count: number;
+  scaled_score: number;
+  max_score: number;
+  passed: boolean;
+  accuracy: number;
+}
+
 // Taxonomy
 export interface Domain {
   id: string;

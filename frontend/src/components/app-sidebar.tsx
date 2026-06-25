@@ -12,7 +12,7 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
   { href: "/practice", label: "Practice", icon: BookOpen, enabled: true },
   { href: "/review", label: "Review", icon: Repeat, enabled: true },
-  { href: "/exam", label: "Exam", icon: GraduationCap, enabled: false },
+  { href: "/exam", label: "Exam", icon: GraduationCap, enabled: true },
   { href: "/analytics", label: "Analytics", icon: BarChart3, enabled: true },
 ];
 
