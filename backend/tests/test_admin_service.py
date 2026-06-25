@@ -366,7 +366,7 @@ def test_quality_dashboard_counts(session_with_roles):
     assert out.open_feedback_count >= 1
     assert out.disputed_question_count >= 1
     assert out.low_accuracy_question_count >= 1
-    assert out.missing_explanation_count >= 1
+    assert out.missing_explanation_count == 1
 
 
 def test_resolve_feedback(session_with_roles):

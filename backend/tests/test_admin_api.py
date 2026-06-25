@@ -416,3 +416,102 @@ def test_audit_logs_org_admin_cross_org_422(client):
     db.add(other); db.flush()
     r = c.get(f"/api/admin/audit-logs?org_id={other.id}", headers=h)
     assert r.status_code == 422, r.text
+
+
+# ---- FR-LANG: admin language-coverage alias ----
+#
+# GET /api/admin/questions/language-coverage is the admin-router alias of
+# GET /api/questions/language-coverage: counts in-scope (non-deleted) questions
+# by en-only / zh-only / both / neither. Gated on admin:view_reports;
+# org-scoped for org_admin (current.org_id) and global for system_admin (None
+# scope) via _q_scope — mirroring the other admin question queries.
+
+def _bilingual_question(db, org, actor, stem="q", status=QuestionStatus.published):
+    """Bilingual (en+zh) published question — mirrors ``_question`` but adds a
+    ``zh`` QuestionTranslation and lists both languages in
+    ``available_languages`` so the row counts toward the ``both`` bucket."""
+    q = Question(
+        organization_id=org.id, question_type=QuestionType.single_choice,
+        status=status, available_languages=["en", "zh"], created_by_id=actor.id,
+    )
+    db.add(q); db.flush()
+    db.add(QuestionOption(question_id=q.id, order_index=0, is_correct=True))
+    db.add(QuestionOption(question_id=q.id, order_index=1, is_correct=False))
+    db.add(QuestionTranslation(
+        question_id=q.id, language="en", stem=stem,
+        stem_format=TextFormat.markdown, correct_answer_rationale="r",
+        options=[
+            {"order_index": 0, "content": "A",
+             "content_format": TextFormat.markdown.value, "explanation": ""},
+            {"order_index": 1, "content": "B",
+             "content_format": TextFormat.markdown.value, "explanation": ""},
+        ],
+    ))
+    db.add(QuestionTranslation(
+        question_id=q.id, language="zh", stem=f"{stem}-zh",
+        stem_format=TextFormat.markdown, correct_answer_rationale="r-zh",
+        options=[
+            {"order_index": 0, "content": "甲",
+             "content_format": TextFormat.markdown.value, "explanation": ""},
+            {"order_index": 1, "content": "乙",
+             "content_format": TextFormat.markdown.value, "explanation": ""},
+        ],
+    ))
+    db.flush()
+    return q
+
+
+def test_language_coverage_403_without_reports_perm(client):
+    # A learner token (no admin:view_reports) is rejected on the admin alias;
+    # the route is gated on admin:view_reports like the other report endpoints.
+    c, store, db = client
+    h, _ = _headers(db, store, email="lc-learner@x.com",
+                    role=RoleName.individual_learner, perms=LEARNER_PERMS)
+    assert c.get("/api/admin/questions/language-coverage",
+                 headers=h).status_code == 403
+
+
+def test_language_coverage_shape_and_counts(client):
+    # system_admin gets 200; the response carries the {en_only, zh_only, both,
+    # neither, total} shape. Seeding one en-only + one bilingual published
+    # question in the admin's org yields en_only>=1 and both>=1.
+    c, store, db = client
+    h, admin = _headers(db, store, email="lc-sys@x.com",
+                        role=RoleName.system_admin)
+    org = db.query(Organization).filter_by(id=admin.default_organization_id).one()
+    _question(db, org, admin, stem="en-only")
+    _bilingual_question(db, org, admin, stem="bi")
+    r = c.get("/api/admin/questions/language-coverage", headers=h)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert {"en_only", "zh_only", "both", "neither", "total"} <= set(data)
+    assert data["en_only"] >= 1
+    assert data["both"] >= 1
+    assert data["zh_only"] == 0
+    assert data["neither"] == 0
+    assert data["total"] == data["en_only"] + data["zh_only"] + data["both"] + data["neither"]
+
+
+def test_language_coverage_org_scoped(client):
+    # org_admin sees ONLY their own org's questions; a second org's questions
+    # are invisible. Seed one en-only + one bilingual question in each of two
+    # orgs; the org_admin of org A sees total==2 (their org only), not 4.
+    c, store, db = client
+    h_a, admin_a = _headers(db, store, email="lc-oa@x.com",
+                            role=RoleName.org_admin, perms=ORG_ADMIN_PERMS)
+    org_a = db.query(Organization).filter_by(id=admin_a.default_organization_id).one()
+    _question(db, org_a, admin_a, stem="a-en")
+    _bilingual_question(db, org_a, admin_a, stem="a-bi")
+    # second org (org B) with its own questions — must be invisible to org_admin A
+    admin_b, _ = register_user(db, email="lc-ob@x.com", password="pw123456",
+                               display_name="OB", refresh_store=store)
+    db.flush()
+    org_b = db.query(Organization).filter_by(id=admin_b.default_organization_id).one()
+    _question(db, org_b, admin_b, stem="b-en")
+    _bilingual_question(db, org_b, admin_b, stem="b-bi")
+    r = c.get("/api/admin/questions/language-coverage", headers=h_a)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["en_only"] == 1
+    assert data["both"] == 1
+    assert data["total"] == 2
