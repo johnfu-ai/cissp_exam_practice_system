@@ -131,6 +131,84 @@ export interface QuestionState {
   error_type: ErrorType | null;
 }
 
+// Analytics (mirrors app/schemas/analytics.py)
+export interface DashboardOut {
+  practiced_questions: number;
+  total_answered: number;
+  correct_count: number;
+  accuracy: number;
+  study_time_ms: number;
+  streak_days: number;
+  last_active_at: string | null;
+}
+
+export type MasteryLevel = "mastered" | "reviewing" | "learning" | "not_started";
+
+export interface DomainMastery {
+  domain_id: string;
+  number: number;
+  name: string;
+  weight_pct: number;
+  answered: number;
+  correct: number;
+  accuracy: number;
+  avg_time_ms: number;
+  mastery_level: MasteryLevel;
+}
+
+export interface TrendPoint {
+  date: string;
+  answered: number;
+  correct: number;
+  accuracy: number;
+}
+
+export interface TrendOut {
+  window_days: number;
+  points: TrendPoint[];
+}
+
+export interface WeakArea {
+  domain_id: string | null;
+  knowledge_point_id: string | null;
+  label: string;
+  answered: number;
+  correct: number;
+  accuracy: number;
+}
+
+export interface WeakAreasOut {
+  weak_domains: WeakArea[];
+  weak_knowledge_points: WeakArea[];
+}
+
+export interface ErrorTypeBreakdown {
+  error_type: string | null;
+  count: number;
+}
+
+export interface ErrorTypeOut {
+  total_wrong_classified: number;
+  distribution: ErrorTypeBreakdown[];
+}
+
+export interface ReviewRecommendation {
+  focus_domain: WeakArea | null;
+  wrong_to_review: string[];
+  next_practice_question_ids: string[];
+  rationale: string;
+}
+
+export interface PersonalReport {
+  generated_at: string;
+  dashboard: DashboardOut;
+  domains: DomainMastery[];
+  trend_30d: TrendOut;
+  weak_areas: WeakAreasOut;
+  error_types: ErrorTypeOut;
+  recommendation: ReviewRecommendation;
+}
+
 // Taxonomy
 export interface Domain {
   id: string;

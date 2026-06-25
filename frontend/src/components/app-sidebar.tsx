@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, GraduationCap, BarChart3, Shield, LogOut } from "lucide-react";
+import { LayoutDashboard, BookOpen, GraduationCap, BarChart3, Shield, LogOut } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
 import { BACKEND } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const NAV = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
   { href: "/practice", label: "Practice", icon: BookOpen, enabled: true },
   { href: "/exam", label: "Exam", icon: GraduationCap, enabled: false },
-  { href: "/analytics", label: "Analytics", icon: BarChart3, enabled: false },
+  { href: "/analytics", label: "Analytics", icon: BarChart3, enabled: true },
 ];
 
 export function AppSidebar() {

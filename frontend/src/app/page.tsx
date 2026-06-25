@@ -11,7 +11,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    router.replace(accessToken ? "/practice" : "/login");
+    router.replace(accessToken ? "/dashboard" : "/login");
   }, [hydrated, accessToken, router]);
 
   return (
