@@ -11,6 +11,7 @@ from app.api.exam import router as exam_router
 from app.api.practice import router as practice_router
 from app.api.questions import router as questions_router
 from app.api.taxonomy import router as taxonomy_router
+from app.api.users import router as users_router
 from app.core.config import settings
 from app.db.session import get_engine
 
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(practice_router)
     app.include_router(exam_router)
     app.include_router(admin_router)
+    app.include_router(users_router)
 
     return app
 
