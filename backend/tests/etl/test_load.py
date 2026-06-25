@@ -241,6 +241,40 @@ def test_apply_dry_run_detects_existing_unchanged(db_session):
     assert summary.unchanged == 1
 
 
+def test_load_supplements_zh_translation_on_reimport(db_session):
+    """FR-LANG-08: re-importing an en-only question with zh content updates it
+    to bilingual (writes the zh translation, sets available_languages, clears
+    needs_revision -> draft). en stem + answer key are unchanged so the only
+    signal is the language-coverage change.
+    """
+    org_id = _seed_org_and_domain(db_session)
+
+    # 1. en-only -> one Question, one en translation, needs_revision
+    result = apply_load(db_session, org_id, "osg10", None, [_cleaned_en_only(external_id="sup1")])
+    assert result.created == 1
+    q = db_session.execute(select(Question).filter_by(deleted_at=None)).scalar_one()
+    assert q.available_languages == ["en"]
+    assert q.status.value == "needs_revision"
+    assert _count(db_session, QuestionTranslation) == 1
+
+    # 2. same external_id, now bilingual -> _differs True -> update path runs
+    result = apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual(external_id="sup1")])
+    assert result.updated == 1
+    assert result.unchanged == 0
+
+    # 3. final state: 1 Question, 2 translations, bilingual, draft
+    assert _count(db_session, Question) == 1
+    assert _count(db_session, QuestionTranslation) == 2
+    q = db_session.execute(select(Question).filter_by(deleted_at=None)).scalar_one()
+    assert q.available_languages == ["en", "zh"]
+    assert q.status.value == "draft"
+    ts = db_session.execute(select(QuestionTranslation).where(
+        QuestionTranslation.question_id == q.id)).scalars().all()
+    assert {t.language for t in ts} == {"en", "zh"}
+    zh_t = next(t for t in ts if t.language == "zh")
+    assert zh_t.stem == "题干"
+
+
 def test_load_result_dataclass_defaults():
     r = LoadResult()
     assert r.created == 0 and r.updated == 0 and r.unchanged == 0

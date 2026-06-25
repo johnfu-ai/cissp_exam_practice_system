@@ -165,15 +165,31 @@ def _current_translations(session, question_id) -> list[QuestionTranslation]:
 
 def _differs(q: Question, options: list[QuestionOption],
              translations: list[QuestionTranslation], cleaned) -> bool:
-    """Compare the en translation stem + canonical option correctness to cleaned.
+    """Compare the current question state to the cleaned record.
 
-    Kept simple: a stem or answer-key change counts as a diff.
+    Returns True on any of:
+      - en translation missing or en stem changed,
+      - canonical option correctness changed,
+      - available_languages set changed (e.g. en-only -> en+zh supplementation),
+      - zh translation stem changed, or zh missing on the question while cleaned
+        carries zh (FR-LANG-08 supplementation path).
+
+    Kept simple: a stem, answer-key, language-coverage, or zh-stem change counts
+    as a diff.
     """
     t_en = next((t for t in translations if t.language == "en"), None)
     if t_en is None or t_en.stem != cleaned.stem_en:
         return True
     if [o.is_correct for o in options] != [o.is_correct for o in cleaned.options]:
         return True
+    # available_languages change (e.g. en-only question gaining a zh translation)
+    if sorted(q.available_languages or []) != sorted(cleaned.available_languages):
+        return True
+    # zh content change: supplementation (no zh row yet) or stem edit
+    if "zh" in (cleaned.available_languages or []):
+        t_zh = next((t for t in translations if t.language == "zh"), None)
+        if t_zh is None or t_zh.stem != cleaned.stem_zh:
+            return True
     return False
 
 
