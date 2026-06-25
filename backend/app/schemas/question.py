@@ -1,4 +1,10 @@
-"""Pydantic schemas for the question bank API."""
+"""Pydantic schemas for the question bank API.
+
+Translations-based: question content (stem, options, rationale) lives in
+per-language `QuestionTranslation` rows. The canonical `QuestionOption` only
+carries `order_index` + `is_correct` (the answer key), so `OptionIn`/`OptionOut`
+are canonical-only and each `TranslationOut` carries its own localized options.
+"""
 
 import uuid
 from datetime import datetime
@@ -16,33 +22,57 @@ from app.models.enums import (
 )
 
 
-class OptionIn(BaseModel):
+# --- Translation-layer schemas (per-language content) ------------------------
+
+
+class TranslationOptionIn(BaseModel):
+    order_index: int
     content: str
     content_format: TextFormat = TextFormat.markdown
-    is_correct: bool = False
-    order_index: int | None = None
     explanation: str | None = None
+
+
+class TranslationIn(BaseModel):
+    language: str  # 'en' | 'zh'
+    stem: str
+    stem_format: TextFormat = TextFormat.markdown
+    correct_answer_rationale: str
+    key_point_summary: str | None = None
+    further_reading: str | None = None
+    options: list[TranslationOptionIn]
+
+
+class TranslationOptionOut(BaseModel):
+    order_index: int
+    content: str
+    content_format: TextFormat
+    explanation: str | None = None
+
+
+class TranslationOut(BaseModel):
+    language: str
+    stem: str
+    stem_format: TextFormat
+    correct_answer_rationale: str
+    key_point_summary: str | None = None
+    further_reading: str | None = None
+    options: list[TranslationOptionOut]
+
+
+# --- Canonical answer-key schemas (language-independent) ---------------------
+
+
+class OptionIn(BaseModel):
+    """Canonical option: order + correctness only. Content lives per-translation."""
+
+    order_index: int | None = None
+    is_correct: bool = False
 
 
 class OptionOut(BaseModel):
     id: uuid.UUID
     order_index: int
-    content: str
-    content_format: TextFormat
     is_correct: bool
-    explanation: str | None = None
-
-
-class ExplanationIn(BaseModel):
-    correct_answer_rationale: str
-    key_point_summary: str | None = None
-    further_reading: str | None = None
-
-
-class ExplanationOut(BaseModel):
-    correct_answer_rationale: str
-    key_point_summary: str | None = None
-    further_reading: str | None = None
 
 
 class MappingsIn(BaseModel):
@@ -59,41 +89,36 @@ class MappingsOut(BaseModel):
     tag_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
+# --- Question create/update/out ---------------------------------------------
+
+
 class QuestionCreateIn(BaseModel):
     question_type: QuestionType
-    stem: str
-    stem_format: TextFormat = TextFormat.markdown
     difficulty: int | None = None
-    language: str = "en"
     source: str | None = None
     license_status: LicenseStatus = LicenseStatus.unconfirmed
     prompt_items: list | None = None
-    options: list[OptionIn]
-    explanation: ExplanationIn | None = None
+    options: list[OptionIn]  # canonical answer key
+    translations: list[TranslationIn]  # at least one
     mappings: MappingsIn = Field(default_factory=MappingsIn)
 
 
 class QuestionUpdateIn(BaseModel):
     question_type: QuestionType | None = None
-    stem: str | None = None
-    stem_format: TextFormat | None = None
     difficulty: int | None = None
-    language: str | None = None
     source: str | None = None
     license_status: LicenseStatus | None = None
     prompt_items: list | None = None
     options: list[OptionIn] | None = None
-    explanation: ExplanationIn | None = None
+    translations: list[TranslationIn] | None = None
     mappings: MappingsIn | None = None
 
 
 class QuestionOut(BaseModel):
     id: uuid.UUID
     question_type: QuestionType
-    stem: str
-    stem_format: TextFormat
     difficulty: int | None
-    language: str
+    available_languages: list[str]
     status: QuestionStatus
     source: str | None
     license_status: LicenseStatus
@@ -101,20 +126,22 @@ class QuestionOut(BaseModel):
     prompt_items: list | None = None
     created_at: datetime
     updated_at: datetime
-    options: list[OptionOut]
-    explanation: ExplanationOut | None = None
+    options: list[OptionOut]  # canonical {id, order_index, is_correct}
+    translations: list[TranslationOut]
     mappings: MappingsOut
 
 
 class QuestionListItem(BaseModel):
     id: uuid.UUID
     question_type: QuestionType
-    stem: str
     status: QuestionStatus
     difficulty: int | None
-    language: str
+    available_languages: list[str]
     domain_id: uuid.UUID | None = None
     created_at: datetime
+
+
+# --- Review + feedback + revisions (unchanged) -------------------------------
 
 
 class ReviewAction(str, Enum):

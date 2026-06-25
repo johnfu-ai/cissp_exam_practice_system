@@ -1,4 +1,10 @@
-"""Pydantic schemas for the practice API."""
+"""Pydantic schemas for the practice API.
+
+Bilingual delivery: stem/options/rationale are `Localized` ({en, zh}) so a
+single response can serve en, zh, or bilingual language modes. The session's
+`language_mode` is carried in `SessionOut.config` (unchanged) and echoed in
+`QuestionDeliveryOut.language_mode`.
+"""
 
 import uuid
 from datetime import datetime
@@ -8,15 +14,16 @@ from pydantic import BaseModel, Field
 
 from app.models.enums import ErrorType
 
-
 Subset = Literal["all", "unpracticed", "wrong", "bookmarked", "needs_review"]
 OrderMode = Literal["random", "sequential", "easy_to_hard"]
+LanguageMode = Literal["en", "zh", "bilingual"]
 
 
 class SessionCreateIn(BaseModel):
     count: int = Field(ge=1, le=200)
     subset: Subset = "all"
     order_mode: OrderMode = "random"
+    language_mode: LanguageMode | None = None
     domain_id: uuid.UUID | None = None
     book_id: uuid.UUID | None = None
     chapter_ids: list[uuid.UUID] = Field(default_factory=list)
@@ -36,11 +43,16 @@ class SessionOut(BaseModel):
     config: dict
 
 
+class Localized(BaseModel):
+    en: str | None = None
+    zh: str | None = None
+
+
 class OptionDelivery(BaseModel):
     id: uuid.UUID
     order_index: int
-    content: str
-    content_format: str
+    content: Localized
+    content_format: Localized
 
 
 class QuestionDeliveryOut(BaseModel):
@@ -48,8 +60,10 @@ class QuestionDeliveryOut(BaseModel):
     position: int
     total: int
     question_id: uuid.UUID
-    stem: str
     question_type: str
+    available_languages: list[str]
+    language_mode: str
+    stem: Localized
     options: list[OptionDelivery]
     elapsed_ms: int
     previous_answer: dict | None = None
@@ -64,15 +78,15 @@ class AnswerIn(BaseModel):
 class PerOptionExplanation(BaseModel):
     order_index: int
     is_correct: bool
-    explanation: str | None = None
+    explanation: Localized
 
 
 class AnswerResultOut(BaseModel):
     is_correct: bool
     correct_indexes: list[int]
     selected_indexes: list[int]
-    correct_rationale: str | None = None
-    key_point_summary: str | None = None
+    correct_rationale: Localized
+    key_point_summary: Localized
     per_option: list[PerOptionExplanation]
     mapping: dict
     history: list[dict]
@@ -87,7 +101,7 @@ class DomainBreakdown(BaseModel):
 
 class WrongQuestion(BaseModel):
     question_id: uuid.UUID
-    stem: str
+    stem: Localized
     selected_indexes: list[int]
     correct_indexes: list[int]
 
