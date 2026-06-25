@@ -15,9 +15,19 @@ import {
   LogOut,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
+import { usePreferences, useUpdatePreferences } from "@/lib/api/preferences";
+import type { LanguageMode } from "@/lib/api/types";
 import { BACKEND } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
@@ -41,6 +51,22 @@ export function AppSidebar() {
   const isAdmin = perms.some((p) => p.startsWith("admin:"));
   const manageLinks = MANAGE.filter((m) => perms.includes(m.perm));
   const showManage = manageLinks.length > 0 || isAdmin;
+
+  // Default language mode: prefer the persisted preference, fall back to the
+  // auth-store user, then "en". Keeping a value while preferences load avoids
+  // a flash of the wrong language.
+  const prefs = usePreferences();
+  const updatePrefs = useUpdatePreferences();
+  const mode: LanguageMode = prefs.data?.language_mode ?? user?.language_mode ?? "en";
+
+  function onMode(v: string) {
+    const m = v as LanguageMode;
+    updatePrefs.mutate(m);
+    // Instant UI sync — `useUpdatePreferences.onSuccess` also sets this, but
+    // mutating is async; update the store now so the sidebar tracks immediately.
+    const { user: u, setUser } = useAuthStore.getState();
+    if (u) setUser({ ...u, language_mode: m });
+  }
 
   async function logout() {
     const { refreshToken, clear } = useAuthStore.getState();
@@ -113,6 +139,21 @@ export function AppSidebar() {
         <div className="mb-2 px-2 text-sm">
           <div className="truncate font-medium">{user?.display_name || user?.email}</div>
           <div className="truncate text-xs text-muted-foreground">{user?.email}</div>
+        </div>
+        <div className="mb-2 space-y-1 px-2">
+          <Label htmlFor="lang-mode" className="text-xs text-muted-foreground">
+            Language
+          </Label>
+          <Select value={mode} onValueChange={onMode}>
+            <SelectTrigger id="lang-mode" className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">English</SelectItem>
+              <SelectItem value="zh">中文</SelectItem>
+              <SelectItem value="bilingual">Both</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <Button variant="ghost" size="sm" className="w-full justify-start" onClick={logout}>
           <LogOut className="h-4 w-4" />
