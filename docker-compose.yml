@@ -34,8 +34,15 @@ services:
       JWT_SECRET: dev-only-change-me
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      SEED_ADMIN_EMAIL: admin@example.com
+      SEED_ADMIN_PASSWORD: admin
+      CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
     ports:
       - "8000:8000"
+    volumes:
+      # Seeded ETL datasets live at the repo root (not inside the backend
+      # build context), so mount them read-only for the import pipeline.
+      - ./docs/questions:/app/docs/questions:ro
     depends_on:
       postgres:
         condition: service_healthy
