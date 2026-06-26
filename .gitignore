@@ -27,3 +27,6 @@ out/
 
 # DB
 *.sqlite3
+
+# superpowers visual companion
+.superpowers/
