@@ -56,7 +56,7 @@ export function ExamHistoryPanel() {
           <h3 className="mb-3 text-sm font-medium text-muted-foreground">In progress</h3>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {active.map((s) => (
-              <Card key={s.id}>
+              <Card key={s.id} hover>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-base">
                     {s.session_kind === "cat" ? "CAT exam" : "Fixed exam"}
@@ -64,7 +64,7 @@ export function ExamHistoryPanel() {
                   <Badge variant="secondary">In progress</Badge>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground tabular-nums">
                     {s.total_questions > 0 ? `${s.total_questions} questions` : "Adaptive"}
                   </p>
                   <Button asChild size="sm">
@@ -101,21 +101,21 @@ export function ExamHistoryPanel() {
               </thead>
               <tbody>
                 {history.data.map((h) => (
-                  <tr key={h.id} className="border-b last:border-0">
-                    <td className="px-4 py-2">{fmtDate(h.started_at)}</td>
-                    <td className="px-4 py-2">
+                  <tr key={h.id} className="border-b transition-colors hover:bg-accent/50 last:border-0">
+                    <td className="px-4 py-2.5 tabular-nums">{fmtDate(h.started_at)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">
                       {h.correct_count}/{h.total_questions}
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-2.5 tabular-nums">
                       {h.scaled_score}/{h.max_score}
                     </td>
-                    <td className="px-4 py-2">{fmtPct(h.accuracy)}</td>
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-2.5 tabular-nums">{fmtPct(h.accuracy)}</td>
+                    <td className="px-4 py-2.5">
                       <Badge variant={h.passed ? "success" : "destructive"}>
                         {h.passed ? "Pass" : "Fail"}
                       </Badge>
                     </td>
-                    <td className="px-4 py-2 text-right">
+                    <td className="px-4 py-2.5 text-right">
                       <Button asChild variant="ghost" size="sm">
                         <Link href={`/exam/sessions/${h.id}/report`}>View report</Link>
                       </Button>

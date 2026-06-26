@@ -166,40 +166,58 @@ export function CatExamRunner({
   if (next.isLoading || !delivery) return <Loading label="Selecting your next question…" />;
 
   const critical = isTimeCritical(remaining);
+  const progressPct =
+    delivery.total > 0 ? ((delivery.position + 1) / delivery.total) * 100 : 0;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          Question {delivery.position + 1}
-          {delivery.total > 0 ? ` (up to ${delivery.total})` : ""}
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
-            <SelectTrigger className="h-9 w-[130px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LANGUAGE_MODES.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {LANGUAGE_LABELS[m]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div
-            className={cn(
-              "rounded-md px-3 py-1 font-mono text-sm tabular-nums",
-              critical ? "bg-destructive text-destructive-foreground" : "bg-muted"
-            )}
-            aria-label="Time remaining"
-          >
-            {fmtCountdown(remaining)}
+    <div className="mx-auto flex max-w-3xl flex-col">
+      {/* Top: progress + controls */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground tabular-nums">
+            Question {delivery.position + 1}
+            {delivery.total > 0 ? ` (up to ${delivery.total})` : ""}
           </div>
+          <div className="flex items-center gap-2">
+            <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
+              <SelectTrigger className="h-9 w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LANGUAGE_MODES.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {LANGUAGE_LABELS[m]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div
+              className={cn(
+                "rounded-full px-3 py-1 font-mono text-sm font-semibold tabular-nums",
+                critical ? "bg-destructive text-destructive-foreground" : "bg-muted",
+              )}
+              aria-label="Time remaining"
+            >
+              {fmtCountdown(remaining)}
+            </div>
+          </div>
+        </div>
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-valuenow={delivery.position + 1}
+          aria-valuemin={1}
+          aria-valuemax={delivery.total > 0 ? delivery.total : 1}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${progressPct}%` }}
+          />
         </div>
       </div>
 
-      <Alert>
+      {/* Persistent study-tool disclaimer — always visible during the exam. */}
+      <Alert className="mt-6">
         <AlertTitle>Adaptive — forward only</AlertTitle>
         <AlertDescription>
           Once you submit an answer you cannot return to it. This is a study tool and does not
@@ -207,7 +225,8 @@ export function CatExamRunner({
         </AlertDescription>
       </Alert>
 
-      <Card>
+      {/* Question card */}
+      <Card className="mt-4">
         <CardHeader>
           <Badge variant="secondary" className="w-fit">{labelize(delivery.question_type)}</Badge>
           <CardTitle className="mt-2 text-lg font-medium leading-relaxed">
@@ -227,10 +246,21 @@ export function CatExamRunner({
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
-        <Button onClick={submitAndAdvance} disabled={selected.length === 0 || submit.isPending}>
-          {submit.isPending ? "Submitting…" : "Submit & continue"}
-        </Button>
+      {/* Sticky footer: disclaimer reminder + submit */}
+      <div className="sticky bottom-0 z-10 mt-6 border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
+            Submitted answers cannot be changed. This simulation does not represent ISC2&apos;s
+            official scoring.
+          </p>
+          <Button
+            size="pill"
+            onClick={submitAndAdvance}
+            disabled={selected.length === 0 || submit.isPending}
+          >
+            {submit.isPending ? "Submitting…" : "Submit & continue"}
+          </Button>
+        </div>
       </div>
     </div>
   );
