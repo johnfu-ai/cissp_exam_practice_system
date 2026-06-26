@@ -9,15 +9,30 @@ import { OptionList } from "@/features/practice/option-list";
 import { untrackExam } from "./exam-tracker";
 import { fmtCountdown, isTimeCritical } from "./format";
 import { ApiError } from "@/lib/api";
+import { BilingualText } from "@/components/bilingual-text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
-import type { ExamSession } from "@/lib/api/types";
+import type { ExamSession, LanguageMode } from "@/lib/api/types";
+
+const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
+const LANGUAGE_LABELS: Record<LanguageMode, string> = {
+  en: "English",
+  zh: "中文",
+  bilingual: "Both",
+};
 
 function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -40,6 +55,19 @@ export function CatExamRunner({
   const finish = useFinishExam(sessionId);
 
   const delivery = next.data;
+
+  // Local language mode for the in-runner toggle. Defaults to the delivered
+  // `language_mode` and re-initialises when a new adaptive item is delivered.
+  // CRITICAL: the toggle ONLY mutates this local state. It must never call
+  // `qc.invalidateQueries({ queryKey: qk.exam.next(...) })` or any refetch —
+  // toggling language must not advance the CAT item. The current item's
+  // both-language content is already in `delivery` (stem/options are
+  // `Localized`), so re-rendering from local `mode` is sufficient. The only
+  // place that invalidates `/next` is `submitAndAdvance`'s onSuccess.
+  const [mode, setMode] = useState<LanguageMode>(delivery?.language_mode ?? "en");
+  useEffect(() => {
+    if (delivery?.language_mode) setMode(delivery.language_mode);
+  }, [delivery?.language_mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const deadlineRef = useRef<number | null>(null);
   const [remaining, setRemaining] = useState<number>(session.time_remaining_ms ?? 0);
@@ -146,14 +174,28 @@ export function CatExamRunner({
           Question {delivery.position + 1}
           {delivery.total > 0 ? ` (up to ${delivery.total})` : ""}
         </div>
-        <div
-          className={cn(
-            "rounded-md px-3 py-1 font-mono text-sm tabular-nums",
-            critical ? "bg-destructive text-destructive-foreground" : "bg-muted"
-          )}
-          aria-label="Time remaining"
-        >
-          {fmtCountdown(remaining)}
+        <div className="flex items-center gap-2">
+          <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
+            <SelectTrigger className="h-9 w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LANGUAGE_MODES.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {LANGUAGE_LABELS[m]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div
+            className={cn(
+              "rounded-md px-3 py-1 font-mono text-sm tabular-nums",
+              critical ? "bg-destructive text-destructive-foreground" : "bg-muted"
+            )}
+            aria-label="Time remaining"
+          >
+            {fmtCountdown(remaining)}
+          </div>
         </div>
       </div>
 
@@ -168,7 +210,9 @@ export function CatExamRunner({
       <Card>
         <CardHeader>
           <Badge variant="secondary" className="w-fit">{labelize(delivery.question_type)}</Badge>
-          <CardTitle className="mt-2 text-lg font-medium leading-relaxed">{delivery.stem}</CardTitle>
+          <CardTitle className="mt-2 text-lg font-medium leading-relaxed">
+            <BilingualText mode={mode} en={delivery.stem.en} zh={delivery.stem.zh} />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <OptionList
@@ -178,6 +222,7 @@ export function CatExamRunner({
             disabled={submit.isPending}
             onToggle={toggle}
             result={null}
+            mode={mode}
           />
         </CardContent>
       </Card>

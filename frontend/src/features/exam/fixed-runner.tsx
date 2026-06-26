@@ -11,9 +11,17 @@ import { OptionList } from "@/features/practice/option-list";
 import { untrackExam } from "./exam-tracker";
 import { fmtCountdown, isTimeCritical } from "./format";
 import { ApiError } from "@/lib/api";
+import { BilingualText } from "@/components/bilingual-text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { toast } from "@/components/ui/sonner";
@@ -28,7 +36,14 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { ExamSession } from "@/lib/api/types";
+import type { ExamSession, LanguageMode } from "@/lib/api/types";
+
+const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
+const LANGUAGE_LABELS: Record<LanguageMode, string> = {
+  en: "English",
+  zh: "中文",
+  bilingual: "Both",
+};
 
 function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -51,6 +66,18 @@ export function FixedExamRunner({
   const question = useExamQuestion(sessionId, position);
   const submit = useSubmitExamAnswer(sessionId);
   const finish = useFinishExam(sessionId);
+
+  const delivery = question.data;
+
+  // Local language mode for the in-runner toggle. Defaults to the session's
+  // delivered `language_mode` and re-initialises whenever that changes (e.g. a
+  // new question with a different session mode). Toggling only mutates this
+  // local state — it never refetches and never touches `selections[position]`
+  // or the question palette (those are index based).
+  const [mode, setMode] = useState<LanguageMode>(delivery?.language_mode ?? "en");
+  useEffect(() => {
+    if (delivery?.language_mode) setMode(delivery.language_mode);
+  }, [delivery?.language_mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Absolute deadline derived once from the server's remaining time.
   const deadlineRef = useRef<number | null>(null);
@@ -88,8 +115,6 @@ export function FixedExamRunner({
     }, 1000);
     return () => clearInterval(t);
   }, [doFinish]);
-
-  const delivery = question.data;
 
   // Seed selection from the server's stored answer the first time we see a question.
   useEffect(() => {
@@ -179,21 +204,37 @@ export function FixedExamRunner({
         <div className="text-sm text-muted-foreground">
           Question {position + 1} of {total}
         </div>
-        <div
-          className={cn(
-            "rounded-md px-3 py-1 font-mono text-sm tabular-nums",
-            critical ? "bg-destructive text-destructive-foreground" : "bg-muted"
-          )}
-          aria-label="Time remaining"
-        >
-          {fmtCountdown(remaining)}
+        <div className="flex items-center gap-2">
+          <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
+            <SelectTrigger className="h-9 w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LANGUAGE_MODES.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {LANGUAGE_LABELS[m]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div
+            className={cn(
+              "rounded-md px-3 py-1 font-mono text-sm tabular-nums",
+              critical ? "bg-destructive text-destructive-foreground" : "bg-muted"
+            )}
+            aria-label="Time remaining"
+          >
+            {fmtCountdown(remaining)}
+          </div>
         </div>
       </div>
 
       <Card>
         <CardHeader>
           <Badge variant="secondary" className="w-fit">{labelize(delivery.question_type)}</Badge>
-          <CardTitle className="mt-2 text-lg font-medium leading-relaxed">{delivery.stem}</CardTitle>
+          <CardTitle className="mt-2 text-lg font-medium leading-relaxed">
+            <BilingualText mode={mode} en={delivery.stem.en} zh={delivery.stem.zh} />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <OptionList
@@ -203,6 +244,7 @@ export function FixedExamRunner({
             disabled={false}
             onToggle={toggle}
             result={null}
+            mode={mode}
           />
         </CardContent>
       </Card>

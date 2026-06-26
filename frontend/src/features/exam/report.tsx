@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useExamReport } from "@/lib/api/exam";
+import { useExamReport, useExamSession } from "@/lib/api/exam";
+import { localizedText } from "@/components/bilingual-text";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { fmtDuration, fmtPct, accuracyColor } from "@/features/analytics/format";
 import { readinessLabel } from "./format";
+import type { LanguageMode } from "@/lib/api/types";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -25,6 +27,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 export function ExamReport({ sessionId }: { sessionId: string }) {
   const report = useExamReport(sessionId);
+  const session = useExamSession(sessionId);
 
   if (report.isLoading) return <Loading label="Loading report…" />;
   if (report.isError || !report.data) {
@@ -32,6 +35,11 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
   }
   const r = report.data;
   const isCat = r.ability_estimate != null;
+  // Render wrong-question stems in the language mode the exam was taken in.
+  // `language_mode` is frozen into the session config at creation; fall back to
+  // English if it is missing.
+  const mode: LanguageMode =
+    (session.data?.config?.language_mode as LanguageMode | undefined) ?? "en";
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -121,7 +129,7 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
           ) : (
             r.wrong_questions.map((w) => (
               <div key={w.question_id} className="rounded-md border p-3">
-                <p className="text-sm">{w.stem}</p>
+                <p className="text-sm">{localizedText(mode, w.stem)}</p>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs">
                   <Badge variant="destructive">Your answer: {w.selected_indexes.join(", ") || "—"}</Badge>
                   <Badge variant="success">Correct: {w.correct_indexes.join(", ")}</Badge>
