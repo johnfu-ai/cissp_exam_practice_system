@@ -172,10 +172,16 @@ def _differs(q: Question, options: list[QuestionOption],
       - canonical option correctness changed,
       - available_languages set changed (e.g. en-only -> en+zh supplementation),
       - zh translation stem changed, or zh missing on the question while cleaned
-        carries zh (FR-LANG-08 supplementation path).
+        carries zh (FR-LANG-08 supplementation path),
+      - question_type changed,
+      - any translation's option content or correct_answer_rationale changed.
 
-    Kept simple: a stem, answer-key, language-coverage, or zh-stem change counts
-    as a diff.
+    The option/rationale comparison reuses ``_translation_payload`` so it matches
+    the write path exactly — including the zh->en fallback ``_write_translations``
+    applies for partial-zh records (zh stem present but some zh option/rationale
+    blank). A literal compare-against-``text_zh`` would false-positive on every
+    re-import of such a record and break idempotency; comparing against what would
+    actually be stored detects real edits while leaving unchanged rows alone.
     """
     t_en = next((t for t in translations if t.language == "en"), None)
     if t_en is None or t_en.stem != cleaned.stem_en:
@@ -189,6 +195,22 @@ def _differs(q: Question, options: list[QuestionOption],
     if "zh" in (cleaned.available_languages or []):
         t_zh = next((t for t in translations if t.language == "zh"), None)
         if t_zh is None or t_zh.stem != cleaned.stem_zh:
+            return True
+    # question_type change
+    if q.question_type != cleaned.question_type:
+        return True
+    # Per-language option content / rationale change. The expected values come
+    # from _translation_payload (the same helper _write_translations uses), so a
+    # re-import with no real edit stays "unchanged" while an edited option text
+    # or rationale is detected for either language.
+    for lang in cleaned.available_languages:
+        t = next((tr for tr in translations if tr.language == lang), None)
+        if t is None:
+            return True
+        _stem, exp_rationale, exp_opts = _translation_payload(cleaned, lang)
+        if t.correct_answer_rationale != exp_rationale:
+            return True
+        if [o.get("content") for o in (t.options or [])] != exp_opts:
             return True
     return False
 
