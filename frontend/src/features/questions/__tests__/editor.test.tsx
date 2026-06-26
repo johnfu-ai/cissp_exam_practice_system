@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { QuestionDetail } from "@/lib/api/types";
 
 const mutate = vi.fn();
 const push = vi.fn();
@@ -93,6 +94,7 @@ describe("QuestionEditor", () => {
         language: "en",
         stem: "What is the CIA triad?",
         correct_answer_rationale: "CIA = Confidentiality, Integrity, Availability.",
+        key_point_summary: null,
         options: [
           { order_index: 0, content: "Confidentiality, Integrity, Availability" },
           { order_index: 1, content: "Certification, Identity, Audit" },
@@ -101,6 +103,52 @@ describe("QuestionEditor", () => {
     ]);
     expect(payload.mappings).toEqual({});
     expect(payload.question_type).toBe("single_choice");
+  });
+
+  it("round-trips an existing key_point_summary on edit (does not erase it)", async () => {
+    // Regression (B4): the editor used to model only {stem, rationale, opts}, so
+    // fromTranslation dropped key_point_summary and buildPayload omitted it. The
+    // backend update path deletes+rewrites translations from the payload, so an
+    // edit would overwrite an existing key_point_summary with None.
+    const user = userEvent.setup();
+    const initial: QuestionDetail = {
+      id: "q1",
+      question_type: "single_choice",
+      difficulty: 3,
+      available_languages: ["en"],
+      status: "draft",
+      source: null,
+      license_status: "unconfirmed",
+      version: 1,
+      prompt_items: null,
+      created_at: "",
+      updated_at: "",
+      options: [{ is_correct: true }, { is_correct: false }],
+      translations: [
+        {
+          language: "en",
+          stem: "Existing stem",
+          correct_answer_rationale: "Existing rationale",
+          key_point_summary: "Keep this takeaway",
+          options: [
+            { order_index: 0, content: "Opt A" },
+            { order_index: 1, content: "Opt B" },
+          ],
+        },
+      ],
+      mappings: { domain_id: null, chapter_id: null, knowledge_point_id: null, tag_ids: [] },
+    };
+    render(<QuestionEditor initial={initial} />);
+
+    // Save without touching any field — the existing key_point_summary must survive.
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    const payload = mutate.mock.calls[0][0];
+    expect(payload.translations[0].key_point_summary).toBe("Keep this takeaway");
+    // The key point field is rendered with the loaded value (round-trip is visible
+    // to the author, not just passed through silently).
+    expect(screen.getByLabelText(/key point summary/i)).toHaveValue("Keep this takeaway");
   });
 
   it("blocks save with a toast when the Chinese tab is enabled but its stem is blank", async () => {

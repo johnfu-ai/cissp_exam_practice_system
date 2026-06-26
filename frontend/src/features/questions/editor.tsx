@@ -38,15 +38,21 @@ function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Per-language content for stem / each option / rationale. */
+/** Per-language content for stem / each option / rationale / key point. */
 interface LangContent {
   stem: string;
   rationale: string;
   opts: string[];
+  keyPoint: string;
 }
 
 function emptyLang(optCount: number): LangContent {
-  return { stem: "", rationale: "", opts: Array.from({ length: optCount }, () => "") };
+  return {
+    stem: "",
+    rationale: "",
+    opts: Array.from({ length: optCount }, () => ""),
+    keyPoint: "",
+  };
 }
 
 function fromTranslation(t: Translation): LangContent {
@@ -54,6 +60,7 @@ function fromTranslation(t: Translation): LangContent {
     stem: t.stem,
     rationale: t.correct_answer_rationale,
     opts: t.options.map((o) => o.content),
+    keyPoint: t.key_point_summary ?? "",
   };
 }
 
@@ -119,12 +126,14 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
   // English setters.
   const setEnStem = (v: string) => setEn((p) => ({ ...p, stem: v }));
   const setEnRationale = (v: string) => setEn((p) => ({ ...p, rationale: v }));
+  const setEnKeyPoint = (v: string) => setEn((p) => ({ ...p, keyPoint: v }));
   const setEnOpt = (i: number, v: string) =>
     setEn((p) => ({ ...p, opts: p.opts.map((c, idx) => (idx === i ? v : c)) }));
   // Chinese setters (no-op when zh is null — the zh tab body is only rendered
   // when zh is set, so these are never called with a null zh).
   const setZhStem = (v: string) => setZh((p) => (p ? { ...p, stem: v } : p));
   const setZhRationale = (v: string) => setZh((p) => (p ? { ...p, rationale: v } : p));
+  const setZhKeyPoint = (v: string) => setZh((p) => (p ? { ...p, keyPoint: v } : p));
   const setZhOpt = (i: number, v: string) =>
     setZh((p) => (p ? { ...p, opts: p.opts.map((c, idx) => (idx === i ? v : c)) } : p));
 
@@ -153,6 +162,7 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
         language: "en",
         stem: en.stem.trim(),
         correct_answer_rationale: en.rationale.trim(),
+        key_point_summary: en.keyPoint.trim() || null,
         options: en.opts.map((c, i) => ({ order_index: i, content: c.trim() })),
       },
     ];
@@ -161,6 +171,7 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
         language: "zh",
         stem: zh.stem.trim(),
         correct_answer_rationale: zh.rationale.trim(),
+        key_point_summary: zh.keyPoint.trim() || null,
         options: zh.opts.map((c, i) => ({ order_index: i, content: c.trim() })),
       });
     }
@@ -217,6 +228,7 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
     onStem: (v: string) => void,
     onOpt: (i: number, v: string) => void,
     onRationale: (v: string) => void,
+    onKeyPoint: (v: string) => void,
   ) {
     return (
       <div className="space-y-4">
@@ -275,6 +287,17 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
             rows={3}
             value={c.rationale}
             onChange={(e) => onRationale(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor={`keypoint-${lang}`}>Key point summary</Label>
+          <Textarea
+            id={`keypoint-${lang}`}
+            rows={2}
+            value={c.keyPoint}
+            onChange={(e) => onKeyPoint(e.target.value)}
+            placeholder="Optional one-line takeaway…"
           />
         </div>
       </div>
@@ -341,10 +364,10 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
               <TabsTrigger value="zh" disabled={!zh}>中文</TabsTrigger>
             </TabsList>
             <TabsContent value="en">
-              {renderLangContent("en", en, setEnStem, setEnOpt, setEnRationale)}
+              {renderLangContent("en", en, setEnStem, setEnOpt, setEnRationale, setEnKeyPoint)}
             </TabsContent>
             <TabsContent value="zh">
-              {zh && renderLangContent("zh", zh, setZhStem, setZhOpt, setZhRationale)}
+              {zh && renderLangContent("zh", zh, setZhStem, setZhOpt, setZhRationale, setZhKeyPoint)}
             </TabsContent>
           </Tabs>
         </CardContent>
