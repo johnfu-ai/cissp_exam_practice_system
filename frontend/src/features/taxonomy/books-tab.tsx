@@ -30,22 +30,25 @@ export function BooksTab() {
   if (books.isError) return <ErrorState message="Could not load books." onRetry={() => books.refetch()} />;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end gap-2 rounded-md border border-dashed p-3">
-        <Input className="flex-1" placeholder="New book title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Button
-          onClick={() => {
-            if (!title.trim()) return;
-            create.mutate({ title: title.trim() }, {
-              onSuccess: () => { setTitle(""); toast.success("Book added."); },
-              onError: (e) => err(e, "Could not add book."),
-            });
-          }}
-          disabled={create.isPending}
-        >
-          Add book
-        </Button>
-      </div>
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="flex items-end gap-2 p-4">
+          <Input className="flex-1" placeholder="New book title" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Button
+            size="pill"
+            onClick={() => {
+              if (!title.trim()) return;
+              create.mutate({ title: title.trim() }, {
+                onSuccess: () => { setTitle(""); toast.success("Book added."); },
+                onError: (e) => err(e, "Could not add book."),
+              });
+            }}
+            disabled={create.isPending}
+          >
+            Add book
+          </Button>
+        </CardContent>
+      </Card>
       {books.data?.map((b) => (
         <BookCard
           key={b.id}

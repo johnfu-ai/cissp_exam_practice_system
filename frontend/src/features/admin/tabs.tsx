@@ -46,11 +46,15 @@ export function UsersTab() {
   if (users.isError) return <ErrorState message="Could not load users." onRetry={() => users.refetch()} />;
 
   return (
-    <div className="space-y-4">
-      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setSearch(input.trim()); }}>
-        <Input className="w-64" placeholder="Search email / name…" value={input} onChange={(e) => setInput(e.target.value)} />
-        <Button type="submit" variant="outline">Search</Button>
-      </form>
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="p-4">
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setSearch(input.trim()); }}>
+            <Input className="w-64" placeholder="Search email / name…" value={input} onChange={(e) => setInput(e.target.value)} />
+            <Button type="submit" variant="outline" size="sm">Search</Button>
+          </form>
+        </CardContent>
+      </Card>
       <Card>
         <CardContent className="p-0">
           <table className="w-full text-sm">
@@ -129,14 +133,16 @@ export function ClassesTab() {
   const items: AdminClass[] = Array.isArray(classes.data) ? classes.data : classes.data?.items ?? [];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end gap-2 rounded-md border border-dashed p-3">
-        <Input className="flex-1" placeholder="New class name" value={name} onChange={(e) => setName(e.target.value)} />
-        <Button onClick={() => {
-          if (!name.trim()) return;
-          create.mutate({ name: name.trim() }, { onSuccess: () => { setName(""); toast.success("Class created."); }, onError: (e) => err(e, "Could not create class.") });
-        }} disabled={create.isPending}>Add class</Button>
-      </div>
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="flex items-end gap-2 p-4">
+          <Input className="flex-1" placeholder="New class name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Button size="pill" onClick={() => {
+            if (!name.trim()) return;
+            create.mutate({ name: name.trim() }, { onSuccess: () => { setName(""); toast.success("Class created."); }, onError: (e) => err(e, "Could not create class.") });
+          }} disabled={create.isPending}>Add class</Button>
+        </CardContent>
+      </Card>
       {items.length === 0 && <p className="text-sm text-muted-foreground">No classes yet.</p>}
       {items.map((c) => <ClassCard key={c.id} cls={c} onDelete={() => {
         if (!window.confirm(`Delete class "${c.name}"?`)) return;
@@ -185,7 +191,7 @@ export function CatParamsTab() {
   if (versions.isError) return <ErrorState message="Could not load CAT parameters." onRetry={() => versions.refetch()} />;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <Card>
         <CardHeader><CardTitle>New CAT parameter version</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -195,7 +201,7 @@ export function CatParamsTab() {
           <div className="space-y-1.5"><Label>decay</Label><Input type="number" step="0.01" value={form.decay} onChange={(e) => setForm((f) => ({ ...f, decay: Number(e.target.value) }))} /></div>
           <div className="space-y-1.5"><Label>base_se</Label><Input type="number" step="0.1" value={form.base_se} onChange={(e) => setForm((f) => ({ ...f, base_se: Number(e.target.value) }))} /></div>
           <div className="flex items-end">
-            <Button onClick={() => {
+            <Button size="pill" onClick={() => {
               if (!form.version_label.trim()) { toast.error("Version label is required."); return; }
               create.mutate(
                 { version_label: form.version_label.trim(), effective_date: form.effective_date, params: { k0: form.k0, decay: form.decay, base_se: form.base_se, early_stop_enabled: form.early_stop_enabled }, set_current: true },
@@ -279,14 +285,18 @@ export function AuditTab() {
   const logs = useAuditLogs(action, offset);
 
   return (
-    <div className="space-y-4">
-      <Select value={action ?? ANY} onValueChange={(v) => { setOffset(0); setAction(v === ANY ? null : v); }}>
-        <SelectTrigger className="w-52"><SelectValue placeholder="All actions" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ANY}>All actions</SelectItem>
-          {AUDIT_ACTIONS.map((a) => <SelectItem key={a} value={a}>{labelize(a)}</SelectItem>)}
-        </SelectContent>
-      </Select>
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="p-4">
+          <Select value={action ?? ANY} onValueChange={(v) => { setOffset(0); setAction(v === ANY ? null : v); }}>
+            <SelectTrigger className="w-52"><SelectValue placeholder="All actions" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>All actions</SelectItem>
+              {AUDIT_ACTIONS.map((a) => <SelectItem key={a} value={a}>{labelize(a)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
       {logs.isLoading && <Loading label="Loading audit log…" />}
       {logs.isError && <ErrorState message="Could not load audit logs." onRetry={() => logs.refetch()} />}
       {logs.data && (
@@ -340,7 +350,7 @@ export function ReportsTab() {
   const r = report.data!;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex gap-1">
         {([30, 90] as const).map((w) => (
           <Button key={w} variant={window === w ? "default" : "outline"} size="sm" onClick={() => setWindow(w)}>{w}d</Button>
@@ -374,9 +384,9 @@ export function ReportsTab() {
 
 function Stat({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-lg border p-3">
-      <div className="text-2xl font-semibold">{value}</div>
+    <Card className="p-4">
+      <div className="text-2xl font-semibold tabular-nums">{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
-    </div>
+    </Card>
   );
 }

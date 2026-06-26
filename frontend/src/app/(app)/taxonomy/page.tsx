@@ -11,8 +11,9 @@ import { TagsTab } from "@/features/taxonomy/tags-tab";
 
 export default function TaxonomyPage() {
   return (
-    <div>
+    <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
+        eyebrow="Admin"
         title="Taxonomy"
         description="Maintain exam blueprints, domains, books, chapters, knowledge points, and tags."
       />

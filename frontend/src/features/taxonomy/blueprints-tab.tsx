@@ -67,9 +67,9 @@ export function BlueprintsTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex justify-end">
-        <Button variant={showForm ? "outline" : "default"} onClick={() => setShowForm((s) => !s)}>
+        <Button variant={showForm ? "outline" : "default"} size="pill" onClick={() => setShowForm((s) => !s)}>
           {showForm ? "Cancel" : "New blueprint"}
         </Button>
       </div>
@@ -92,7 +92,7 @@ export function BlueprintsTab() {
             <div className="space-y-1.5"><Label>Passing score</Label><Input type="number" value={form.passing_score} onChange={(e) => num("passing_score", e.target.value)} /></div>
             <div className="space-y-1.5"><Label>Max score</Label><Input type="number" value={form.max_score} onChange={(e) => num("max_score", e.target.value)} /></div>
             <div className="col-span-2 flex items-end sm:col-span-4">
-              <Button onClick={submit} disabled={create.isPending}>{create.isPending ? "Creating…" : "Create blueprint"}</Button>
+              <Button size="pill" onClick={submit} disabled={create.isPending}>{create.isPending ? "Creating…" : "Create blueprint"}</Button>
             </div>
           </CardContent>
         </Card>

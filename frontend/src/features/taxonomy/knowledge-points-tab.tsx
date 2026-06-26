@@ -20,6 +20,21 @@ import type { KnowledgePoint } from "@/lib/api/types";
 
 const NONE = "__none__";
 
+// Tailwind classes for KP-tree indentation (one per depth level; 20px steps
+// matching the previous inline style). Literal strings so the JIT picks them up.
+const DEPTH_PL = [
+  "pl-0",
+  "pl-[20px]",
+  "pl-[40px]",
+  "pl-[60px]",
+  "pl-[80px]",
+  "pl-[100px]",
+  "pl-[120px]",
+  "pl-[140px]",
+  "pl-[160px]",
+  "pl-[180px]",
+];
+
 function err(e: unknown, fallback: string) {
   toast.error(e instanceof ApiError && (e.status === 422 || e.status === 409) ? e.message : fallback);
 }
@@ -62,9 +77,9 @@ export function KnowledgePointsTab() {
   const rows = ordered(kps.data ?? []);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 pt-6">
+        <CardContent className="flex flex-wrap items-end gap-3 p-4">
           <div className="flex-1 space-y-1.5">
             <Label>New knowledge point</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Risk management concepts" />
@@ -80,6 +95,7 @@ export function KnowledgePointsTab() {
             </Select>
           </div>
           <Button
+            size="pill"
             onClick={() => {
               if (!name.trim()) return;
               create.mutate({ name: name.trim(), parent_id: parent }, {
@@ -95,10 +111,10 @@ export function KnowledgePointsTab() {
       </Card>
 
       <Card>
-        <CardContent className="space-y-1 pt-6">
+        <CardContent className="space-y-1 p-4">
           {rows.length === 0 && <p className="text-sm text-muted-foreground">No knowledge points yet.</p>}
           {rows.map(({ kp, depth }) => (
-            <div key={kp.id} className="flex items-center gap-2" style={{ paddingLeft: depth * 20 }}>
+            <div key={kp.id} className={`flex items-center gap-2 ${DEPTH_PL[depth] ?? DEPTH_PL[DEPTH_PL.length - 1]}`}>
               <KpRow
                 kp={kp}
                 onSave={(newName) => update.mutate({ id: kp.id, body: { name: newName, parent_id: kp.parent_id } }, { onError: (e) => err(e, "Could not rename.") })}
