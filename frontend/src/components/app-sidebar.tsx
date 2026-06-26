@@ -83,8 +83,10 @@ export function AppSidebar() {
 
   function linkClass(active: boolean): string {
     return cn(
-      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-      active ? "bg-primary text-primary-foreground" : "hover:bg-accent hover:text-accent-foreground"
+      "flex items-center gap-3 rounded-md h-11 px-3 py-2 text-sm font-medium transition-colors",
+      active
+        ? "bg-accent text-foreground"
+        : "text-muted-foreground hover:bg-accent hover:text-foreground"
     );
   }
 
@@ -116,7 +118,8 @@ export function AppSidebar() {
         })}
 
         {showManage && (
-          <div className="pt-4">
+          <div>
+            <div className="my-2 h-px bg-border" />
             <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
               Manage
             </div>
