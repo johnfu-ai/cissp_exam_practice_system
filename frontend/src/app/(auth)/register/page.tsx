@@ -2,8 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Mail, Lock, ShieldCheck, User } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
 import { BACKEND } from "@/lib/config";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Field } from "@/components/field";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -32,18 +37,65 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="mx-auto max-w-sm p-8">
-      <h1 className="text-2xl font-bold mb-4">Register</h1>
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <input type="email" placeholder="email" value={email}
-               onChange={(e) => setEmail(e.target.value)} className="border p-2 rounded" required />
-        <input type="text" placeholder="display name (optional)" value={displayName}
-               onChange={(e) => setDisplayName(e.target.value)} className="border p-2 rounded" />
-        <input type="password" placeholder="password (min 8)" value={password}
-               onChange={(e) => setPassword(e.target.value)} className="border p-2 rounded" required />
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        <button type="submit" className="bg-blue-600 text-white p-2 rounded">Register</button>
-      </form>
-    </main>
+    <div>
+      <div className="mb-8 text-center">
+        <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary">
+          <ShieldCheck className="h-6 w-6 text-primary-foreground" />
+        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">CISSP Exam Prep</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Master cybersecurity certification</p>
+      </div>
+
+      <Card className="rounded-2xl p-6 sm:p-8">
+        <h2 className="mb-6 text-lg font-semibold">Register</h2>
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="Email" htmlFor="signup-email" icon={Mail}>
+            <Input
+              id="signup-email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+              required
+            />
+          </Field>
+          <Field label="Display name" htmlFor="signup-name" icon={User}>
+            <Input
+              id="signup-name"
+              type="text"
+              autoComplete="name"
+              placeholder="Optional"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+          </Field>
+          <Field label="Password" htmlFor="signup-password" icon={Lock}>
+            <Input
+              id="signup-password"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Min 8 characters"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+              required
+            />
+          </Field>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" size="pill" className="w-full">
+            Register
+          </Button>
+        </form>
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          Already have an account?{" "}
+          <a href="/login" className="font-medium text-primary hover:underline">
+            Log in
+          </a>
+        </p>
+      </Card>
+    </div>
   );
 }
