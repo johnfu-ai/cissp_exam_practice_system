@@ -37,6 +37,13 @@ const FEEDBACK_TYPES: FeedbackType[] = [
 
 const LANG_LABEL: Record<LanguageCode, string> = { en: "English", zh: "中文" };
 
+// Presentational only: elevates the positive publish action as the primary
+// button in the review state-machine control row. Does not alter the state
+// machine itself (labels + available actions live in ./labels, tested).
+const REVIEW_ACTION_VARIANT: Record<string, "default" | "outline"> = {
+  approve: "default",
+};
+
 /** Compact badge label for a question's available languages. */
 function langBadge(languages: LanguageCode[]): string {
   const hasEn = languages.includes("en");
@@ -106,6 +113,7 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
+        eyebrow="Content"
         title="Question"
         crumbs={["Questions"]}
         description={`v${q.version} · ${langBadge(q.available_languages)} · ${q.question_type.replace(/_/g, " ")}`}
@@ -161,7 +169,7 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
               <p className="text-sm text-muted-foreground">No review actions available in this state.</p>
             )}
             {availableActions(q.status).map((a) => (
-              <Button key={a.action} size="sm" variant="outline" disabled={review.isPending} onClick={() => act(a.action as ReviewAction)}>
+              <Button key={a.action} size="sm" variant={REVIEW_ACTION_VARIANT[a.action] ?? "outline"} disabled={review.isPending} onClick={() => act(a.action as ReviewAction)}>
                 {a.label}
               </Button>
             ))}

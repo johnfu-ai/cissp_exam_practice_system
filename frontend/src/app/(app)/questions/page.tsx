@@ -8,13 +8,14 @@ import { QuestionList } from "@/features/questions/list";
 
 export default function QuestionsPage() {
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
+        eyebrow="Content"
         title="Questions"
         description="Browse, filter, edit, and review the question bank."
         actions={
           <RequirePermission perm="question:write">
-            <Button asChild>
+            <Button asChild size="pill">
               <Link href="/questions/new">New question</Link>
             </Button>
           </RequirePermission>

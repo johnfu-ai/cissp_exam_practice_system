@@ -374,8 +374,8 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => router.back()}>Cancel</Button>
-        <Button onClick={save} disabled={pending}>
+        <Button variant="outline" size="pill" onClick={() => router.back()}>Cancel</Button>
+        <Button size="pill" onClick={save} disabled={pending}>
           {pending ? "Saving…" : initial ? "Save changes" : "Create question"}
         </Button>
       </div>
