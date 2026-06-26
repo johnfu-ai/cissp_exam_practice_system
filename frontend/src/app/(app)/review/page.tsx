@@ -8,7 +8,8 @@ export default function ReviewPage() {
   return (
     <div>
       <PageHeader
-        title="Review"
+        eyebrow="Review"
+        title="Wrong / Bookmarked / Flagged"
         description="Re-practice the questions that need your attention — wrong answers, bookmarks, and flagged items."
       />
       <Tabs defaultValue="wrong">
