@@ -1,9 +1,12 @@
-"""ETL Transform: pure functions turning RawQuestion -> per-language CleanedQuestion.
+"""ETL Transform: RawQuestion -> one bilingual CleanedQuestion.
 
-No DB, no I/O. Deterministic: same raw in -> same cleaned out.
+Pure functions, no DB, no I/O. Deterministic: same raw in -> same cleaned out.
+A single CleanedQuestion carries both en and zh content; `available_languages`
+records which translations are non-empty (`zh` only when a zh stem is present).
+`needs_revision` flags en-only records awaiting translation.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.etl.extract import RawQuestion
 from app.models.enums import QuestionType
@@ -14,24 +17,27 @@ DIFFICULTY_DEFAULT = 3  # medium
 @dataclass
 class CleanedOption:
     key: str
-    content: str
+    text_en: str
+    text_zh: str
     is_correct: bool
 
 
 @dataclass
 class CleanedQuestion:
     external_id: str
-    language: str
     question_type: QuestionType
-    stem: str
+    stem_en: str
+    stem_zh: str
     options: list[CleanedOption]
-    explanation: str
+    explanation_en: str
+    explanation_zh: str
     prompt_items: list | None
     source_chapter: int
     source_chapter_title: str
     difficulty: int
     issues: list[str]
     needs_revision: bool
+    available_languages: list[str] = field(default_factory=list)
 
 
 def _normalize_type(raw_type: str) -> QuestionType:
@@ -46,7 +52,7 @@ def validate(raw: RawQuestion) -> list[str]:
     for k in raw.correct_keys:
         if k not in option_keys:
             issues.append(f"correct_key '{k}' not in options")
-    if raw.type == "single_choice" or raw.type == "matching":
+    if raw.type in ("single_choice", "matching"):
         if len(raw.correct_keys) != 1:
             issues.append("single_choice requires exactly 1 correct key")
     elif raw.type == "multiple_choice":
@@ -55,39 +61,23 @@ def validate(raw: RawQuestion) -> list[str]:
     return issues
 
 
-def transform(
-    raw: RawQuestion,
-    language: str,
-    pending_translation_ids: set[str] | None = None,
-) -> CleanedQuestion:
+def transform(raw: RawQuestion, pending_translation_ids: set[str] | None = None) -> CleanedQuestion:
+    """Build one bilingual CleanedQuestion from a RawQuestion.
+
+    `available_languages` is `["en", "zh"]` when a non-empty zh stem is present
+    (translation available), else `["en"]` only. `needs_revision` is True when
+    zh is missing so the loaded Question enters the `needs_revision` status.
+    """
     pending_translation_ids = pending_translation_ids or set()
     issues: list[str] = list(raw.meta.get("issues", [])) + list(raw.meta.get("zh_issues", []))
     if raw.id in pending_translation_ids:
         issues.append("translation_pending")
 
-    needs_revision = False
-
-    def pick(en: str, zh: str) -> str:
-        nonlocal needs_revision
-        if language == "zh":
-            if not zh or not zh.strip():
-                needs_revision = True
-                issues.append("missing_zh")
-                return en  # fall back to en so the row is not blank
-            return zh
-        return en
-
-    stem = pick(raw.stem.en, raw.stem.zh)
-    explanation = pick(raw.explanation.en, raw.explanation.zh)
-
-    options = [
-        CleanedOption(
-            key=o.key,
-            content=pick(o.text.en, o.text.zh),
-            is_correct=o.key in raw.correct_keys,
-        )
-        for o in raw.options
-    ]
+    has_zh = bool(raw.stem.zh and raw.stem.zh.strip())
+    needs_revision = not has_zh
+    if not has_zh:
+        issues.append("missing_zh")
+    available = ["en", "zh"] if has_zh else ["en"]
 
     prompt_items = None
     if raw.type == "matching" and raw.prompt_items:
@@ -98,15 +88,25 @@ def transform(
 
     return CleanedQuestion(
         external_id=raw.id,
-        language=language,
         question_type=_normalize_type(raw.type),
-        stem=stem,
-        options=options,
-        explanation=explanation,
+        stem_en=raw.stem.en,
+        stem_zh=raw.stem.zh,
+        options=[
+            CleanedOption(
+                key=o.key,
+                text_en=o.text.en,
+                text_zh=o.text.zh,
+                is_correct=o.key in raw.correct_keys,
+            )
+            for o in raw.options
+        ],
+        explanation_en=raw.explanation.en,
+        explanation_zh=raw.explanation.zh,
         prompt_items=prompt_items,
         source_chapter=raw.source.chapter,
         source_chapter_title=raw.source.chapter_title,
         difficulty=DIFFICULTY_DEFAULT,
         issues=issues,
         needs_revision=needs_revision,
+        available_languages=available,
     )

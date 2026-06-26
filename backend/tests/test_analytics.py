@@ -24,7 +24,12 @@ from app.models.enums import (
 )
 from app.models.exam import ExamAnswer, ExamSession
 from app.models.practice import PracticeAnswer, PracticeSession, UserQuestionState
-from app.models.question import Question, QuestionMapping, QuestionOption
+from app.models.question import (
+    Question,
+    QuestionMapping,
+    QuestionOption,
+    QuestionTranslation,
+)
 from app.models.taxonomy import ExamBlueprint, ExamDomain, KnowledgePoint
 from app.services import analytics
 
@@ -53,24 +58,35 @@ def _actor(db_session, org, email="learner@example.com"):
 
 
 def _question(db_session, org, actor, *, stem="q"):
-    """Single-choice question with option 0 correct, option 1 wrong."""
+    """Single-choice published question with canonical QuestionOption rows
+    (order_index + is_correct) and one ``en`` QuestionTranslation carrying the
+    stem/rationale/options content. ``Question`` no longer has ``stem`` and
+    ``QuestionOption`` no longer has ``content`` — content lives in the
+    translation under the bilingual model."""
     q = Question(
         organization_id=org.id,
         question_type=QuestionType.single_choice,
-        stem=stem,
-        stem_format=TextFormat.markdown,
         status=QuestionStatus.published,
+        available_languages=["en"],
         created_by_id=actor.id,
     )
     db_session.add(q)
     db_session.flush()
     db_session.add(QuestionOption(
-        question_id=q.id, order_index=0, content="A",
-        content_format=TextFormat.markdown, is_correct=True,
+        question_id=q.id, order_index=0, is_correct=True,
     ))
     db_session.add(QuestionOption(
-        question_id=q.id, order_index=1, content="B",
-        content_format=TextFormat.markdown, is_correct=False,
+        question_id=q.id, order_index=1, is_correct=False,
+    ))
+    db_session.add(QuestionTranslation(
+        question_id=q.id, language="en", stem=stem,
+        stem_format=TextFormat.markdown, correct_answer_rationale="r",
+        options=[
+            {"order_index": 0, "content": "A",
+             "content_format": TextFormat.markdown.value, "explanation": ""},
+            {"order_index": 1, "content": "B",
+             "content_format": TextFormat.markdown.value, "explanation": ""},
+        ],
     ))
     db_session.flush()
     return q

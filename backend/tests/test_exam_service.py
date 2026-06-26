@@ -1,19 +1,33 @@
-"""Service-layer tests for fixed exam API (sub-project F)."""
+"""Service-layer tests for fixed + CAT exam API (translations-based).
+
+Question content (stem, options, rationale) lives in per-language
+``QuestionTranslation`` rows; the canonical ``QuestionOption`` carries only the
+answer key (order_index + is_correct). Exam sessions resolve a language mode
+(payload > user default > "en"), filter candidates by
+``Question.available_languages`` (fixed assembly + CAT pool), and deliver /
+answer / report / review bilingually.
+"""
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
 from app.models.auth import Organization, User
 from app.models.enums import (
+    ExamSessionStatus,
     OrgKind,
     QuestionStatus,
     QuestionType,
     TextFormat,
 )
 from app.models.exam import ExamSession
-from app.models.question import Question, QuestionOption
+from app.models.question import Question, QuestionOption, QuestionTranslation
 from app.services import exam as svc
+from sqlalchemy.orm.attributes import flag_modified
+
+
+# --- fixtures / helpers ------------------------------------------------------
 
 
 def _org(db_session, slug="t"):
@@ -23,65 +37,90 @@ def _org(db_session, slug="t"):
     return org
 
 
-def _actor(db_session, org, email="learner@example.com"):
+def _actor(db_session, org, email="learner@example.com", language_mode="en"):
     user = User(
         email=email,
         password_hash="x",
         display_name="L",
         default_organization_id=org.id,
+        language_mode=language_mode,
     )
     db_session.add(user)
     db_session.flush()
     return user
 
 
-def _question(db_session, org, actor, *, stem="q",
-              qtype=QuestionType.single_choice, options=None, difficulty=None):
+def _question(
+    db_session,
+    org,
+    actor,
+    *,
+    langs=("en",),
+    stem_suffix="",
+    qtype=QuestionType.single_choice,
+    difficulty=None,
+    correct_indexes=(0,),
+    n_opts=2,
+):
+    """Create a published question with translations for the given langs.
+
+    ``langs`` is a subset of ("en", "zh") controlling which translations are
+    created (and thus ``Question.available_languages``). Option correctness is
+    set from ``correct_indexes`` on the canonical ``QuestionOption`` rows.
+    """
+    available = sorted(langs)
     q = Question(
         organization_id=org.id,
         question_type=qtype,
-        stem=stem,
-        stem_format=TextFormat.markdown,
         status=QuestionStatus.published,
-        created_by_id=actor.id,
         difficulty=difficulty,
+        available_languages=available,
+        created_by_id=actor.id,
     )
     db_session.add(q)
     db_session.flush()
-    opts = options if options is not None else [
-        (0, "A", True),
-        (1, "B", False),
-    ]
-    for order_index, content, is_correct in opts:
-        db_session.add(QuestionOption(
-            question_id=q.id, order_index=order_index, content=content,
-            content_format=TextFormat.markdown, is_correct=is_correct,
-        ))
+    for i in range(n_opts):
+        db_session.add(
+            QuestionOption(
+                question_id=q.id,
+                order_index=i,
+                is_correct=(i in correct_indexes),
+            )
+        )
+    en_opt_content = [("A", "en-A expl"), ("B", "en-B expl"), ("C", "en-C expl")]
+    zh_opt_content = [("甲", "zh-甲 expl"), ("乙", "zh-乙 expl"), ("丙", "zh-丙 expl")]
+    for lang in langs:
+        if lang == "en":
+            stem = f"en stem{stem_suffix}"
+            rationale = f"en rationale{stem_suffix}"
+            key_point = f"en key{stem_suffix}"
+            opt_content = en_opt_content
+        else:
+            stem = f"中 stem{stem_suffix}"
+            rationale = f"中 rationale{stem_suffix}"
+            key_point = f"中 key{stem_suffix}"
+            opt_content = zh_opt_content
+        db_session.add(
+            QuestionTranslation(
+                question_id=q.id,
+                language=lang,
+                stem=stem,
+                stem_format=TextFormat.markdown,
+                correct_answer_rationale=rationale,
+                key_point_summary=key_point,
+                options=[
+                    {
+                        "order_index": i,
+                        "content": opt_content[i][0],
+                        "content_format": TextFormat.markdown.value,
+                        "explanation": opt_content[i][1],
+                    }
+                    for i in range(n_opts)
+                ],
+            )
+        )
     db_session.flush()
     return q
-
-
-def test_exam_session_has_config_column(db_session):
-    """ExamSession must expose a config JSONB column (default '{}')."""
-    org = _org(db_session)
-    actor = _actor(db_session, org)
-    from app.models.enums import ExamSessionKind
-    from app.models.taxonomy import ExamBlueprint
-
-    bp = ExamBlueprint(
-        version_label="v1", effective_date="2026-04-15",
-        min_items=1, max_items=10, duration_minutes=30,
-        passing_score=700, max_score=1000, is_current=True,
-    )
-    db_session.add(bp)
-    db_session.flush()
-    es = ExamSession(
-        user_id=actor.id, organization_id=org.id, blueprint_id=bp.id,
-        session_kind=ExamSessionKind.fixed, total_questions=0,
-    )
-    db_session.add(es)
-    db_session.flush()
-    assert es.config is not None
 
 
 def _blueprint(db_session, *, current=True, min_items=1, max_items=10,
@@ -122,6 +161,35 @@ def _map(db_session, question, domain=None):
     return m
 
 
+# --- session shape -----------------------------------------------------------
+
+
+def test_exam_session_has_config_column(db_session):
+    """ExamSession must expose a config JSONB column (default '{}')."""
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    from app.models.enums import ExamSessionKind
+    from app.models.taxonomy import ExamBlueprint
+
+    bp = ExamBlueprint(
+        version_label="v1", effective_date="2026-04-15",
+        min_items=1, max_items=10, duration_minutes=30,
+        passing_score=700, max_score=1000, is_current=True,
+    )
+    db_session.add(bp)
+    db_session.flush()
+    es = ExamSession(
+        user_id=actor.id, organization_id=org.id, blueprint_id=bp.id,
+        session_kind=ExamSessionKind.fixed, total_questions=0,
+    )
+    db_session.add(es)
+    db_session.flush()
+    assert es.config is not None
+
+
+# --- fixed assembly + language-mode filtering --------------------------------
+
+
 def test_assemble_weights_sum_to_count(db_session):
     org = _org(db_session)
     actor = _actor(db_session, org)
@@ -129,10 +197,10 @@ def test_assemble_weights_sum_to_count(db_session):
     d1 = _domain(db_session, bp, number=1, name="D1", weight_pct=50)
     d2 = _domain(db_session, bp, number=2, name="D2", weight_pct=50)
     for i in range(5):
-        q = _question(db_session, org, actor, stem=f"a{i}")
+        q = _question(db_session, org, actor, stem_suffix=f"a{i}")
         _map(db_session, q, d1)
     for i in range(5):
-        q = _question(db_session, org, actor, stem=f"b{i}")
+        q = _question(db_session, org, actor, stem_suffix=f"b{i}")
         _map(db_session, q, d2)
     es = svc.create_session(
         db_session, org_id=org.id, actor_id=actor.id,
@@ -144,6 +212,7 @@ def test_assemble_weights_sum_to_count(db_session):
     assert es.config["max_score"] == 1000
     assert es.config["passing_score"] == 700
     assert es.config["duration_minutes"] == 30
+    assert es.config["language_mode"] == "en"  # default
     assert "deadline_at" in es.config
 
 
@@ -154,10 +223,10 @@ def test_assemble_redistributes_short_domain(db_session):
     d1 = _domain(db_session, bp, number=1, name="D1", weight_pct=50)
     d2 = _domain(db_session, bp, number=2, name="D2", weight_pct=50)
     # D1 has only 1 question but targets 2 -> shortfall filled from D2.
-    q = _question(db_session, org, actor, stem="only1")
+    q = _question(db_session, org, actor, stem_suffix="only1")
     _map(db_session, q, d1)
     for i in range(5):
-        q = _question(db_session, org, actor, stem=f"d2-{i}")
+        q = _question(db_session, org, actor, stem_suffix=f"d2-{i}")
         _map(db_session, q, d2)
     es = svc.create_session(
         db_session, org_id=org.id, actor_id=actor.id,
@@ -171,8 +240,8 @@ def test_assemble_shortage_rejected(db_session):
     actor = _actor(db_session, org)
     bp = _blueprint(db_session, min_items=1, max_items=10)
     d1 = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
-    _question(db_session, org, actor, stem="solo")
-    # only 1 published question available but count=4
+    _question(db_session, org, actor, stem_suffix="solo")  # not mapped to d1
+    # only 0 mapped published questions available but count=4
     with pytest.raises(svc.ValidationError):
         svc.create_session(
             db_session, org_id=org.id, actor_id=actor.id,
@@ -198,7 +267,7 @@ def test_create_count_clamped_to_bounds(db_session):
     bp = _blueprint(db_session, min_items=5, max_items=8)
     d1 = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
     for i in range(10):
-        _map(db_session, _question(db_session, org, actor, stem=f"q{i}"), d1)
+        _map(db_session, _question(db_session, org, actor, stem_suffix=f"q{i}"), d1)
     # count below min -> clamped up to min_items=5
     es = svc.create_session(
         db_session, org_id=org.id, actor_id=actor.id, payload={"count": 2},
@@ -217,25 +286,92 @@ def test_create_default_count_is_max_items(db_session):
     bp = _blueprint(db_session, min_items=1, max_items=3)
     d1 = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
     for i in range(5):
-        _map(db_session, _question(db_session, org, actor, stem=f"q{i}"), d1)
+        _map(db_session, _question(db_session, org, actor, stem_suffix=f"q{i}"), d1)
     es = svc.create_session(
         db_session, org_id=org.id, actor_id=actor.id, payload={},
     )
     assert es.total_questions == 3  # default = max_items
 
 
-def _start(db_session, org, actor, *, count=1, bp=None):
+def test_en_mode_fixed_exam_excludes_zh_only(db_session):
+    """en-mode fixed assembly only includes en-capable questions (en-only +
+    bilingual), excluding zh-only questions."""
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = _blueprint(db_session, min_items=1, max_items=10)
+    d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    en_only = _question(db_session, org, actor, langs=("en",), stem_suffix=" en")
+    zh_only = _question(db_session, org, actor, langs=("zh",), stem_suffix=" zh")
+    both = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix=" both")
+    for q in (en_only, zh_only, both):
+        _map(db_session, q, d)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload={"count": 2, "language_mode": "en"},
+    )
+    ids = set(es.config["question_ids"])
+    assert str(en_only.id) in ids
+    assert str(both.id) in ids
+    assert str(zh_only.id) not in ids
+    assert es.config["language_mode"] == "en"
+
+
+def test_bilingual_mode_fixed_exam_requires_both(db_session):
+    """bilingual-mode fixed assembly only includes questions with en + zh."""
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = _blueprint(db_session, min_items=1, max_items=10)
+    d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    en_only = _question(db_session, org, actor, langs=("en",), stem_suffix=" en")
+    zh_only = _question(db_session, org, actor, langs=("zh",), stem_suffix=" zh")
+    both = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix=" both")
+    for q in (en_only, zh_only, both):
+        _map(db_session, q, d)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload={"count": 1, "language_mode": "bilingual"},
+    )
+    ids = set(es.config["question_ids"])
+    assert ids == {str(both.id)}
+
+
+def test_fixed_exam_uses_user_default_language_mode(db_session):
+    """When the payload omits language_mode, the user's default is used."""
+    org = _org(db_session)
+    actor = _actor(db_session, org, language_mode="zh")
+    bp = _blueprint(db_session, min_items=1, max_items=10)
+    d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    en_only = _question(db_session, org, actor, langs=("en",), stem_suffix=" en")
+    zh_only = _question(db_session, org, actor, langs=("zh",), stem_suffix=" zh")
+    for q in (en_only, zh_only):
+        _map(db_session, q, d)
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id, payload={"count": 1},
+    )
+    assert es.config["language_mode"] == "zh"
+    ids = set(es.config["question_ids"])
+    assert str(zh_only.id) in ids
+    assert str(en_only.id) not in ids
+
+
+# --- fixed delivery / answer / finish ---------------------------------------
+
+
+def _start(db_session, org, actor, *, count=1, bp=None, language_mode=None):
     if bp is None:
         bp = _blueprint(db_session, min_items=1, max_items=10)
         d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
-        q = _question(db_session, org, actor, stem="q1")
+        q = _question(db_session, org, actor, stem_suffix="q1")
         _map(db_session, q, d)
+    payload = {"count": count}
+    if language_mode is not None:
+        payload["language_mode"] = language_mode
     return svc.create_session(
-        db_session, org_id=org.id, actor_id=actor.id, payload={"count": count},
+        db_session, org_id=org.id, actor_id=actor.id, payload=payload,
     )
 
 
-def test_delivery_strips_correctness_and_has_timing(db_session):
+def test_delivery_is_bilingual_and_strips_correctness(db_session):
     org = _org(db_session)
     actor = _actor(db_session, org)
     s = _start(db_session, org, actor, count=1)
@@ -244,17 +380,39 @@ def test_delivery_strips_correctness_and_has_timing(db_session):
     )
     assert out["position"] == 0
     assert out["total"] == 1
-    assert out["stem"] == "q1"
+    assert out["language_mode"] == "en"
+    assert out["available_languages"] == ["en"]
+    assert out["stem"] == {"en": "en stemq1", "zh": None}
     for opt in out["options"]:
         assert "is_correct" not in opt
+        assert set(opt["content"].keys()) == {"en", "zh"}
     assert out["time_remaining_ms"] > 0
     assert out["elapsed_ms"] >= 0
     assert out["previous_answer"] is None
 
 
-def test_submit_answer_returns_ack_no_judgment(db_session):
-    from datetime import datetime, timezone
+def test_delivery_bilingual_question_returns_both_languages(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = _blueprint(db_session, min_items=1, max_items=10)
+    d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    q = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix=" bi")
+    _map(db_session, q, d)
+    s = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload={"count": 1, "language_mode": "bilingual"},
+    )
+    out = svc.get_question_at(
+        db_session, session_id=s.id, position=0, user_id=actor.id
+    )
+    assert out["available_languages"] == ["en", "zh"]
+    assert out["language_mode"] == "bilingual"
+    assert out["stem"] == {"en": "en stem bi", "zh": "中 stem bi"}
+    assert out["options"][0]["content"] == {"en": "A", "zh": "甲"}
+    assert out["options"][1]["content"] == {"en": "B", "zh": "乙"}
 
+
+def test_submit_answer_returns_ack_no_judgment(db_session):
     org = _org(db_session)
     actor = _actor(db_session, org)
     s = _start(db_session, org, actor, count=1)
@@ -269,8 +427,6 @@ def test_submit_answer_returns_ack_no_judgment(db_session):
 
 
 def test_answer_is_revisable_single_row(db_session):
-    from datetime import datetime, timezone
-
     from app.models.exam import ExamAnswer
 
     org = _org(db_session)
@@ -292,27 +448,38 @@ def test_answer_is_revisable_single_row(db_session):
     assert rows[0].is_correct is True  # judged from snapshot at revise time
 
 
-def test_answer_persists_snapshot(db_session):
-    from datetime import datetime, timezone
-
+def test_answer_snapshot_records_mode_and_translations(db_session):
+    """The frozen exam snapshot records the delivered language_mode + all
+    translations (NFR-DATA-01)."""
     from app.models.exam import ExamAnswer
 
     org = _org(db_session)
     actor = _actor(db_session, org)
-    s = _start(db_session, org, actor, count=1)
+    bp = _blueprint(db_session, min_items=1, max_items=10)
+    d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    q = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix=" bi")
+    _map(db_session, q, d)
+    s = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload={"count": 1, "language_mode": "bilingual"},
+    )
     svc.submit_answer(
         db_session, session_id=s.id, user_id=actor.id,
         payload={"position": 0, "selected": [0],
                  "started_at": datetime.now(timezone.utc)},
     )
     ans = db_session.query(ExamAnswer).filter_by(session_id=s.id).one()
-    assert ans.options_snapshot[0]["is_correct"] is True
-    assert ans.is_correct is True
+    snap = ans.question_snapshot
+    assert snap["language_mode"] == "bilingual"
+    assert set(snap["translations"].keys()) == {"en", "zh"}
+    assert snap["translations"]["en"]["stem"] == "en stem bi"
+    assert snap["translations"]["zh"]["stem"] == "中 stem bi"
+    # canonical answer key frozen on options_snapshot
+    assert [o["order_index"] for o in ans.options_snapshot] == [0, 1]
+    assert [o["is_correct"] for o in ans.options_snapshot] == [True, False]
 
 
 def test_delivery_returns_previous_answer(db_session):
-    from datetime import datetime, timezone
-
     org = _org(db_session)
     actor = _actor(db_session, org)
     s = _start(db_session, org, actor, count=1)
@@ -328,10 +495,6 @@ def test_delivery_returns_previous_answer(db_session):
 
 
 def test_lazy_auto_submit_after_deadline(db_session):
-    from datetime import datetime, timezone
-
-    from app.models.enums import ExamSessionStatus
-
     org = _org(db_session)
     actor = _actor(db_session, org)
     s = _start(db_session, org, actor, count=1)
@@ -374,8 +537,9 @@ def _two_question_exam(db_session, *, passing_score=700, max_score=1000):
         max_score=max_score,
     )
     d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
-    q1 = _question(db_session, org, actor, stem="right")  # option 0 correct
-    q2 = _question(db_session, org, actor, stem="wrong")  # option 0 correct
+    # Bilingual so wrong-question / review stems render Localized {en,zh}.
+    q1 = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix="right")  # 0 correct
+    q2 = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix="wrong")  # 0 correct
     _map(db_session, q1, d)
     _map(db_session, q2, d)
     s = svc.create_session(
@@ -385,8 +549,6 @@ def _two_question_exam(db_session, *, passing_score=700, max_score=1000):
 
 
 def test_finish_recomputes_correct_count_and_score(db_session):
-    from datetime import datetime, timezone
-
     org, actor, s, (q1, q2) = _two_question_exam(db_session)
     svc.submit_answer(
         db_session, session_id=s.id, user_id=actor.id,
@@ -417,9 +579,29 @@ def test_finish_recomputes_correct_count_and_score(db_session):
     assert report.wrong_questions[0].selected_indexes == [1]
 
 
-def test_finish_per_domain_performance(db_session):
-    from datetime import datetime, timezone
+def test_report_wrong_question_stem_is_bilingual(db_session):
+    """Wrong-question stems in the report are Localized {en,zh} from snapshot."""
+    org, actor, s, _ = _two_question_exam(db_session)
+    # Bilingual questions: answer one wrong to produce a wrong question.
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 1, "selected": [1],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    report = svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    assert len(report.wrong_questions) == 2
+    for wq in report.wrong_questions:
+        assert set(wq.stem.model_dump().keys()) == {"en", "zh"}
+        assert wq.stem.en is not None
+        assert wq.stem.zh is not None
 
+
+def test_finish_per_domain_performance(db_session):
     org, actor, s, _ = _two_question_exam(db_session)
     svc.submit_answer(
         db_session, session_id=s.id, user_id=actor.id,
@@ -439,8 +621,6 @@ def test_finish_per_domain_performance(db_session):
 
 
 def test_finish_passing_line(db_session):
-    from datetime import datetime, timezone
-
     org, actor, s, _ = _two_question_exam(db_session, passing_score=0, max_score=1000)
     svc.submit_answer(
         db_session, session_id=s.id, user_id=actor.id,
@@ -452,8 +632,6 @@ def test_finish_passing_line(db_session):
 
 
 def test_finish_recomputes_after_revision(db_session):
-    from datetime import datetime, timezone
-
     org, actor, s, _ = _two_question_exam(db_session)
     # answer both wrong first
     svc.submit_answer(
@@ -477,10 +655,6 @@ def test_finish_recomputes_after_revision(db_session):
 
 
 def test_finish_idempotent(db_session):
-    from datetime import datetime, timezone
-
-    from app.models.enums import ExamSessionStatus
-
     org, actor, s, _ = _two_question_exam(db_session)
     svc.submit_answer(
         db_session, session_id=s.id, user_id=actor.id,
@@ -494,8 +668,6 @@ def test_finish_idempotent(db_session):
 
 
 def test_get_report_after_finish(db_session):
-    from datetime import datetime, timezone
-
     org, actor, s, _ = _two_question_exam(db_session)
     svc.submit_answer(
         db_session, session_id=s.id, user_id=actor.id,
@@ -507,9 +679,10 @@ def test_get_report_after_finish(db_session):
     assert report.correct_count == 1
 
 
-def test_review_only_after_finish(db_session):
-    from datetime import datetime, timezone
+# --- fixed review ------------------------------------------------------------
 
+
+def test_review_only_after_finish(db_session):
     org, actor, s, _ = _two_question_exam(db_session)
     svc.submit_answer(
         db_session, session_id=s.id, user_id=actor.id,
@@ -527,11 +700,41 @@ def test_review_only_after_finish(db_session):
     assert any(o.is_correct for o in review[0].options)
 
 
+def test_review_is_bilingual_answered(db_session):
+    """Review items for answered questions render Localized stem/options/
+    rationale from the snapshot."""
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = _blueprint(db_session, min_items=1, max_items=1)
+    d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    q = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix=" bi")
+    _map(db_session, q, d)
+    s = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload={"count": 1, "language_mode": "bilingual"},
+    )
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    review = svc.get_review(db_session, session_id=s.id, user_id=actor.id)
+    assert len(review) == 1
+    item = review[0]
+    assert item.available_languages == ["en", "zh"]
+    assert item.stem.model_dump() == {"en": "en stem bi", "zh": "中 stem bi"}
+    assert len(item.options) == 2
+    assert item.options[0].content.model_dump() == {"en": "A", "zh": "甲"}
+    assert item.options[0].explanation.model_dump() == {"en": "en-A expl", "zh": "zh-甲 expl"}
+    assert item.options[0].is_correct is True
+    assert item.options[1].is_correct is False
+    assert item.correct_rationale.model_dump() == {"en": "en rationale bi", "zh": "中 rationale bi"}
+    assert item.key_point_summary.model_dump() == {"en": "en key bi", "zh": "中 key bi"}
+    assert item.your_answer["is_correct"] is True
+
+
 def test_review_reads_correctness_from_snapshot(db_session):
-    from datetime import datetime, timezone
-
-    from app.models.question import QuestionOption
-
     org, actor, s, (q1, q2) = _two_question_exam(db_session)
     svc.submit_answer(
         db_session, session_id=s.id, user_id=actor.id,
@@ -556,15 +759,72 @@ def test_review_reads_correctness_from_snapshot(db_session):
     assert item0.your_answer["is_correct"] is True
 
 
-def test_history_ordered_and_only_finished(db_session):
-    from datetime import datetime, timezone
+def test_review_never_answered_is_bilingual_from_live(db_session):
+    """A question that was never answered (lazy auto-submit / manual finish
+    mid-exam) renders Localized stem/options/rationale from LIVE translations
+    (not a snapshot, which does not exist for unanswered items).
 
+    Shuffle-independent: the skipped question is identified from
+    config['question_ids'][1] after assembly, then its live en stem is mutated
+    to prove the review reads live translations rather than a frozen view."""
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp = _blueprint(db_session, min_items=2, max_items=2)
+    d = _domain(db_session, bp, number=1, name="D1", weight_pct=100)
+    q1 = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix=" one")
+    q2 = _question(db_session, org, actor, langs=("en", "zh"), stem_suffix=" two")
+    _map(db_session, q1, d)
+    _map(db_session, q2, d)
+    s = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload={"count": 2, "language_mode": "bilingual"},
+    )
+    # Answer only position 0; position 1 is never answered.
+    svc.submit_answer(
+        db_session, session_id=s.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    # Identify the skipped question (position 1) and mutate its LIVE en stem.
+    skipped_qid = uuid.UUID(s.config["question_ids"][1])
+    skipped_tr = db_session.query(QuestionTranslation).filter_by(
+        question_id=skipped_qid, language="en").one()
+    skipped_tr.stem = "MUTATED LIVE STEM"
+    db_session.flush()
+    svc.finish_session(db_session, session_id=s.id, user_id=actor.id)
+    review = svc.get_review(db_session, session_id=s.id, user_id=actor.id)
+    assert len(review) == 2
+    skipped = next(r for r in review if r.your_answer is None)
+    assert skipped.time_spent_ms is None
+    assert skipped.question_id == skipped_qid
+    assert skipped.available_languages == ["en", "zh"]
+    # stem comes from live translations (mutated value visible -> live read)
+    assert skipped.stem.en == "MUTATED LIVE STEM"
+    assert skipped.stem.zh is not None
+    # options carry Localized content + explanation from live translations
+    assert len(skipped.options) == 2
+    for opt in skipped.options:
+        assert set(opt.content.model_dump().keys()) == {"en", "zh"}
+        assert opt.content.en is not None
+        assert opt.content.zh is not None
+        assert set(opt.explanation.model_dump().keys()) == {"en", "zh"}
+    # rationale + key_point are Localized from live translations
+    assert skipped.correct_rationale.en is not None
+    assert skipped.correct_rationale.zh is not None
+    assert skipped.key_point_summary.en is not None
+    assert skipped.key_point_summary.zh is not None
+
+
+# --- history -----------------------------------------------------------------
+
+
+def test_history_ordered_and_only_finished(db_session):
     org = _org(db_session)
     actor = _actor(db_session, org)
     # first exam: 1 question, finished
     bp1 = _blueprint(db_session, min_items=1, max_items=1, version="v1")
     d1 = _domain(db_session, bp1, number=1, name="D1", weight_pct=100)
-    q = _question(db_session, org, actor, stem="q")
+    q = _question(db_session, org, actor, stem_suffix="q")
     _map(db_session, q, d1)
     s1 = svc.create_session(
         db_session, org_id=org.id, actor_id=actor.id, payload={"count": 1})
@@ -584,8 +844,6 @@ def test_history_ordered_and_only_finished(db_session):
 
 
 def test_history_uses_historical_scoring_basis(db_session):
-    from datetime import datetime, timezone
-
     from app.models.taxonomy import ExamBlueprint
 
     org, actor, s, _ = _two_question_exam(
@@ -608,6 +866,9 @@ def test_history_uses_historical_scoring_basis(db_session):
     assert hist[0].scaled_score == 500
 
 
+# --- CAT: candidate filtering + config --------------------------------------
+
+
 def _cat_blueprint(db_session, *, min_items=1, max_items=5, passing_score=700,
                    max_score=1000, duration_minutes=30):
     bp = _blueprint(
@@ -619,17 +880,21 @@ def _cat_blueprint(db_session, *, min_items=1, max_items=5, passing_score=700,
     return bp, d1
 
 
-def _seed_cat_questions(db_session, org, actor, domain, n=5, difficulty=3):
+def _seed_cat_questions(db_session, org, actor, domain, n=5, difficulty=3,
+                        langs=("en",)):
     qs = []
     for i in range(n):
-        q = _question(db_session, org, actor, stem=f"cat-q{i}", difficulty=difficulty)
+        q = _question(
+            db_session, org, actor, stem_suffix=f" cat-q{i}",
+            difficulty=difficulty, langs=langs,
+        )
         _map(db_session, q, domain)
         qs.append(q)
     return qs
 
 
 def test_create_cat_session_medium_start_and_config_shape(db_session):
-    from app.models.enums import ExamSessionKind, ExamSessionStatus
+    from app.models.enums import ExamSessionKind
 
     org = _org(db_session)
     actor = _actor(db_session, org)
@@ -649,6 +914,7 @@ def test_create_cat_session_medium_start_and_config_shape(db_session):
     assert cfg["question_ids"] == []
     assert cfg["max_items"] == 5
     assert cfg["min_items"] == 1
+    assert cfg["language_mode"] == "en"  # default mode stamped
     assert "deadline_at" in cfg
     assert "disclaimer" in cfg
     assert "cat_params" in cfg
@@ -660,7 +926,7 @@ def test_create_cat_first_item_is_medium_difficulty(db_session):
     bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
     qs = _seed_cat_questions(db_session, org, actor, d1, n=5, difficulty=3)
     # add a couple of extreme-difficulty items that must NOT be chosen first
-    hard = _question(db_session, org, actor, stem="hard", difficulty=5)
+    hard = _question(db_session, org, actor, stem_suffix="hard", difficulty=5)
     _map(db_session, hard, d1)
     es = svc.create_session(
         db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
@@ -680,19 +946,55 @@ def test_create_cat_rejects_empty_pool(db_session):
         )
 
 
-def test_get_next_question_strips_correctness(db_session):
+def test_cat_pool_excludes_missing_language(db_session):
+    """en-mode CAT pool excludes zh-only questions; the first item is en-capable."""
     org = _org(db_session)
     actor = _actor(db_session, org)
     bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
-    _seed_cat_questions(db_session, org, actor, d1, n=5)
+    en_qs = _seed_cat_questions(db_session, org, actor, d1, n=3, difficulty=3, langs=("en",))
+    zh_only = _question(db_session, org, actor, stem_suffix=" zh-only", difficulty=3, langs=("zh",))
+    _map(db_session, zh_only, d1)
     es = svc.create_session(
-        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload={"kind": "cat", "language_mode": "en"},
+    )
+    assert es.config["language_mode"] == "en"
+    first_id = uuid.UUID(es.config["next_question_id"])
+    assert first_id != zh_only.id
+    assert first_id in {q.id for q in en_qs}
+    # answering advances without ever picking the zh-only question
+    ack = svc.submit_answer(
+        db_session, session_id=es.id, user_id=actor.id,
+        payload={"position": 0, "selected": [0],
+                 "started_at": datetime.now(timezone.utc)},
+    )
+    if not ack.finished:
+        next_id = uuid.UUID(es.config["next_question_id"])
+        assert next_id != zh_only.id
+
+
+def test_get_next_question_is_bilingual(db_session):
+    """CAT /next delivery is bilingual: Localized stem/options, no answer key."""
+    org = _org(db_session)
+    actor = _actor(db_session, org)
+    bp, d1 = _cat_blueprint(db_session, min_items=1, max_items=5)
+    _seed_cat_questions(db_session, org, actor, d1, n=5, difficulty=3, langs=("en", "zh"))
+    es = svc.create_session(
+        db_session, org_id=org.id, actor_id=actor.id,
+        payload={"kind": "cat", "language_mode": "bilingual"},
     )
     out = svc.get_next_question(db_session, session_id=es.id, user_id=actor.id)
     assert out["position"] == 0
     assert out["total"] == 5
+    assert out["language_mode"] == "bilingual"
+    assert set(out["stem"].keys()) == {"en", "zh"}
+    assert out["stem"]["en"] is not None
+    assert out["stem"]["zh"] is not None
     for opt in out["options"]:
         assert "is_correct" not in opt
+        assert set(opt["content"].keys()) == {"en", "zh"}
+        assert opt["content"]["en"] is not None
+        assert opt["content"]["zh"] is not None
     assert out["previous_answer"] is None
     assert out["time_remaining_ms"] > 0
 
@@ -712,30 +1014,32 @@ def test_get_next_question_other_user_404(db_session):
 
 def _cat_start(db_session, *, passing_score=700, max_score=1000,
                min_items=1, max_items=5, n_questions=5, difficulty=3,
-               early_stop=True):
+               early_stop=True, language_mode=None):
     org = _org(db_session)
     actor = _actor(db_session, org)
     bp, d1 = _cat_blueprint(
         db_session, min_items=min_items, max_items=max_items,
         passing_score=passing_score, max_score=max_score,
     )
-    _seed_cat_questions(db_session, org, actor, d1, n=n_questions, difficulty=difficulty)
+    # Seed questions that satisfy the requested mode (bilingual mode requires
+    # questions with both en + zh translations).
+    langs = ("en", "zh") if language_mode == "bilingual" else ("en",)
+    _seed_cat_questions(
+        db_session, org, actor, d1, n=n_questions, difficulty=difficulty, langs=langs,
+    )
+    payload = {"kind": "cat"}
+    if language_mode is not None:
+        payload["language_mode"] = language_mode
     es = svc.create_session(
-        db_session, org_id=org.id, actor_id=actor.id, payload={"kind": "cat"}
+        db_session, org_id=org.id, actor_id=actor.id, payload=payload
     )
     if not early_stop:
         es.config["cat_params"]["early_stop_enabled"] = False
-        flag_modified_for_test(es)
+        flag_modified(es, "config")
     return org, actor, es
 
 
-def flag_modified_for_test(es):
-    from sqlalchemy.orm.attributes import flag_modified
-    flag_modified(es, "config")
-
-
 def _answer(db_session, es, actor, *, selected, position):
-    from datetime import datetime, timezone
     return svc.submit_answer(
         db_session, session_id=es.id, user_id=actor.id,
         payload={"position": position, "selected": selected,
@@ -789,8 +1093,6 @@ def test_cat_submit_position_mismatch_rejected(db_session):
 
 
 def test_cat_terminate_at_max_items(db_session):
-    from app.models.enums import ExamSessionStatus
-
     org, actor, es = _cat_start(db_session, early_stop=False, max_items=3, n_questions=5)
     ack0 = _answer(db_session, es, actor, selected=[0], position=0)
     assert ack0.finished is False
@@ -805,8 +1107,6 @@ def test_cat_terminate_at_max_items(db_session):
 
 
 def test_cat_early_stop_converged_pass(db_session):
-    from app.models.enums import ExamSessionStatus
-
     # passing_score=0 -> pass_ability=1.0; one correct answer -> ability 3.5,
     # CI entirely above 1.0 -> converged pass at min_items=1.
     org, actor, es = _cat_start(
@@ -818,8 +1118,6 @@ def test_cat_early_stop_converged_pass(db_session):
 
 
 def test_cat_early_stop_converged_fail(db_session):
-    from app.models.enums import ExamSessionStatus
-
     # passing_score=1000 -> pass_ability=5.0; one wrong answer -> ability 2.5,
     # CI entirely below 5.0 -> converged fail at min_items=1.
     org, actor, es = _cat_start(
@@ -830,13 +1128,9 @@ def test_cat_early_stop_converged_fail(db_session):
 
 
 def test_cat_time_up_auto_submits(db_session):
-    from datetime import datetime, timezone
-
-    from app.models.enums import ExamSessionStatus
-
     org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
     es.config["deadline_at"] = datetime.now(timezone.utc).isoformat()
-    flag_modified_for_test(es)
+    flag_modified(es, "config")
     db_session.flush()
     with pytest.raises(svc.ConflictError):
         svc.get_next_question(db_session, session_id=es.id, user_id=actor.id)
@@ -845,17 +1139,7 @@ def test_cat_time_up_auto_submits(db_session):
 
 def test_cat_time_up_history_shows_answered_totals(db_session):
     """I-1: auto-submitted (time-up) CAT sessions must not show stale
-    total_questions=0 / correct_count=0 / accuracy=0.0 in /history.
-
-    _auto_submit_if_expired only flips status + ended_at; it does not
-    reconcile total_questions/correct_count (those are set on normal
-    termination or in finish_session's in_progress branch, both skipped
-    for auto_submitted). History must prefer the live CAT runtime state
-    in config ("answered"/"correct") over the stale columns.
-    """
-    from datetime import datetime, timezone
-
-    from app.models.enums import ExamSessionStatus
+    total_questions=0 / correct_count=0 / accuracy=0.0 in /history."""
     from app.services import cat_engine
 
     org, actor, es = _cat_start(db_session, early_stop=False, max_items=5)
@@ -868,7 +1152,7 @@ def test_cat_time_up_history_shows_answered_totals(db_session):
     # Force time-up: deadline into the past, then touch a path that runs
     # _auto_submit_if_expired.
     es.config["deadline_at"] = datetime.now(timezone.utc).isoformat()
-    flag_modified_for_test(es)
+    flag_modified(es, "config")
     db_session.flush()
     with pytest.raises(svc.ConflictError):
         svc.get_next_question(db_session, session_id=es.id, user_id=actor.id)
@@ -929,9 +1213,28 @@ def test_cat_report_pass_line_is_ability_based(db_session):
     assert report.passed is False
 
 
-def test_cat_review_is_snapshot_graded(db_session):
-    from app.models.question import QuestionOption
+def test_cat_report_wrong_questions_bilingual(db_session):
+    """CAT report wrong-questions render Localized {en,zh} stems from snapshots."""
+    org, actor, es = _cat_start(
+        db_session, early_stop=False, max_items=3, n_questions=5,
+        language_mode="bilingual",
+    )
+    # answer all wrong (select option 1, but option 0 is correct)
+    pos = 0
+    ack = _answer(db_session, es, actor, selected=[1], position=pos)
+    while not ack.finished:
+        pos += 1
+        ack = _answer(db_session, es, actor, selected=[1], position=pos)
+    svc.finish_session(db_session, session_id=es.id, user_id=actor.id)
+    report = svc.get_report(db_session, session_id=es.id, user_id=actor.id)
+    assert len(report.wrong_questions) == pos + 1
+    for wq in report.wrong_questions:
+        assert set(wq.stem.model_dump().keys()) == {"en", "zh"}
+        assert wq.stem.en is not None
+        assert wq.stem.zh is not None
 
+
+def test_cat_review_is_snapshot_graded(db_session):
     org, actor, es = _cat_start(db_session, early_stop=False, max_items=3, n_questions=5)
     _answer(db_session, es, actor, selected=[0], position=0)
     # mutate the live first question's options
@@ -956,9 +1259,34 @@ def test_cat_review_is_snapshot_graded(db_session):
     assert item0.your_answer["is_correct"] is True  # judged against snapshot
 
 
-def test_cat_finish_manual_when_in_progress(db_session):
-    from app.models.enums import ExamSessionStatus
+def test_cat_review_is_bilingual(db_session):
+    """CAT review items render Localized stem/options/rationale from snapshots."""
+    org, actor, es = _cat_start(
+        db_session, early_stop=False, max_items=3, n_questions=5,
+        language_mode="bilingual",
+    )
+    pos = 0
+    ack = _answer(db_session, es, actor, selected=[0], position=pos)
+    while not ack.finished:
+        pos += 1
+        ack = _answer(db_session, es, actor, selected=[0], position=pos)
+    svc.finish_session(db_session, session_id=es.id, user_id=actor.id)
+    review = svc.get_review(db_session, session_id=es.id, user_id=actor.id)
+    assert len(review) == pos + 1
+    for item in review:
+        assert set(item.stem.model_dump().keys()) == {"en", "zh"}
+        assert item.stem.en is not None
+        assert item.stem.zh is not None
+        assert item.available_languages == ["en", "zh"]
+        for opt in item.options:
+            assert set(opt.content.model_dump().keys()) == {"en", "zh"}
+            assert opt.content.en is not None
+            assert opt.content.zh is not None
+        assert item.correct_rationale.en is not None
+        assert item.correct_rationale.zh is not None
 
+
+def test_cat_finish_manual_when_in_progress(db_session):
     org, actor, es = _cat_start(db_session, early_stop=False, max_items=5, n_questions=5)
     _answer(db_session, es, actor, selected=[0], position=0)
     # manually finish mid-exam

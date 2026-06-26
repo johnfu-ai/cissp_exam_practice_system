@@ -5,7 +5,7 @@ import { useAuthStore } from "@/lib/auth-store";
 
 beforeEach(() => {
   useAuthStore.setState({
-    user: { id: "1", email: "a@b.c", display_name: null, roles: [], perms: ["practice:read"] },
+    user: { id: "1", email: "a@b.c", display_name: null, roles: [], perms: ["practice:read"], language_mode: "en" },
     accessToken: "t",
     refreshToken: "r",
     hydrated: true,

@@ -22,13 +22,13 @@ from app.models.practice import (  # noqa: F401
 from app.models.question import (  # noqa: F401
     Book,
     Chapter,
-    Explanation,
     ImportJob,
     Question,
     QuestionFeedback,
     QuestionMapping,
     QuestionOption,
     QuestionRevision,
+    QuestionTranslation,
 )
 from app.models.etl import (  # noqa: F401
     ChapterDomainMapping,
@@ -62,7 +62,7 @@ __all__ = [
     "Chapter",
     "Question",
     "QuestionOption",
-    "Explanation",
+    "QuestionTranslation",
     "QuestionMapping",
     "QuestionRevision",
     "QuestionFeedback",

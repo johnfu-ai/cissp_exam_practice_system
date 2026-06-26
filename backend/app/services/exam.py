@@ -1,9 +1,22 @@
-"""Fixed exam service (sub-project F).
+"""Fixed + CAT exam service (sub-project F).
 
 Owns fixed-count exam session creation with domain-weighted auto-assembly
 from the current ExamBlueprint, timed feedback-free delivery with lazy
 auto-submit, revisable answer submission (judged from snapshot), finish +
-report, unified post-exam review, and history/trend.
+report, unified post-exam review, and history/trend — plus the rule-driven
+CAT variant reusing ``ExamSession`` (``session_kind=cat``).
+
+Language-mode candidate filtering + bilingual delivery/report/review reuse
+the shared helpers in ``app.services.i18n`` (so practice and exam share one
+implementation without an import cycle). A session's ``language_mode`` is
+resolved at creation (payload > user default > "en"), stamped into
+``config["language_mode"]``, and used to:
+  * filter candidate questions by ``Question.available_languages`` (fixed
+    assembly + CAT pool), and
+  * freeze the delivered mode into each answer snapshot (``language_mode``
+    field) so historical records never change (NFR-DATA-01).
+Delivery / report / review always render Localized ``{en, zh}`` payloads so a
+single response serves any mode.
 """
 
 import random
@@ -12,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.queries import not_deleted
 from app.models.enums import (
@@ -21,7 +35,7 @@ from app.models.enums import (
     QuestionStatus,
 )
 from app.models.exam import ExamAnswer, ExamSession
-from app.models.question import Explanation, Question, QuestionMapping, QuestionOption
+from app.models.question import Question, QuestionMapping, QuestionOption
 from app.models.taxonomy import ExamBlueprint, ExamDomain
 from app.schemas.exam import (
     DomainPerformance,
@@ -35,8 +49,14 @@ from app.schemas.exam import (
 )
 from app.services import cat_engine
 from app.services.audit import log_audit
-from app.services.snapshot import snapshot_question
-from sqlalchemy.orm.attributes import flag_modified
+from app.services.i18n import (
+    delivery_options,
+    language_filter,
+    localized_stem,
+    resolve_mode,
+    translations_for,
+)
+from app.services.snapshot import localized_from_snapshot, snapshot_question
 
 
 class ValidationError(ValueError):
@@ -54,11 +74,15 @@ class ConflictError(ValueError):
 def _current_cat_params_or_default(session) -> dict:
     """NFR-DATA-01: snapshot the current CatParamsVersion into each new CAT
     session's config so later edits to the version never change existing
-    sessions. Lazy import avoids a circular admin<->exam dependency at module
-    load. Falls back to cat_engine.DEFAULT_PARAMS when no version is current
-    (the default test state)."""
-    from app.services.admin import get_current_cat_params
-    v = get_current_cat_params(session)
+    sessions. Queries the model directly (rather than the admin service) to
+    avoid importing ``app.services.admin`` (which is rewritten in T9 and not a
+    dependency of the exam service at runtime). Falls back to
+    cat_engine.DEFAULT_PARAMS when no version is current (the default test
+    state)."""
+    from app.models.admin import CatParamsVersion
+    v = session.execute(
+        select(CatParamsVersion).where(CatParamsVersion.is_current.is_(True))
+    ).scalar_one_or_none()
     if v is not None:
         return dict(v.params)
     return dict(cat_engine.DEFAULT_PARAMS)
@@ -96,7 +120,7 @@ def _allocate(count: int, weights: list[int]) -> list[int]:
 
 
 def _domain_question_ids(
-    session: Session, *, org_id, domain_id
+    session: Session, *, org_id, domain_id, mode: str
 ) -> list[uuid.UUID]:
     return [
         row[0]
@@ -109,6 +133,7 @@ def _domain_question_ids(
                         Question.organization_id == org_id,
                         Question.status == QuestionStatus.published,
                         not_deleted(Question),
+                        language_filter(mode),
                     )
                 ),
             )
@@ -118,7 +143,7 @@ def _domain_question_ids(
 
 
 def _assemble(
-    session: Session, *, org_id, blueprint: ExamBlueprint, count: int
+    session: Session, *, org_id, blueprint: ExamBlueprint, count: int, mode: str
 ) -> list[uuid.UUID]:
     domains = list(
         session.execute(
@@ -131,7 +156,7 @@ def _assemble(
         raise ValidationError("current blueprint has no domains configured")
     targets = _allocate(count, [d.weight_pct for d in domains])
     pools = {
-        d.id: _domain_question_ids(session, org_id=org_id, domain_id=d.id)
+        d.id: _domain_question_ids(session, org_id=org_id, domain_id=d.id, mode=mode)
         for d in domains
     }
     taken: dict[uuid.UUID, list[uuid.UUID]] = {d.id: [] for d in domains}
@@ -165,14 +190,19 @@ def create_session(
 ) -> ExamSession:
     body = _as_create_in(payload)
     bp = _current_blueprint(session)
+    mode = resolve_mode(session, actor_id, getattr(body, "language_mode", None))
     if getattr(body, "kind", "fixed") == "cat":
-        return create_cat_session(session, org_id=org_id, actor_id=actor_id, bp=bp)
+        return create_cat_session(
+            session, org_id=org_id, actor_id=actor_id, bp=bp, mode=mode
+        )
     count = body.count if body.count else bp.max_items
     if count < bp.min_items:
         count = bp.min_items
     if count > bp.max_items:
         count = bp.max_items
-    question_ids = _assemble(session, org_id=org_id, blueprint=bp, count=count)
+    question_ids = _assemble(
+        session, org_id=org_id, blueprint=bp, count=count, mode=mode
+    )
     if not question_ids:
         raise ValidationError(
             f"not enough published questions to assemble a {count}-question exam"
@@ -186,6 +216,7 @@ def create_session(
         "max_score": bp.max_score,
         "passing_score": bp.passing_score,
         "duration_minutes": bp.duration_minutes,
+        "language_mode": mode,
     }
     es = ExamSession(
         user_id=actor_id,
@@ -208,11 +239,14 @@ def create_session(
 
 
 def _cat_candidate_pool(
-    session: Session, *, org_id, blueprint: ExamBlueprint
+    session: Session, *, org_id, blueprint: ExamBlueprint, mode: str
 ) -> list[dict]:
-    """All published, tenant-scoped questions mapped to a domain of this
-    blueprint, as engine-consumable candidate dicts. Deduped by question id
-    (a question mapped to multiple domains counts once, first mapping wins)."""
+    """All published, tenant-scoped, language-eligible questions mapped to a
+    domain of this blueprint, as engine-consumable candidate dicts. Deduped by
+    question id (a question mapped to multiple domains counts once, first
+    mapping wins). Language filtering happens here, at pool construction, so
+    the candidate dicts need no new field — the engine sees only eligible
+    items."""
     rows = session.execute(
         select(
             Question.id,
@@ -226,6 +260,7 @@ def _cat_candidate_pool(
             Question.organization_id == org_id,
             Question.status == QuestionStatus.published,
             not_deleted(Question),
+            language_filter(mode),
             QuestionMapping.domain_id.in_(
                 select(ExamDomain.id).where(ExamDomain.blueprint_id == blueprint.id)
             ),
@@ -249,7 +284,7 @@ def _cat_candidate_pool(
 
 
 def create_cat_session(
-    session: Session, *, org_id, actor_id, bp: ExamBlueprint
+    session: Session, *, org_id, actor_id, bp: ExamBlueprint, mode: str
 ) -> ExamSession:
     domains = list(
         session.execute(
@@ -262,7 +297,9 @@ def create_cat_session(
         raise ValidationError("current blueprint has no domains configured")
     targets = _allocate(bp.max_items, [d.weight_pct for d in domains])
     domain_targets = {str(d.id): t for d, t in zip(domains, targets)}
-    candidates = _cat_candidate_pool(session, org_id=org_id, blueprint=bp)
+    candidates = _cat_candidate_pool(
+        session, org_id=org_id, blueprint=bp, mode=mode
+    )
     if not candidates:
         raise ValidationError("not enough published questions for CAT")
     rng = random.Random()
@@ -293,6 +330,7 @@ def create_cat_session(
         "max_items": bp.max_items,
         "cat_params": _current_cat_params_or_default(session),
         "disclaimer": cat_engine.DISCLAIMER,
+        "language_mode": mode,
     }
     es = ExamSession(
         user_id=actor_id,
@@ -325,6 +363,7 @@ def get_next_question(session: Session, *, session_id, user_id) -> dict:
     if question is None or question.deleted_at is not None:
         raise NotFound("question no longer available")
     options = _options_for(session, question.id)
+    translations = translations_for(session, question.id)
     started = es.started_at
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
@@ -336,17 +375,11 @@ def get_next_question(session: Session, *, session_id, user_id) -> dict:
         "position": es.config.get("position", 0),
         "total": es.config.get("max_items", 0),
         "question_id": str(question.id),
-        "stem": question.stem,
         "question_type": question.question_type.value,
-        "options": [
-            {
-                "id": str(o.id),
-                "order_index": o.order_index,
-                "content": o.content,
-                "content_format": o.content_format.value,
-            }
-            for o in options
-        ],
+        "available_languages": list(question.available_languages or []),
+        "language_mode": es.config.get("language_mode", "en"),
+        "stem": localized_stem(translations),
+        "options": delivery_options(options, translations),
         "elapsed_ms": elapsed_ms,
         "time_remaining_ms": _time_remaining_ms(es),
         "previous_answer": None,
@@ -412,6 +445,7 @@ def get_question_at(session: Session, *, session_id, position: int, user_id) -> 
     if question is None or question.deleted_at is not None:
         raise NotFound("question no longer available")
     options = _options_for(session, question.id)
+    translations = translations_for(session, question.id)
     started = es.started_at
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
@@ -429,17 +463,11 @@ def get_question_at(session: Session, *, session_id, position: int, user_id) -> 
         "position": position,
         "total": len(qids),
         "question_id": str(question.id),
-        "stem": question.stem,
         "question_type": question.question_type.value,
-        "options": [
-            {
-                "id": str(o.id),
-                "order_index": o.order_index,
-                "content": o.content,
-                "content_format": o.content_format.value,
-            }
-            for o in options
-        ],
+        "available_languages": list(question.available_languages or []),
+        "language_mode": es.config.get("language_mode", "en"),
+        "stem": localized_stem(translations),
+        "options": delivery_options(options, translations),
         "elapsed_ms": elapsed_ms,
         "time_remaining_ms": _time_remaining_ms(es),
         "previous_answer": (
@@ -463,7 +491,11 @@ def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnsw
     if question is None or question.deleted_at is not None:
         raise NotFound("question no longer available")
     options = _options_for(session, question_id)
-    snap = snapshot_question(question, options)
+    translations = translations_for(session, question_id)
+    snap = snapshot_question(
+        question, translations, options,
+        language_mode=es.config.get("language_mode"),
+    )
     is_correct = _judge(snap, body.selected)
     now = datetime.now(timezone.utc)
     started = body.started_at
@@ -516,7 +548,11 @@ def _submit_cat_answer(
     if question is None or question.deleted_at is not None:
         raise NotFound("question no longer available")
     options = _options_for(session, question_id)
-    snap = snapshot_question(question, options)
+    translations = translations_for(session, question_id)
+    snap = snapshot_question(
+        question, translations, options,
+        language_mode=cfg.get("language_mode"),
+    )
     is_correct = _judge(snap, body.selected)
     now = datetime.now(timezone.utc)
     started = body.started_at
@@ -582,7 +618,10 @@ def _submit_cat_answer(
         cfg["next_question_id"] = None
     else:
         bp = session.get(ExamBlueprint, es.blueprint_id)
-        candidates = _cat_candidate_pool(session, org_id=es.organization_id, blueprint=bp)
+        candidates = _cat_candidate_pool(
+            session, org_id=es.organization_id, blueprint=bp,
+            mode=cfg.get("language_mode", "en"),
+        )
         rng = random.Random()
         next_id = cat_engine.select_next_item(
             candidates, new_ability, cfg.get("domain_targets", {}),
@@ -616,7 +655,11 @@ def _submit_cat_answer(
 
 
 def _domain_and_wrong(session: Session, es: ExamSession, qids, answers):
-    """Shared per-domain grouping + wrong-question list (snapshot-sourced)."""
+    """Shared per-domain grouping + wrong-question list (snapshot-sourced).
+
+    Wrong-question stems render Localized {en,zh} from the frozen snapshot via
+    ``localized_from_snapshot`` (later edits to live translations never change
+    historical review)."""
     domain_rows = list(
         session.execute(
             select(ExamDomain).where(ExamDomain.blueprint_id == es.blueprint_id)
@@ -657,14 +700,15 @@ def _domain_and_wrong(session: Session, es: ExamSession, qids, answers):
     for a in answers:
         if a.is_correct:
             continue
+        snap = a.question_snapshot or {}
+        view = localized_from_snapshot(snap, snap.get("language_mode") or "en")
         correct_indexes = [
             o["order_index"] for o in (a.options_snapshot or []) if o.get("is_correct")
         ]
         selected = (a.user_answer or {}).get("selected", [])
-        stem = (a.question_snapshot or {}).get("stem", "")
         wrong.append(WrongQuestion(
             question_id=a.question_id,
-            stem=stem,
+            stem=view["stem"],
             selected_indexes=list(selected),
             correct_indexes=correct_indexes,
         ))
@@ -800,6 +844,22 @@ def get_report(session: Session, *, session_id, user_id) -> ExamReportOut:
     return _build_report(session, es)
 
 
+def _opt_localized(order_index: int, translations, field: str) -> dict:
+    """Render a single per-option field as a Localized {en,zh} dict by reading
+    each translation's ``options`` JSONB by ``order_index``. Used for the
+    never-answered review branch where content/explanation come from live
+    translations rather than a frozen snapshot."""
+    out = {"en": None, "zh": None}
+    for t in translations:
+        to = next(
+            (o for o in (t.options or []) if o.get("order_index") == order_index),
+            None,
+        )
+        if to:
+            out[t.language] = to.get(field)
+    return out
+
+
 def get_review(session: Session, *, session_id, user_id) -> list:
     es = _load_session(session, session_id, user_id)
     if es.status == ExamSessionStatus.in_progress:
@@ -815,50 +875,72 @@ def get_review(session: Session, *, session_id, user_id) -> list:
                 ExamAnswer.question_id == question_id,
             )
         ).scalars().first()
-        explanation = session.execute(
-            select(Explanation).where(Explanation.question_id == question_id)
-        ).scalars().first()
-        # Per-option correctness + content come from the stored snapshot
-        # (NFR-DATA-01): later edits to live options never change the review.
+        # Answered items render from the frozen snapshot (NFR-DATA-01): later
+        # edits to live options/translations never change the review.
         if ans is not None and ans.options_snapshot:
+            snap = ans.question_snapshot or {}
+            view = localized_from_snapshot(snap, snap.get("language_mode") or "en")
             opts = [
                 {
                     "order_index": o["order_index"],
                     "content": o["content"],
                     "is_correct": o["is_correct"],
-                    "explanation": None,
+                    "explanation": o["explanation"],
                 }
-                for o in ans.options_snapshot
+                for o in view["options"]
             ]
-            stem = ans.question_snapshot.get("stem", question.stem if question else "")
-            qtype = ans.question_snapshot.get("question_type", "")
+            stem = view["stem"]
+            qtype = snap.get("question_type", "")
+            rationale = view["correct_rationale"]
+            key_point = view["key_point_summary"]
+            avail = view["available_languages"]
         else:
-            # Never answered: fall back to live question for stem/options.
+            # Never answered (lazy auto-submit / manual finish mid-exam):
+            # build Localized view from live translations.
+            translations = translations_for(session, question_id) if question else []
             live_opts = _options_for(session, question_id) if question else []
             opts = [
                 {
                     "order_index": o.order_index,
-                    "content": o.content,
+                    "content": _opt_localized(o.order_index, translations, "content"),
                     "is_correct": o.is_correct,
-                    "explanation": o.explanation,
+                    "explanation": _opt_localized(o.order_index, translations, "explanation"),
                 }
                 for o in live_opts
             ]
-            stem = question.stem if question else ""
+            stem = localized_stem(translations)
             qtype = question.question_type.value if question else ""
+            rationale = {
+                "en": next(
+                    (t.correct_answer_rationale for t in translations if t.language == "en"),
+                    None,
+                ),
+                "zh": next(
+                    (t.correct_answer_rationale for t in translations if t.language == "zh"),
+                    None,
+                ),
+            }
+            key_point = {
+                "en": next(
+                    (t.key_point_summary for t in translations if t.language == "en"),
+                    None,
+                ),
+                "zh": next(
+                    (t.key_point_summary for t in translations if t.language == "zh"),
+                    None,
+                ),
+            }
+            avail = list(question.available_languages or []) if question else []
         items.append(
             ReviewItemOut(
                 position=position,
                 question_id=question_id,
-                stem=stem,
                 question_type=qtype,
+                available_languages=avail,
+                stem=stem,
                 options=opts,
-                correct_rationale=(
-                    explanation.correct_answer_rationale if explanation else None
-                ),
-                key_point_summary=(
-                    explanation.key_point_summary if explanation else None
-                ),
+                correct_rationale=rationale,
+                key_point_summary=key_point,
                 your_answer=(
                     {
                         "selected": ans.user_answer.get("selected"),

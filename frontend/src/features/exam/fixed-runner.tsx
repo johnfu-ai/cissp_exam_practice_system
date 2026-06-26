@@ -11,9 +11,17 @@ import { OptionList } from "@/features/practice/option-list";
 import { untrackExam } from "./exam-tracker";
 import { fmtCountdown, isTimeCritical } from "./format";
 import { ApiError } from "@/lib/api";
+import { BilingualText } from "@/components/bilingual-text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { toast } from "@/components/ui/sonner";
@@ -28,7 +36,14 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { ExamSession } from "@/lib/api/types";
+import type { ExamSession, LanguageMode } from "@/lib/api/types";
+
+const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
+const LANGUAGE_LABELS: Record<LanguageMode, string> = {
+  en: "English",
+  zh: "中文",
+  bilingual: "Both",
+};
 
 function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -51,6 +66,18 @@ export function FixedExamRunner({
   const question = useExamQuestion(sessionId, position);
   const submit = useSubmitExamAnswer(sessionId);
   const finish = useFinishExam(sessionId);
+
+  const delivery = question.data;
+
+  // Local language mode for the in-runner toggle. Defaults to the session's
+  // delivered `language_mode` and re-initialises whenever that changes (e.g. a
+  // new question with a different session mode). Toggling only mutates this
+  // local state — it never refetches and never touches `selections[position]`
+  // or the question palette (those are index based).
+  const [mode, setMode] = useState<LanguageMode>(delivery?.language_mode ?? "en");
+  useEffect(() => {
+    if (delivery?.language_mode) setMode(delivery.language_mode);
+  }, [delivery?.language_mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Absolute deadline derived once from the server's remaining time.
   const deadlineRef = useRef<number | null>(null);
@@ -88,8 +115,6 @@ export function FixedExamRunner({
     }, 1000);
     return () => clearInterval(t);
   }, [doFinish]);
-
-  const delivery = question.data;
 
   // Seed selection from the server's stored answer the first time we see a question.
   useEffect(() => {
@@ -172,28 +197,63 @@ export function FixedExamRunner({
   if (question.isLoading || !delivery) return <Loading label="Loading question…" />;
 
   const critical = isTimeCritical(remaining);
+  const progressPct = total > 0 ? ((position + 1) / total) * 100 : 0;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          Question {position + 1} of {total}
+    <div className="mx-auto flex max-w-3xl flex-col">
+      {/* Top: progress + controls */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground">
+            Question{" "}
+            <span className="font-medium text-foreground tabular-nums">{position + 1}</span> of{" "}
+            <span className="tabular-nums">{total}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
+              <SelectTrigger className="h-9 w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LANGUAGE_MODES.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {LANGUAGE_LABELS[m]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div
+              className={cn(
+                "rounded-full px-3 py-1 font-mono text-sm font-semibold tabular-nums",
+                critical ? "bg-destructive text-destructive-foreground" : "bg-muted",
+              )}
+              aria-label="Time remaining"
+            >
+              {fmtCountdown(remaining)}
+            </div>
+          </div>
         </div>
         <div
-          className={cn(
-            "rounded-md px-3 py-1 font-mono text-sm tabular-nums",
-            critical ? "bg-destructive text-destructive-foreground" : "bg-muted"
-          )}
-          aria-label="Time remaining"
+          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-valuenow={position + 1}
+          aria-valuemin={1}
+          aria-valuemax={total}
         >
-          {fmtCountdown(remaining)}
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${progressPct}%` }}
+          />
         </div>
       </div>
 
-      <Card>
+      {/* Question card */}
+      <Card className="mt-6">
         <CardHeader>
           <Badge variant="secondary" className="w-fit">{labelize(delivery.question_type)}</Badge>
-          <CardTitle className="mt-2 text-lg font-medium leading-relaxed">{delivery.stem}</CardTitle>
+          <CardTitle className="mt-2 text-lg font-medium leading-relaxed">
+            <BilingualText mode={mode} en={delivery.stem.en} zh={delivery.stem.zh} />
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <OptionList
@@ -203,34 +263,13 @@ export function FixedExamRunner({
             disabled={false}
             onToggle={toggle}
             result={null}
+            mode={mode}
           />
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-between">
-        <Button variant="outline" onClick={() => goTo(position - 1)} disabled={position === 0 || submit.isPending}>
-          Previous
-        </Button>
-        <div className="flex gap-2">
-          {position + 1 < total ? (
-            <Button onClick={() => goTo(position + 1)} disabled={submit.isPending}>
-              {submit.isPending ? "Saving…" : "Save & next"}
-            </Button>
-          ) : (
-            <Button onClick={() => save()} disabled={submit.isPending} variant="outline">
-              Save
-            </Button>
-          )}
-          <FinishDialog
-            answered={answered.size}
-            total={total}
-            onConfirm={() => save(doFinish)}
-            pending={finish.isPending}
-          />
-        </div>
-      </div>
-
-      <Card>
+      {/* Question palette */}
+      <Card className="mt-4">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-normal text-muted-foreground">Question palette</CardTitle>
         </CardHeader>
@@ -242,12 +281,12 @@ export function FixedExamRunner({
                 type="button"
                 onClick={() => goTo(i)}
                 className={cn(
-                  "h-8 w-8 rounded text-xs font-medium transition-colors",
+                  "h-8 w-8 rounded-md text-xs font-medium transition-colors",
                   i === position
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-primary text-primary-foreground shadow-sm"
                     : answered.has(i)
                       ? "bg-success/20 text-foreground hover:bg-success/30"
-                      : "bg-muted hover:bg-accent"
+                      : "bg-muted hover:bg-accent",
                 )}
                 aria-label={`Go to question ${i + 1}${answered.has(i) ? " (answered)" : ""}`}
               >
@@ -257,6 +296,32 @@ export function FixedExamRunner({
           </div>
         </CardContent>
       </Card>
+
+      {/* Sticky footer: navigation + finish */}
+      <div className="sticky bottom-0 z-10 mt-6 border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="flex items-center justify-between gap-3">
+          <Button variant="outline" onClick={() => goTo(position - 1)} disabled={position === 0 || submit.isPending}>
+            Previous
+          </Button>
+          <div className="flex gap-2">
+            {position + 1 < total ? (
+              <Button size="pill" onClick={() => goTo(position + 1)} disabled={submit.isPending}>
+                {submit.isPending ? "Saving…" : "Save & next"}
+              </Button>
+            ) : (
+              <Button onClick={() => save()} disabled={submit.isPending} variant="outline">
+                Save
+              </Button>
+            )}
+            <FinishDialog
+              answered={answered.size}
+              total={total}
+              onConfirm={() => save(doFinish)}
+              pending={finish.isPending}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

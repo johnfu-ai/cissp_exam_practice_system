@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -31,6 +33,15 @@ class UserOut(BaseModel):
     display_name: str | None
     roles: list[str]
     perms: list[str]
+    language_mode: str = "en"
+
+
+class PreferencesIn(BaseModel):
+    language_mode: Literal["en", "zh", "bilingual"]
+
+
+class PreferencesOut(BaseModel):
+    language_mode: str
 
 
 class TokenOut(BaseModel):

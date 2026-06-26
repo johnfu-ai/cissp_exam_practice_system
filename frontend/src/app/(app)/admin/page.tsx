@@ -26,8 +26,8 @@ export default function AdminPage() {
   );
 
   return (
-    <div>
-      <PageHeader title="Admin" description="User, class, CAT-parameter, content-quality, audit, and reporting administration." />
+    <div className="mx-auto max-w-5xl space-y-6">
+      <PageHeader eyebrow="Backoffice" title="Admin" description="User, class, CAT-parameter, content-quality, audit, and reporting administration." />
       {tabs.length === 0 ? (
         <EmptyState title="No admin access" description="Your account has no administrative permissions." />
       ) : (

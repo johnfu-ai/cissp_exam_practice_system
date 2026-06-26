@@ -23,7 +23,6 @@ from app.models.practice import (
     UserQuestionState,
 )
 from app.models.question import (
-    Explanation,
     Question,
     QuestionMapping,
     QuestionOption,
@@ -36,7 +35,14 @@ from app.schemas.practice import (
     SessionSummaryOut,
 )
 from app.services.audit import log_audit
-from app.services.snapshot import snapshot_question
+from app.services.i18n import (
+    delivery_options,
+    language_filter,
+    localized_stem,
+    resolve_mode,
+    translations_for,
+)
+from app.services.snapshot import localized_from_snapshot, snapshot_question
 
 
 class ValidationError(ValueError):
@@ -52,12 +58,13 @@ class ConflictError(ValueError):
 
 
 def _candidate_question_ids(
-    session: Session, *, org_id, payload: SessionCreateIn
+    session: Session, *, org_id, payload: SessionCreateIn, mode: str
 ) -> list[uuid.UUID]:
     stmt = select(Question.id).where(
         Question.organization_id == org_id,
         Question.status == QuestionStatus.published,
         not_deleted(Question),
+        language_filter(mode),
     )
     if payload.domain_id is not None:
         stmt = stmt.where(Question.id.in_(
@@ -170,7 +177,10 @@ def _order_questions(
 def create_session(
     session: Session, *, org_id, actor_id, payload: SessionCreateIn
 ) -> PracticeSession:
-    candidate_ids = _candidate_question_ids(session, org_id=org_id, payload=payload)
+    mode = resolve_mode(session, actor_id, payload.language_mode)
+    candidate_ids = _candidate_question_ids(
+        session, org_id=org_id, payload=payload, mode=mode
+    )
     candidate_ids = _apply_subset(
         session, user_id=actor_id, candidate_ids=candidate_ids, subset=payload.subset
     )
@@ -189,6 +199,7 @@ def create_session(
             "subset": payload.subset,
             "order_mode": payload.order_mode,
             "count": payload.count,
+            "language_mode": mode,
             "question_ids": [str(qid) for qid in ordered],
         },
     )
@@ -230,6 +241,7 @@ def get_question_at(
     if question is None or question.deleted_at is not None:
         raise NotFound("question no longer available")
     options = _options_for(session, question.id)
+    translations = translations_for(session, question.id)
     started = ps.started_at
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
@@ -247,17 +259,11 @@ def get_question_at(
         "position": position,
         "total": len(qids),
         "question_id": str(question.id),
-        "stem": question.stem,
         "question_type": question.question_type.value,
-        "options": [
-            {
-                "id": str(o.id),
-                "order_index": o.order_index,
-                "content": o.content,
-                "content_format": o.content_format.value,
-            }
-            for o in options
-        ],
+        "available_languages": list(question.available_languages or []),
+        "language_mode": ps.config.get("language_mode", "en"),
+        "stem": localized_stem(translations),
+        "options": delivery_options(options, translations),
         "elapsed_ms": elapsed_ms,
         "previous_answer": (
             {
@@ -335,7 +341,11 @@ def submit_answer(
     if question is None or question.deleted_at is not None:
         raise NotFound("question no longer available")
     options = _options_for(session, question_id)
-    snap = snapshot_question(question, options)
+    translations = translations_for(session, question_id)
+    snap = snapshot_question(
+        question, translations, options,
+        language_mode=ps.config.get("language_mode"),
+    )
     is_correct, correct_indexes = _judge(snap, payload.selected)
     now = datetime.now(timezone.utc)
     started = payload.started_at
@@ -375,32 +385,33 @@ def submit_answer(
         organization_id=ps.organization_id, entity_type="practice_answer",
         entity_id=str(ans.id), details={"is_correct": is_correct},
     )
-    explanation = session.execute(
-        select(Explanation).where(Explanation.question_id == question_id)
-    ).scalars().first()
+
+    def loc(field: str) -> dict:
+        return {
+            "en": next((getattr(t, field) for t in translations if t.language == "en"), None),
+            "zh": next((getattr(t, field) for t in translations if t.language == "zh"), None),
+        }
+
+    per_option = []
+    for o in snap["options"]:
+        expl = {"en": None, "zh": None}
+        for t in translations:
+            to = next(
+                (x for x in (t.options or []) if x.get("order_index") == o["order_index"]),
+                None,
+            )
+            if to:
+                expl[t.language] = to.get("explanation")
+        per_option.append(
+            {"order_index": o["order_index"], "is_correct": o["is_correct"], "explanation": expl}
+        )
     return AnswerResultOut(
         is_correct=is_correct,
         correct_indexes=correct_indexes,
         selected_indexes=list(payload.selected),
-        correct_rationale=(
-            explanation.correct_answer_rationale if explanation else None
-        ),
-        key_point_summary=explanation.key_point_summary if explanation else None,
-        per_option=[
-            {
-                "order_index": o["order_index"],
-                "is_correct": o["is_correct"],
-                "explanation": next(
-                    (
-                        opt.explanation
-                        for opt in options
-                        if opt.order_index == o["order_index"]
-                    ),
-                    None,
-                ),
-            }
-            for o in snap["options"]
-        ],
+        correct_rationale=loc("correct_answer_rationale"),
+        key_point_summary=loc("key_point_summary"),
+        per_option=per_option,
         mapping=_mapping_out(session, question_id),
         history=_history_out(
             session, user_id=user_id, question_id=question_id,
@@ -454,17 +465,24 @@ def _build_summary(session: Session, ps: PracticeSession) -> SessionSummaryOut:
             d = session.get(ExamDomain, uuid.UUID(did))
             entry["name"] = d.name if d else None
 
-    wrong = [
-        {
-            "question_id": uuid.UUID(a.question_snapshot.get("question_id")) if a.question_snapshot.get("question_id") else a.question_id,
-            "stem": a.question_snapshot.get("stem", ""),
+    wrong = []
+    for a in answers:
+        if a.is_correct:
+            continue
+        snap = a.question_snapshot or {}
+        view = localized_from_snapshot(snap, snap.get("language_mode") or "en")
+        wrong.append({
+            "question_id": (
+                uuid.UUID(snap["question_id"]) if snap.get("question_id") else a.question_id
+            ),
+            "stem": view["stem"],
             "selected_indexes": (a.user_answer or {}).get("selected", []),
             "correct_indexes": [
-                o["order_index"] for o in a.options_snapshot if o["is_correct"]
+                o["order_index"]
+                for o in (a.options_snapshot or [])
+                if o.get("is_correct")
             ],
-        }
-        for a in answers if not a.is_correct
-    ]
+        })
     return SessionSummaryOut(
         session_id=ps.id,
         total_questions=ps.total_questions,

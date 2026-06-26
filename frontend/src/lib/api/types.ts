@@ -18,6 +18,14 @@ export type ErrorType =
   | "time_pressure";
 export type SessionStatus = "in_progress" | "completed" | "abandoned";
 
+export type LanguageCode = "en" | "zh";
+export type LanguageMode = "en" | "zh" | "bilingual";
+
+export interface Localized {
+  en: string | null;
+  zh: string | null;
+}
+
 export interface SessionCreateInput {
   count: number;
   subset?: Subset;
@@ -28,6 +36,7 @@ export interface SessionCreateInput {
   question_type?: string | null;
   difficulty?: number | null;
   tag_id?: string | null;
+  language_mode?: LanguageMode | null;
 }
 
 export interface SessionOut {
@@ -44,8 +53,8 @@ export interface SessionOut {
 export interface OptionDelivery {
   id: string;
   order_index: number;
-  content: string;
-  content_format: "plain" | "markdown";
+  content: Localized;
+  content_format: Localized;
 }
 
 export interface PreviousAnswer {
@@ -58,8 +67,10 @@ export interface QuestionDelivery {
   position: number;
   total: number;
   question_id: string;
-  stem: string;
   question_type: QuestionType;
+  available_languages: LanguageCode[];
+  language_mode: LanguageMode;
+  stem: Localized;
   options: OptionDelivery[];
   elapsed_ms: number;
   previous_answer: PreviousAnswer | null;
@@ -74,15 +85,15 @@ export interface AnswerInput {
 export interface PerOptionExplanation {
   order_index: number;
   is_correct: boolean;
-  explanation: string | null;
+  explanation: Localized;
 }
 
 export interface AnswerResult {
   is_correct: boolean;
   correct_indexes: number[];
   selected_indexes: number[];
-  correct_rationale: string | null;
-  key_point_summary: string | null;
+  correct_rationale: Localized;
+  key_point_summary: Localized;
   per_option: PerOptionExplanation[];
   mapping: Record<string, unknown>;
   history: Array<Record<string, unknown>>;
@@ -97,7 +108,7 @@ export interface DomainBreakdown {
 
 export interface WrongQuestion {
   question_id: string;
-  stem: string;
+  stem: Localized;
   selected_indexes: number[];
   correct_indexes: number[];
 }
@@ -253,13 +264,32 @@ export interface QuestionMappings {
   tag_ids: string[];
 }
 
+export interface TranslationOption {
+  order_index: number;
+  content: string;
+  content_format?: TextFormat;
+  explanation?: string | null;
+}
+export interface Translation {
+  language: LanguageCode;
+  stem: string;
+  stem_format?: TextFormat;
+  correct_answer_rationale: string;
+  key_point_summary?: string | null;
+  further_reading?: string | null;
+  options: TranslationOption[];
+}
+export interface CanonicalOption {
+  id?: string;
+  order_index?: number | null;
+  is_correct: boolean;
+}
+
 export interface QuestionDetail {
   id: string;
   question_type: QuestionType;
-  stem: string;
-  stem_format: TextFormat;
   difficulty: number | null;
-  language: string;
+  available_languages: LanguageCode[];
   status: QuestionStatus;
   source: string | null;
   license_status: LicenseStatus;
@@ -267,21 +297,19 @@ export interface QuestionDetail {
   prompt_items: unknown[] | null;
   created_at: string;
   updated_at: string;
-  options: QuestionOption[];
-  explanation: QuestionExplanation | null;
+  options: CanonicalOption[];
+  translations: Translation[];
   mappings: QuestionMappings;
 }
 
 export interface QuestionCreateInput {
   question_type: QuestionType;
-  stem: string;
-  stem_format?: TextFormat;
   difficulty?: number | null;
-  language?: string;
   source?: string | null;
   license_status?: LicenseStatus;
-  options: QuestionOption[];
-  explanation?: QuestionExplanation | null;
+  prompt_items?: unknown[] | null;
+  options: CanonicalOption[];
+  translations: Translation[];
   mappings?: Partial<QuestionMappings>;
 }
 
@@ -290,10 +318,9 @@ export type QuestionUpdateInput = Partial<QuestionCreateInput>;
 export interface QuestionListItem {
   id: string;
   question_type: QuestionType;
-  stem: string;
   status: QuestionStatus;
   difficulty: number | null;
-  language: string;
+  available_languages: LanguageCode[];
   domain_id: string | null;
   created_at: string;
 }
@@ -310,7 +337,7 @@ export interface QuestionFilters {
   size?: number;
   status?: QuestionStatus;
   question_type?: QuestionType;
-  language?: string;
+  missing_language?: LanguageCode;
   difficulty?: number;
   search?: string;
   domain_id?: string;
@@ -375,6 +402,7 @@ export type ExamKind = "fixed" | "cat";
 export interface ExamCreateInput {
   kind: ExamKind;
   count?: number | null;
+  language_mode?: LanguageMode | null;
 }
 
 export interface ExamSession {
@@ -394,8 +422,10 @@ export interface ExamQuestionDelivery {
   position: number;
   total: number;
   question_id: string;
-  stem: string;
   question_type: QuestionType;
+  available_languages: LanguageCode[];
+  language_mode: LanguageMode;
+  stem: Localized;
   options: OptionDelivery[];
   elapsed_ms: number;
   time_remaining_ms: number;
@@ -450,19 +480,20 @@ export interface ExamReport {
 
 export interface ReviewOption {
   order_index: number;
-  content: string;
+  content: Localized;
   is_correct: boolean;
-  explanation: string | null;
+  explanation: Localized;
 }
 
 export interface ReviewItem {
   position: number;
   question_id: string;
-  stem: string;
-  question_type: QuestionType;
+  question_type: string;
+  available_languages: LanguageCode[];
+  stem: Localized;
   options: ReviewOption[];
-  correct_rationale: string | null;
-  key_point_summary: string | null;
+  correct_rationale: Localized;
+  key_point_summary: Localized;
   your_answer: { selected: number[] } | null;
   time_spent_ms: number | null;
 }

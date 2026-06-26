@@ -2,8 +2,13 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Mail, Lock, ShieldCheck } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
 import { BACKEND } from "@/lib/config";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Field } from "@/components/field";
 
 const DEV_ADMIN_EMAIL = "admin@example.com";
 const DEV_ADMIN_PASSWORD = "admin";
@@ -47,50 +52,66 @@ function LoginForm() {
   }
 
   return (
-    <main className="mx-auto max-w-sm p-8">
-      <h1 className="mb-4 text-2xl font-bold">Log in</h1>
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <input
-          type="email"
-          placeholder="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="rounded border p-2"
-          required
-        />
-        <input
-          type="password"
-          placeholder="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="rounded border p-2"
-          required
-        />
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button
-          type="submit"
+    <div>
+      <div className="mb-8 text-center">
+        <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary">
+          <ShieldCheck className="h-6 w-6 text-primary-foreground" />
+        </div>
+        <h1 className="text-2xl font-semibold tracking-tight">CISSP Exam Prep</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Master cybersecurity certification</p>
+      </div>
+
+      <Card className="rounded-2xl p-6 sm:p-8">
+        <h2 className="mb-6 text-lg font-semibold">Log in</h2>
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="Email" htmlFor="signin-email" icon={Mail}>
+            <Input
+              id="signin-email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+              required
+            />
+          </Field>
+          <Field label="Password" htmlFor="signin-password" icon={Lock}>
+            <Input
+              id="signin-password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+              required
+            />
+          </Field>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" size="pill" className="w-full" disabled={busy}>
+            {busy ? "Logging in…" : "Log in"}
+          </Button>
+        </form>
+        <Button
+          type="button"
+          variant="outline"
+          size="pill"
+          className="mt-3 w-full border-dashed"
           disabled={busy}
-          className="rounded bg-primary p-2 text-primary-foreground disabled:opacity-50"
+          onClick={() => void loginWith({ email: DEV_ADMIN_EMAIL, password: DEV_ADMIN_PASSWORD })}
+          title={`Logs in as ${DEV_ADMIN_EMAIL} / ${DEV_ADMIN_PASSWORD}`}
         >
-          {busy ? "Logging in…" : "Log in"}
-        </button>
-      </form>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void loginWith({ email: DEV_ADMIN_EMAIL, password: DEV_ADMIN_PASSWORD })}
-        className="mt-3 w-full rounded border border-dashed border-gray-400 p-2 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        title={`Logs in as ${DEV_ADMIN_EMAIL} / ${DEV_ADMIN_PASSWORD}`}
-      >
-        Dev login (admin / admin)
-      </button>
-      <p className="mt-4 text-sm">
-        No account?{" "}
-        <a href="/register" className="text-primary underline">
-          Register
-        </a>
-      </p>
-    </main>
+          Dev login (admin / admin)
+        </Button>
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          No account?{" "}
+          <a href="/register" className="font-medium text-primary hover:underline">
+            Register
+          </a>
+        </p>
+      </Card>
+    </div>
   );
 }
 

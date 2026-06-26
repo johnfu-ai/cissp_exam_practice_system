@@ -1,14 +1,24 @@
-"""Pydantic schemas for the fixed exam API."""
+"""Pydantic schemas for the fixed/CAT exam API.
+
+Bilingual delivery + review: stem/options/rationale are `Localized` ({en, zh})
+so a single response serves en, zh, or bilingual language modes. The session's
+`language_mode` is carried in `ExamSessionOut.config` (unchanged) and echoed in
+`QuestionDeliveryOut.language_mode`.
+"""
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+LanguageMode = Literal["en", "zh", "bilingual"]
 
 
 class ExamCreateIn(BaseModel):
     kind: str = Field(default="fixed", pattern="^(fixed|cat)$")
     count: int | None = Field(default=None, ge=1, le=500)
+    language_mode: LanguageMode | None = None
 
 
 class ExamSessionOut(BaseModel):
@@ -23,11 +33,16 @@ class ExamSessionOut(BaseModel):
     config: dict
 
 
+class Localized(BaseModel):
+    en: str | None = None
+    zh: str | None = None
+
+
 class OptionDelivery(BaseModel):
     id: uuid.UUID
     order_index: int
-    content: str
-    content_format: str
+    content: Localized
+    content_format: Localized
 
 
 class QuestionDeliveryOut(BaseModel):
@@ -35,8 +50,10 @@ class QuestionDeliveryOut(BaseModel):
     position: int
     total: int
     question_id: uuid.UUID
-    stem: str
     question_type: str
+    available_languages: list[str]
+    language_mode: str
+    stem: Localized
     options: list[OptionDelivery]
     elapsed_ms: int
     time_remaining_ms: int
@@ -67,7 +84,7 @@ class DomainPerformance(BaseModel):
 
 class WrongQuestion(BaseModel):
     question_id: uuid.UUID
-    stem: str
+    stem: Localized
     selected_indexes: list[int]
     correct_indexes: list[int]
 
@@ -98,19 +115,20 @@ class ExamReportOut(BaseModel):
 
 class ReviewOption(BaseModel):
     order_index: int
-    content: str
+    content: Localized
     is_correct: bool
-    explanation: str | None = None
+    explanation: Localized
 
 
 class ReviewItemOut(BaseModel):
     position: int
     question_id: uuid.UUID
-    stem: str
     question_type: str
+    available_languages: list[str]
+    stem: Localized
     options: list[ReviewOption]
-    correct_rationale: str | None = None
-    key_point_summary: str | None = None
+    correct_rationale: Localized
+    key_point_summary: Localized
     your_answer: dict | None = None
     time_spent_ms: int | None = None
 

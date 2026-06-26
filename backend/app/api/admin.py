@@ -423,3 +423,16 @@ def report_summary(
         )
     except svc.AdminError as e:
         raise _exc(e)
+
+
+# ---- FR-LANG: admin language-coverage alias ----
+
+@router.get("/questions/language-coverage")
+def admin_language_coverage(
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("admin:view_reports")),
+):
+    """FR-LANG coverage report (admin alias of GET /api/questions/language-
+    coverage): count in-scope questions by en-only / zh-only / both / neither.
+    Org-scoped for org_admin, global for system_admin."""
+    return svc.language_coverage(session, current=current)

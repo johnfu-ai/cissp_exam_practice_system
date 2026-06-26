@@ -158,15 +158,24 @@ def run_seed(session: Session) -> dict:
         session.add(admin); session.flush()
         if not settings.seed_admin_password:
             print(f"[seed] created admin {admin_email} with generated password: {pw}")
-        sa_role = role_by_name[RoleName.system_admin]
-        existing = session.execute(
-            select(OrganizationMembership).filter_by(
-                user_id=admin.id, organization_id=personal_org.id, role_id=sa_role.id)
-        ).scalar_one_or_none()
-        if existing is None:
-            session.add(OrganizationMembership(user_id=admin.id,
-                                               organization_id=personal_org.id,
-                                               role_id=sa_role.id))
+    elif settings.seed_admin_password:
+        # An explicit seed password always wins — keeps dev logins (e.g. admin/admin)
+        # working across restarts even when the admin already exists.
+        new_hash = hash_password(settings.seed_admin_password)
+        if admin.password_hash != new_hash:
+            admin.password_hash = new_hash
+            print(f"[seed] reset admin {admin_email} password to configured SEED_ADMIN_PASSWORD")
+    # Ensure the admin holds the system_admin role in the personal org whether
+    # the account was just created or already existed (idempotent).
+    sa_role = role_by_name[RoleName.system_admin]
+    existing = session.execute(
+        select(OrganizationMembership).filter_by(
+            user_id=admin.id, organization_id=personal_org.id, role_id=sa_role.id)
+    ).scalar_one_or_none()
+    if existing is None:
+        session.add(OrganizationMembership(user_id=admin.id,
+                                           organization_id=personal_org.id,
+                                           role_id=sa_role.id))
     session.flush()
 
     # OSG v10 dataset + chapter->domain mapping (PRD §9.4, spec §9).

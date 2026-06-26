@@ -20,9 +20,10 @@ def test_cli_help_runs():
 
 
 def test_cli_preview_osg10_against_real_dataset(db_session, monkeypatch):
-    # This is an integration test against the real docs/questions/osg10 dataset.
-    # It seeds the osg10 dataset row then invokes run_preview directly, asserting
-    # 840 would-create (420 questions x 2 languages).
+    # Integration test against the real docs/questions/osg10 dataset. Seeds the
+    # osg10 dataset row then invokes run_preview directly. With the bilingual
+    # transform, one CleanedQuestion is produced per external_id (420), each
+    # carrying both en + zh (every osg10 record has a zh stem).
     run_seed(db_session)
     # Point the dataset source_path at the real repo dataset.
     repo_root = Path(__file__).resolve().parents[3]
@@ -34,4 +35,10 @@ def test_cli_preview_osg10_against_real_dataset(db_session, monkeypatch):
     from app.models.auth import Organization
     org_id = db_session.execute(select(Organization)).scalar_one().id
     run = run_preview(db_session, org_id, ds)
-    assert run.preview_summary["would_create"] == 840
+    summary = run.preview_summary
+    # one bilingual record per external_id (no per-language fan-out)
+    assert summary["would_create"] == 420
+    # every record is bilingual (en + zh) for osg10
+    assert summary["by_language"] == {"en": 420, "zh": 420}
+    # matching normalizes to single_choice: 379 single + 3 matching = 382
+    assert summary["by_type"] == {"single_choice": 382, "multiple_choice": 38}

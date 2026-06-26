@@ -8,6 +8,7 @@ import {
   useErrorTypes,
 } from "@/lib/api/analytics";
 import { PageHeader } from "@/components/page-header";
+import { Eyebrow } from "@/components/eyebrow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/loading";
@@ -33,9 +34,11 @@ function Sparkline({ points }: { points: TrendPoint[] }) {
   const x = (i: number) => (n === 1 ? W / 2 : pad + (i * (W - 2 * pad)) / (n - 1));
   const y = (acc: number) => H - pad - acc * (H - 2 * pad);
   const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(p.accuracy)}`).join(" ");
+  const areaPath = `${path} L${x(n - 1)},${H - pad} L${x(0)},${H - pad} Z`;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="none" role="img" aria-label="Accuracy trend">
       <line x1={pad} y1={y(0.7)} x2={W - pad} y2={y(0.7)} stroke="currentColor" strokeDasharray="4 4" className="text-muted-foreground/40" />
+      <path d={areaPath} className="fill-primary/10" />
       <path d={path} fill="none" stroke="currentColor" strokeWidth={2} className="text-primary" />
       {points.map((p, i) => (
         <circle key={p.date} cx={x(i)} cy={y(p.accuracy)} r={3} className="fill-primary" />
@@ -58,9 +61,14 @@ export function AnalyticsView() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <PageHeader title="Analytics" description="Detailed breakdown of your performance over time." />
+      <PageHeader
+        eyebrow="Insights"
+        title="Analytics"
+        description="Detailed breakdown of your performance over time."
+      />
 
-      <Card className="mb-6">
+      <Eyebrow className="mb-3">Performance</Eyebrow>
+      <Card className="mb-8">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Accuracy trend</CardTitle>
           <div className="flex gap-1">
@@ -85,7 +93,8 @@ export function AnalyticsView() {
         </CardContent>
       </Card>
 
-      <Card className="mb-6">
+      <Eyebrow className="mb-3">Mastery</Eyebrow>
+      <Card className="mb-8">
         <CardHeader>
           <CardTitle>Domain mastery</CardTitle>
         </CardHeader>
@@ -138,6 +147,7 @@ export function AnalyticsView() {
         </CardContent>
       </Card>
 
+      <Eyebrow className="mb-3">Focus areas</Eyebrow>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>

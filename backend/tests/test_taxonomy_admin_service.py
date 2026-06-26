@@ -130,7 +130,6 @@ def test_delete_blueprint_with_mapped_questions_refused(db_session):
     q = Question(
         organization_id=org.id,
         question_type=QuestionType.single_choice,
-        stem="x",
         created_by_id=actor.id,
     )
     db_session.add(q)
@@ -206,7 +205,6 @@ def test_delete_domain_with_mapped_questions_refused(db_session):
     q = Question(
         organization_id=org.id,
         question_type=QuestionType.single_choice,
-        stem="x",
         created_by_id=actor.id,
     )
     db_session.add(q)
@@ -293,7 +291,6 @@ def test_delete_book_with_questions_refused(db_session):
     q = Question(
         organization_id=org.id,
         question_type=QuestionType.single_choice,
-        stem="x",
         created_by_id=actor.id,
     )
     db_session.add(q)
@@ -340,7 +337,6 @@ def test_delete_chapter_with_questions_refused(db_session):
     q = Question(
         organization_id=org.id,
         question_type=QuestionType.single_choice,
-        stem="x",
         created_by_id=actor.id,
     )
     db_session.add(q)
@@ -569,7 +565,6 @@ def test_delete_tag_with_questions_refused(db_session):
     q = Question(
         organization_id=org.id,
         question_type=QuestionType.single_choice,
-        stem="x",
         created_by_id=actor.id,
     )
     db_session.add(q)

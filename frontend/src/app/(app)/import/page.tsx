@@ -9,7 +9,8 @@ export default function ImportPage() {
   return (
     <div>
       <PageHeader
-        title="Question import"
+        eyebrow="Content"
+        title="Import"
         description="Preview, validate, and commit question datasets. Imports run as a two-phase preview → commit with full rollback."
       />
       <RequirePermission

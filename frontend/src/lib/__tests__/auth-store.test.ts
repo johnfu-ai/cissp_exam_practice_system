@@ -26,8 +26,14 @@ describe("auth store", () => {
   });
 
   it("setUser stores the user object", () => {
-    const u = { id: "1", email: "x@y.z", display_name: null, roles: ["r"], perms: ["practice:read"] };
+    const u = { id: "1", email: "x@y.z", display_name: null, roles: ["r"], perms: ["practice:read"], language_mode: "en" as const };
     useAuthStore.getState().setUser(u);
     expect(useAuthStore.getState().user).toEqual(u);
+  });
+
+  it("setAuth round-trips language_mode on the user", () => {
+    const u = { id: "1", email: "x@y.z", display_name: null, roles: ["r"], perms: ["practice:read"], language_mode: "zh" as const };
+    useAuthStore.getState().setAuth(u, "a1", "r1");
+    expect(useAuthStore.getState().user?.language_mode).toBe("zh");
   });
 });

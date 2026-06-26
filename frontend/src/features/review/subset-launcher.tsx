@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { RotateCcw, Bookmark, Flag, type LucideIcon } from "lucide-react";
 import { useDomains } from "@/lib/api/taxonomy";
 import { useCreateSession } from "@/lib/api/practice";
 import { ApiError } from "@/lib/api";
 import { trackSession } from "@/features/practice/session-tracker";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
+import { Eyebrow } from "@/components/eyebrow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +23,12 @@ import { toast } from "@/components/ui/sonner";
 import type { Subset, SessionCreateInput } from "@/lib/api/types";
 
 const ANY = "__any__";
+
+const SUBSET_ICON: Partial<Record<Subset, LucideIcon>> = {
+  wrong: RotateCcw,
+  bookmarked: Bookmark,
+  needs_review: Flag,
+};
 
 /**
  * Launches a scoped re-practice session over a question subset
@@ -43,6 +51,7 @@ export function SubsetLauncher({
   const [domainId, setDomainId] = useState<string | null>(null);
   const domains = useDomains();
   const create = useCreateSession();
+  const Icon = SUBSET_ICON[subset] ?? RotateCcw;
 
   function start() {
     const payload: SessionCreateInput = { count, subset, order_mode: "random" };
@@ -63,12 +72,18 @@ export function SubsetLauncher({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
+    <Card hover className="overflow-hidden">
+      <div className="flex items-center gap-4 bg-gradient-to-br from-secondary to-accent p-5">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-background text-primary shadow-sm">
+          <Icon className="h-6 w-6" />
+        </div>
+        <div className="min-w-0">
+          <Eyebrow className="mb-1">Re-practice</Eyebrow>
+          <CardTitle className="text-xl">{title}</CardTitle>
+        </div>
+      </div>
+      <div className="space-y-4 p-6">
         <p className="text-sm text-muted-foreground">{description}</p>
-      </CardHeader>
-      <CardContent className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor={`count-${subset}`}>Question count</Label>
@@ -101,10 +116,10 @@ export function SubsetLauncher({
             </Select>
           </div>
         </div>
-        <Button onClick={start} disabled={create.isPending}>
+        <Button size="pill" onClick={start} disabled={create.isPending}>
           {create.isPending ? "Starting…" : "Start review session"}
         </Button>
-      </CardContent>
+      </div>
     </Card>
   );
 }

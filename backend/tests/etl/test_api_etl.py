@@ -114,7 +114,8 @@ def test_create_and_rollback_run(client_and_store, db_session):
     assert resp.status_code == 200, resp.text
     run_id = resp.json()["run_id"]
     assert resp.json()["phase"] == "preview"
-    assert resp.json()["preview_summary"]["would_create"] == 6
+    # one bilingual CleanedQuestion per external_id (3 raws -> 3 would-create)
+    assert resp.json()["preview_summary"]["would_create"] == 3
     # rollback (writes nothing)
     rb = c.post(f"/api/etl/runs/{run_id}/rollback", headers=headers)
     assert rb.status_code == 200
@@ -134,7 +135,8 @@ def test_commit_run_writes_rows(client_and_store, db_session):
     assert commit.json()["phase"] == "committed"
     from app.models.question import Question
     from sqlalchemy import func
-    assert db_session.execute(select(func.count(Question.id))).scalar() == 6
+    # one Question per external_id (3), not per (external_id, language)
+    assert db_session.execute(select(func.count(Question.id))).scalar() == 3
 
 
 def test_datasets_unauthenticated_401(client_and_store, db_session):

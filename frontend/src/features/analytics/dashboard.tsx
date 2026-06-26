@@ -1,6 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
+import {
+  Target,
+  ListChecks,
+  Clock,
+  Flame,
+  PenLine,
+  FileText,
+  RotateCcw,
+  ArrowRight,
+} from "lucide-react";
 import {
   useDashboard,
   useWeakAreas,
@@ -8,6 +19,7 @@ import {
   useDomainMastery,
 } from "@/lib/api/analytics";
 import { PageHeader } from "@/components/page-header";
+import { Eyebrow } from "@/components/eyebrow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,13 +27,65 @@ import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { fmtPct, fmtDuration, fmtDate, accuracyColor } from "./format";
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function KpiCard({
+  icon: Icon,
+  label,
+  value,
+  delta,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  delta?: React.ReactNode;
+}) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-normal text-muted-foreground">{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-2xl font-semibold">{value}</CardContent>
+    <Card className="p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-2xl font-semibold tabular-nums">{value}</p>
+          {delta && <div className="mt-0.5 text-xs text-muted-foreground">{delta}</div>}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function ContinueCard({
+  href,
+  icon: Icon,
+  title,
+  description,
+  cta,
+}: {
+  href: string;
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  cta: string;
+}) {
+  return (
+    <Card hover className="flex flex-col overflow-hidden">
+      <div className="flex aspect-[4/3] items-center justify-center bg-gradient-to-br from-secondary to-accent">
+        <Icon className="h-10 w-10 text-primary" />
+      </div>
+      <div className="flex flex-1 flex-col p-4">
+        <h3 className="text-base font-semibold">{title}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        <Button
+          asChild
+          variant="link"
+          className="mt-3 h-auto justify-start p-0 text-primary"
+        >
+          <Link href={href}>
+            {cta}
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </Button>
+      </div>
     </Card>
   );
 }
@@ -42,6 +106,7 @@ export function Dashboard() {
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader
+        eyebrow="Overview"
         title="Dashboard"
         description="Your CISSP study overview at a glance."
         actions={
@@ -65,13 +130,65 @@ export function Dashboard() {
         </Card>
       ) : (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <StatCard label="Accuracy" value={fmtPct(d.accuracy)} />
-            <StatCard label="Answered" value={`${d.correct_count}/${d.total_answered}`} />
-            <StatCard label="Study time" value={fmtDuration(d.study_time_ms)} />
-            <StatCard label="Streak" value={`${d.streak_days}d`} />
+          {/* KPI grid */}
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard
+              icon={Target}
+              label="Accuracy"
+              value={fmtPct(d.accuracy)}
+              delta={
+                <span className="tabular-nums">
+                  {d.correct_count}/{d.total_answered} correct
+                </span>
+              }
+            />
+            <KpiCard
+              icon={ListChecks}
+              label="Answered"
+              value={`${d.correct_count}/${d.total_answered}`}
+            />
+            <KpiCard
+              icon={Clock}
+              label="Study time"
+              value={fmtDuration(d.study_time_ms)}
+            />
+            <KpiCard
+              icon={Flame}
+              label="Streak"
+              value={`${d.streak_days}d`}
+              delta={<>Last active {fmtDate(d.last_active_at)}</>}
+            />
           </div>
 
+          {/* Continue section */}
+          <section className="mb-8">
+            <Eyebrow className="mb-3">Continue</Eyebrow>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <ContinueCard
+                href="/practice"
+                icon={PenLine}
+                title="Practice"
+                description="Build mastery with scoped sessions across domains and knowledge points."
+                cta="Start practicing"
+              />
+              <ContinueCard
+                href="/exam"
+                icon={FileText}
+                title="Mock exam"
+                description="Train your exam pace with fixed-length and adaptive (CAT) mock exams."
+                cta="Start an exam"
+              />
+              <ContinueCard
+                href="/review"
+                icon={RotateCcw}
+                title="Review"
+                description="Re-practice wrong, bookmarked, and flagged questions to close the gaps."
+                cta="Review errors"
+              />
+            </div>
+          </section>
+
+          {/* Weak domains + recommendation */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -137,6 +254,7 @@ export function Dashboard() {
             </Card>
           </div>
 
+          {/* Domain mastery */}
           <Card className="mt-6">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Domain mastery</CardTitle>

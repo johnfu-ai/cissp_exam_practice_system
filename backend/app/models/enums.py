@@ -1,4 +1,5 @@
 import enum
+from typing import Literal
 
 
 class OrgKind(str, enum.Enum):
@@ -133,3 +134,10 @@ class AuditAction(str, enum.Enum):
     archive = "archive"
     permission_change = "permission_change"
     config_change = "config_change"
+
+
+LanguageCode = Literal["en", "zh"]
+LanguageMode = Literal["en", "zh", "bilingual"]
+
+LANGUAGE_CODES: tuple[str, ...] = ("en", "zh")
+LANGUAGE_MODES: tuple[str, ...] = ("en", "zh", "bilingual")

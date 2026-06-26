@@ -5,27 +5,41 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    --foreground: 231 33% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 231 33% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
+    --popover-foreground: 231 33% 10%;
+    --primary: 211 100% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --success: 142 71% 45%;
+    --secondary: 240 20% 96%;
+    --secondary-foreground: 231 33% 10%;
+    --muted: 240 20% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 240 20% 96%;
+    --accent-foreground: 231 33% 10%;
+    --success: 142 71% 53%;
     --success-foreground: 0 0% 100%;
-    --destructive: 0 72% 51%;
+    --destructive: 0 100% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 217 91% 60%;
-    --radius: 0.5rem;
+    --border: 240 9% 90%;
+    --input: 240 9% 90%;
+    --ring: 211 100% 50%;
+    --radius: 0.75rem;
+    --radius-lg: 1.2rem;
+
+    /* Apple-tuned surfaces */
+    --canvas: 240 20% 97%; /* #F7F7FA app background */
+    --hero-from: 240 20% 96%;
+    --hero-to: 240 16% 92%;
+
+    /* Shadow ramp (light) */
+    --shadow-2xs: 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+    --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 1px 3px -1px rgba(0, 0, 0, 0.05);
+    --shadow-card: 0 4px 8px -2px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+    --shadow-float: 0 8px 24px -8px rgba(0, 0, 0, 0.08), 0 4px 8px -4px rgba(0, 0, 0, 0.05);
+    --shadow-xl: 0 16px 40px -10px rgba(0, 0, 0, 0.10), 0 8px 16px -8px rgba(0, 0, 0, 0.06);
   }
 }
 
@@ -36,5 +50,6 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-feature-settings: "ss01", "cv01";
   }
 }

@@ -12,7 +12,7 @@ export default function EditQuestionPage({ params }: { params: { id: string } })
   if (detail.isError || !detail.data) return <ErrorState message="Could not load this question." />;
   return (
     <div>
-      <PageHeader title="Edit question" crumbs={["Questions"]} description={`v${detail.data.version}`} />
+      <PageHeader eyebrow="Content" title="Edit question" crumbs={["Questions"]} description={`v${detail.data.version}`} />
       <QuestionEditor initial={detail.data} />
     </div>
   );

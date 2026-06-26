@@ -21,10 +21,11 @@ import {
 import { OptionList } from "./option-list";
 import { untrackSession } from "./session-tracker";
 import { ApiError } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { BilingualText } from "@/components/bilingual-text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
@@ -45,8 +46,8 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { Bookmark, Flag, CheckCircle2, PauseCircle, PlayCircle } from "lucide-react";
-import type { ErrorType } from "@/lib/api/types";
+import { Bookmark, Flag, CheckCircle2, PauseCircle, PlayCircle, XCircle } from "lucide-react";
+import type { ErrorType, LanguageMode, Localized } from "@/lib/api/types";
 
 const ERROR_TYPES: ErrorType[] = [
   "concept_unclear",
@@ -55,6 +56,17 @@ const ERROR_TYPES: ErrorType[] = [
   "option_confusion",
   "time_pressure",
 ];
+const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
+const LANGUAGE_LABELS: Record<LanguageMode, string> = {
+  en: "English",
+  zh: "中文",
+  bilingual: "Both",
+};
+
+/** True when a Localized slot carries any translatable content. */
+function hasContent(loc: Localized | null | undefined): boolean {
+  return !!loc && (loc.en != null || loc.zh != null);
+}
 
 function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -76,6 +88,15 @@ export function Runner({ sessionId }: { sessionId: string }) {
 
   const delivery = question.data;
   const paused = !!session.data?.paused_at;
+
+  // Local language mode for the in-runner toggle. Defaults to the session's
+  // delivered `language_mode` and re-initialises whenever that changes (e.g. a
+  // new session). Toggling only mutates this local state — it never refetches
+  // and never touches selections or the timer (those are index/time based).
+  const [mode, setMode] = useState<LanguageMode>("en");
+  useEffect(() => {
+    if (delivery?.language_mode) setMode(delivery.language_mode);
+  }, [delivery?.language_mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset the per-question machine whenever a new question is delivered.
   useEffect(() => {
@@ -151,32 +172,66 @@ export function Runner({ sessionId }: { sessionId: string }) {
 
   const submitted = runner.phase === "submitted";
   const result = runner.result;
+  const progressPct =
+    delivery.total > 0 ? ((delivery.position + 1) / delivery.total) * 100 : 0;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          Question {delivery.position + 1} of {delivery.total}
+    <div className="mx-auto flex max-w-3xl flex-col">
+      {/* Top: progress + controls */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground">
+            Question{" "}
+            <span className="font-medium text-foreground tabular-nums">{delivery.position + 1}</span>{" "}
+            of <span className="tabular-nums">{delivery.total}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
+              <SelectTrigger className="h-9 w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LANGUAGE_MODES.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {LANGUAGE_LABELS[m]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {paused ? (
+              <Button variant="outline" size="sm" onClick={() => resume.mutate()}>
+                <PlayCircle className="h-4 w-4" /> Resume
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => pause.mutate()}>
+                <PauseCircle className="h-4 w-4" /> Pause
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {paused ? (
-            <Button variant="outline" size="sm" onClick={() => resume.mutate()}>
-              <PlayCircle className="h-4 w-4" /> Resume
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => pause.mutate()}>
-              <PauseCircle className="h-4 w-4" /> Pause
-            </Button>
-          )}
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-valuenow={delivery.position + 1}
+          aria-valuemin={1}
+          aria-valuemax={delivery.total}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${progressPct}%` }}
+          />
         </div>
       </div>
 
-      <Card>
+      {/* Question card */}
+      <Card className="mt-6">
         <CardHeader>
           <div className="flex items-center gap-2">
             <Badge variant="secondary">{labelize(delivery.question_type)}</Badge>
           </div>
-          <CardTitle className="mt-2 text-lg font-medium leading-relaxed">{delivery.stem}</CardTitle>
+          <CardTitle className="mt-2 text-lg font-medium leading-relaxed">
+            <BilingualText mode={mode} en={delivery.stem.en} zh={delivery.stem.zh} />
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {paused ? (
@@ -189,6 +244,7 @@ export function Runner({ sessionId }: { sessionId: string }) {
               disabled={submitted || paused}
               onToggle={(i) => setRunner((s) => toggleSelection(s, i, delivery.question_type))}
               result={result}
+              mode={mode}
             />
           )}
 
@@ -200,61 +256,137 @@ export function Runner({ sessionId }: { sessionId: string }) {
           )}
 
           {submitted && result && (
-            <div className="space-y-3 rounded-md border bg-muted/30 p-4">
-              <div className={result.is_correct ? "font-medium text-success" : "font-medium text-destructive"}>
-                {result.is_correct ? "Correct" : "Incorrect"}
-              </div>
-              {result.correct_rationale && (
-                <p className="text-sm leading-relaxed">{result.correct_rationale}</p>
+            <div
+              className={cn(
+                "space-y-3 rounded-lg border p-4",
+                result.is_correct
+                  ? "border-success/30 bg-success/10"
+                  : "border-destructive/30 bg-destructive/10"
               )}
-              {result.key_point_summary && (
-                <p className="text-sm text-muted-foreground">{result.key_point_summary}</p>
+            >
+              <div className="flex items-center gap-2">
+                {result.is_correct ? (
+                  <CheckCircle2 className="h-5 w-5 text-success" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-destructive" />
+                )}
+                <span
+                  className={cn(
+                    "font-semibold",
+                    result.is_correct ? "text-success" : "text-destructive"
+                  )}
+                >
+                  {result.is_correct ? "Correct" : "Incorrect"}
+                </span>
+              </div>
+              {hasContent(result.correct_rationale) && (
+                <BilingualText
+                  mode={mode}
+                  en={result.correct_rationale.en}
+                  zh={result.correct_rationale.zh}
+                  className="text-sm leading-relaxed"
+                />
+              )}
+              {hasContent(result.key_point_summary) && (
+                <BilingualText
+                  mode={mode}
+                  en={result.key_point_summary.en}
+                  zh={result.key_point_summary.zh}
+                  className="text-sm text-muted-foreground"
+                />
+              )}
+              {result.per_option.length > 0 && (
+                <div className="space-y-2 border-t border-border pt-3">
+                  {result.per_option.map((p) => (
+                    <div key={p.order_index} className="text-sm">
+                      <span
+                        className={cn(
+                          "font-medium",
+                          p.is_correct ? "text-success" : "text-destructive"
+                        )}
+                      >
+                        Option {p.order_index + 1}
+                      </span>
+                      {hasContent(p.explanation) && (
+                        <BilingualText
+                          mode={mode}
+                          en={p.explanation.en}
+                          zh={p.explanation.zh}
+                          className="ml-2 inline-block text-muted-foreground"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {submitted && (
-        <>
+      {/* Sticky footer: per-question actions + primary navigation */}
+      <div className="sticky bottom-0 z-10 mt-6 border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setQuestionState({ is_bookmarked: true })}>
-              <Bookmark className="h-4 w-4" /> Bookmark
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setQuestionState({ is_flagged_review: true })}>
-              <Flag className="h-4 w-4" /> Flag for review
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setQuestionState({ is_mastered: true })}>
-              <CheckCircle2 className="h-4 w-4" /> Mark mastered
-            </Button>
-            <NoteDialog onSave={(note) => setQuestionState({ note })} />
-            <Select onValueChange={(v) => setQuestionState({ error_type: v as ErrorType })}>
-              <SelectTrigger className="h-9 w-[200px]">
-                <SelectValue placeholder="Tag error type" />
-              </SelectTrigger>
-              <SelectContent>
-                {ERROR_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {labelize(t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {submitted && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuestionState({ is_bookmarked: true })}
+                >
+                  <Bookmark className="h-4 w-4" /> Bookmark
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuestionState({ is_flagged_review: true })}
+                >
+                  <Flag className="h-4 w-4" /> Flag for review
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuestionState({ is_mastered: true })}
+                >
+                  <CheckCircle2 className="h-4 w-4" /> Mark mastered
+                </Button>
+                <NoteDialog onSave={(note) => setQuestionState({ note })} />
+                <Select onValueChange={(v) => setQuestionState({ error_type: v as ErrorType })}>
+                  <SelectTrigger className="h-9 w-[200px]">
+                    <SelectValue placeholder="Tag error type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ERROR_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {labelize(t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
           </div>
-          <Separator />
-        </>
-      )}
-
-      <div className="flex justify-end gap-2">
-        {!submitted ? (
-          <Button onClick={submit} disabled={!canSubmit(runner) || paused || submitAnswer.isPending}>
-            {submitAnswer.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        ) : (
-          <Button onClick={next} disabled={finish.isPending}>
-            {position + 1 >= delivery.total ? (finish.isPending ? "Finishing…" : "Finish") : "Next"}
-          </Button>
-        )}
+          <div className="flex justify-end gap-2">
+            {!submitted ? (
+              <Button
+                size="pill"
+                onClick={submit}
+                disabled={!canSubmit(runner) || paused || submitAnswer.isPending}
+              >
+                {submitAnswer.isPending ? "Submitting…" : "Submit"}
+              </Button>
+            ) : (
+              <Button size="pill" onClick={next} disabled={finish.isPending}>
+                {position + 1 >= delivery.total
+                  ? finish.isPending
+                    ? "Finishing…"
+                    : "Finish"
+                  : "Next"}
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

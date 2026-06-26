@@ -27,24 +27,27 @@ export function TagsTab() {
   if (tags.isError) return <ErrorState message="Could not load tags." onRetry={() => tags.refetch()} />;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end gap-2 rounded-md border border-dashed p-3">
-        <Input className="flex-1" placeholder="New tag name" value={name} onChange={(e) => setName(e.target.value)} />
-        <Button
-          onClick={() => {
-            if (!name.trim()) return;
-            create.mutate({ name: name.trim() }, {
-              onSuccess: () => { setName(""); toast.success("Tag added."); },
-              onError: (e) => err(e, "Could not add tag."),
-            });
-          }}
-          disabled={create.isPending}
-        >
-          Add tag
-        </Button>
-      </div>
+    <div className="space-y-6">
       <Card>
-        <CardContent className="space-y-1 pt-6">
+        <CardContent className="flex items-end gap-2 p-4">
+          <Input className="flex-1" placeholder="New tag name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Button
+            size="pill"
+            onClick={() => {
+              if (!name.trim()) return;
+              create.mutate({ name: name.trim() }, {
+                onSuccess: () => { setName(""); toast.success("Tag added."); },
+                onError: (e) => err(e, "Could not add tag."),
+              });
+            }}
+            disabled={create.isPending}
+          >
+            Add tag
+          </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="space-y-1 p-4">
           {tags.data?.length === 0 && <p className="text-sm text-muted-foreground">No tags yet.</p>}
           {tags.data?.map((t) => (
             <TagRow

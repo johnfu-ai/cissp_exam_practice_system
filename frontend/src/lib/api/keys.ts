@@ -3,6 +3,8 @@ export const qk = {
   books: ["books"] as const,
   chapters: (bookId: string) => ["books", bookId, "chapters"] as const,
   tags: ["tags"] as const,
+  me: () => ["auth", "me"] as const,
+  preferences: () => ["preferences"] as const,
   session: (id: string) => ["practice", "session", id] as const,
   question: (sessionId: string, position: number) =>
     ["practice", "session", sessionId, "question", position] as const,

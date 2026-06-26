@@ -43,6 +43,9 @@ class User(UUIDPrimaryKey, TimestampMixin, Base):
     default_organization_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("organizations.id"), nullable=True
     )
+    language_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'en'")
+    )
 
 
 class Role(UUIDPrimaryKey, TimestampMixin, Base):

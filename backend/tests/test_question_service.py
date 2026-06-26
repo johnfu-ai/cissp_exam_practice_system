@@ -1,3 +1,11 @@
+"""Question service tests: translations-based CRUD, lifecycle, revisions, feedback.
+
+Question content (stem, options, rationale) lives in per-language
+``QuestionTranslation`` rows; the canonical ``QuestionOption`` carries only the
+answer key (order_index + is_correct). ``Question.available_languages`` is
+derived from the translation rows.
+"""
+
 import uuid
 
 import pytest
@@ -7,14 +15,35 @@ from app.models.question import (
     QuestionMapping,
     QuestionOption,
     QuestionRevision,
+    QuestionTranslation,
 )
 from app.schemas.question import (
-    ExplanationIn,
     MappingsIn,
     OptionIn,
     QuestionCreateIn,
+    QuestionUpdateIn,
+    ReviewAction,
+    TranslationIn,
+    TranslationOptionIn,
 )
-from app.services.question import ValidationError, create_question
+from app.services.question import (
+    IllegalTransition,
+    NotFound,
+    ValidationError,
+    create_feedback,
+    create_question,
+    delete_question,
+    get_question,
+    get_translations,
+    list_feedback,
+    list_questions,
+    list_revisions,
+    submit_review,
+    update_question,
+)
+
+
+# --- fixtures / helpers ------------------------------------------------------
 
 
 def _org(db_session):
@@ -37,17 +66,35 @@ def _actor(db_session):
     return user.id
 
 
+def _trans(language="en", stem="What is 1+1?", rationale="Because 1+1=2.",
+           options=None):
+    return TranslationIn(
+        language=language,
+        stem=stem,
+        correct_answer_rationale=rationale,
+        options=options
+        if options is not None
+        else [
+            TranslationOptionIn(order_index=0, content="2"),
+            TranslationOptionIn(order_index=1, content="3"),
+        ],
+    )
+
+
 def _single_payload(**kw):
+    translations = kw.pop("translations", [_trans()])
     return QuestionCreateIn(
         question_type=QuestionType.single_choice,
-        stem="What is 1+1?",
         options=[
-            OptionIn(content="2", is_correct=True, order_index=0),
-            OptionIn(content="3", is_correct=False, order_index=1),
+            OptionIn(order_index=0, is_correct=True),
+            OptionIn(order_index=1, is_correct=False),
         ],
-        explanation=ExplanationIn(correct_answer_rationale="2"),
+        translations=translations,
         **kw,
     )
+
+
+# --- create ------------------------------------------------------------------
 
 
 def test_create_single_choice(db_session):
@@ -58,15 +105,41 @@ def test_create_single_choice(db_session):
     assert q.status == QuestionStatus.draft
     assert q.version == 1
     assert q.organization_id == org.id
+    assert q.available_languages == ["en"]
     opts = db_session.query(QuestionOption).filter_by(question_id=q.id).all()
     assert len(opts) == 2
     assert sum(o.is_correct for o in opts) == 1
+    trans = get_translations(db_session, q.id)
+    assert len(trans) == 1
+    assert trans[0].language == "en"
+    assert trans[0].stem == "What is 1+1?"
     revs = db_session.query(QuestionRevision).filter_by(question_id=q.id).all()
     assert len(revs) == 1
     assert revs[0].revision_number == 1
 
 
-def test_create_writes_explanation_and_mappings(db_session):
+def test_create_question_with_translations_sets_available_languages(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session)
+    payload = QuestionCreateIn(
+        question_type=QuestionType.single_choice,
+        options=[
+            OptionIn(order_index=0, is_correct=True),
+            OptionIn(order_index=1, is_correct=False),
+        ],
+        translations=[
+            _trans("en", stem="en?", rationale="en r"),
+            _trans("zh", stem="中?", rationale="中r",
+                   options=[TranslationOptionIn(order_index=0, content="甲"),
+                            TranslationOptionIn(order_index=1, content="乙")]),
+        ],
+    )
+    q = create_question(db_session, org_id=org.id, actor_id=actor, payload=payload)
+    assert q.available_languages == ["en", "zh"]
+    assert len(get_translations(db_session, q.id)) == 2
+
+
+def test_create_writes_translations_and_mappings(db_session):
     from app.models.taxonomy import ExamBlueprint, ExamDomain, KnowledgePoint, Tag
 
     org = _org(db_session)
@@ -88,18 +161,29 @@ def test_create_writes_explanation_and_mappings(db_session):
     assert {m.domain_id for m in mappings if m.domain_id} == {dom.id}
     assert {m.knowledge_point_id for m in mappings if m.knowledge_point_id} == {kp.id}
     assert {m.tag_id for m in mappings if m.tag_id} == {tag.id}
-    from app.models.question import Explanation
-    assert db_session.query(Explanation).filter_by(question_id=q.id).one().correct_answer_rationale == "2"
+    # explanation row is gone; content lives in the translation
+    assert len(get_translations(db_session, q.id)) == 1
+
+
+def test_create_requires_at_least_one_translation(db_session):
+    org = _org(db_session)
+    payload = QuestionCreateIn(
+        question_type=QuestionType.single_choice,
+        options=[OptionIn(order_index=0, is_correct=True),
+                 OptionIn(order_index=1, is_correct=False)],
+        translations=[],
+    )
+    with pytest.raises(ValidationError):
+        create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=payload)
 
 
 def test_create_multiple_choice_requires_two_correct(db_session):
     org = _org(db_session)
     payload = QuestionCreateIn(
-        question_type=QuestionType.multiple_choice, stem="pick two",
-        options=[
-            OptionIn(content="a", is_correct=True, order_index=0),
-            OptionIn(content="b", is_correct=False, order_index=1),
-        ],
+        question_type=QuestionType.multiple_choice,
+        options=[OptionIn(order_index=0, is_correct=True),
+                 OptionIn(order_index=1, is_correct=False)],
+        translations=[_trans()],
     )
     with pytest.raises(ValidationError):
         create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=payload)
@@ -108,11 +192,10 @@ def test_create_multiple_choice_requires_two_correct(db_session):
 def test_create_single_choice_exactly_one_correct(db_session):
     org = _org(db_session)
     payload = QuestionCreateIn(
-        question_type=QuestionType.single_choice, stem="x",
-        options=[
-            OptionIn(content="a", is_correct=False, order_index=0),
-            OptionIn(content="b", is_correct=False, order_index=1),
-        ],
+        question_type=QuestionType.single_choice,
+        options=[OptionIn(order_index=0, is_correct=False),
+                 OptionIn(order_index=1, is_correct=False)],
+        translations=[_trans()],
     )
     with pytest.raises(ValidationError):
         create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=payload)
@@ -121,12 +204,11 @@ def test_create_single_choice_exactly_one_correct(db_session):
 def test_create_true_false_two_options_one_correct(db_session):
     org = _org(db_session)
     payload = QuestionCreateIn(
-        question_type=QuestionType.true_false, stem="sky is blue",
-        options=[
-            OptionIn(content="True", is_correct=True, order_index=0),
-            OptionIn(content="False", is_correct=False, order_index=1),
-            OptionIn(content="Maybe", is_correct=False, order_index=2),
-        ],
+        question_type=QuestionType.true_false,
+        options=[OptionIn(order_index=0, is_correct=True),
+                 OptionIn(order_index=1, is_correct=False),
+                 OptionIn(order_index=2, is_correct=False)],
+        translations=[_trans()],
     )
     with pytest.raises(ValidationError):
         create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=payload)
@@ -135,8 +217,9 @@ def test_create_true_false_two_options_one_correct(db_session):
 def test_create_option_count_bounds(db_session):
     org = _org(db_session)
     payload = QuestionCreateIn(
-        question_type=QuestionType.single_choice, stem="x",
-        options=[OptionIn(content="only", is_correct=True, order_index=0)],
+        question_type=QuestionType.single_choice,
+        options=[OptionIn(order_index=0, is_correct=True)],
+        translations=[_trans(options=[TranslationOptionIn(order_index=0, content="only")])],
     )
     with pytest.raises(ValidationError):
         create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=payload)
@@ -145,19 +228,16 @@ def test_create_option_count_bounds(db_session):
 def test_create_empty_stem_rejected(db_session):
     org = _org(db_session)
     payload = QuestionCreateIn(
-        question_type=QuestionType.single_choice, stem="   ",
-        options=[
-            OptionIn(content="a", is_correct=True, order_index=0),
-            OptionIn(content="b", is_correct=False, order_index=1),
-        ],
+        question_type=QuestionType.single_choice,
+        options=[OptionIn(order_index=0, is_correct=True),
+                 OptionIn(order_index=1, is_correct=False)],
+        translations=[_trans(stem="   ")],
     )
     with pytest.raises(ValidationError):
         create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=payload)
 
 
-# --- Task 5: get + list ---
-
-from app.services.question import get_question, list_questions, NotFound  # noqa: E402
+# --- get + list --------------------------------------------------------------
 
 
 def test_get_question_missing_raises(db_session):
@@ -206,22 +286,37 @@ def test_list_filter_by_status(db_session):
     assert total_draft == 0
 
 
-def test_list_search_by_stem(db_session):
+def test_list_search_by_translation_stem(db_session):
     org = _org(db_session)
     create_question(db_session, org_id=org.id, actor_id=_actor(db_session),
-                    payload=QuestionCreateIn(
-                        question_type=QuestionType.single_choice, stem="Cryptography basics",
-                        options=[OptionIn(content="a", is_correct=True, order_index=0),
-                                 OptionIn(content="b", order_index=1)]))
+                    payload=_single_payload(translations=[_trans(stem="Cryptography basics")]))
+    create_question(db_session, org_id=org.id, actor_id=_actor(db_session),
+                    payload=_single_payload(translations=[_trans(stem="Networking basics")]))
     _, total = list_questions(db_session, org_id=org.id, page=1, size=20,
                               filters={"search": "crypto"})
     assert total == 1
 
 
-# --- Task 6: update + revisions ---
+def test_list_questions_missing_language_zh(db_session):
+    org = _org(db_session)
+    # en-only question
+    create_question(db_session, org_id=org.id, actor_id=_actor(db_session),
+                    payload=_single_payload(translations=[_trans("en")]))
+    # bilingual question
+    create_question(db_session, org_id=org.id, actor_id=_actor(db_session),
+                    payload=_single_payload(translations=[
+                        _trans("en", stem="en?"),
+                        _trans("zh", stem="中?",
+                               options=[TranslationOptionIn(order_index=0, content="甲"),
+                                        TranslationOptionIn(order_index=1, content="乙")]),
+                    ]))
+    items, total = list_questions(db_session, org_id=org.id, page=1, size=20,
+                                  filters={"missing_language": "zh"})
+    assert total == 1
+    assert items[0].available_languages == ["en"]
 
-from app.schemas.question import QuestionUpdateIn  # noqa: E402
-from app.services.question import list_revisions, update_question  # noqa: E402
+
+# --- update + revisions ------------------------------------------------------
 
 
 def test_update_bumps_version_and_writes_revision(db_session):
@@ -229,13 +324,13 @@ def test_update_bumps_version_and_writes_revision(db_session):
     actor = _actor(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=actor, payload=_single_payload())
     updated = update_question(db_session, question_id=q.id, actor_id=actor,
-                              payload=QuestionUpdateIn(stem="What is 2+2?"))
+                              payload=QuestionUpdateIn(translations=[_trans(stem="What is 2+2?")]))
     assert updated.version == 2
-    assert updated.stem == "What is 2+2?"
+    assert updated.available_languages == ["en"]
     revs = list_revisions(db_session, q.id)
     assert len(revs) == 2
     # pre-edit revision (revision #2) captures the ORIGINAL stem before this edit
-    assert revs[1].snapshot["stem"] == "What is 1+1?"
+    assert revs[1].snapshot["translations"]["en"]["stem"] == "What is 1+1?"
 
 
 def test_update_options_revalidates(db_session):
@@ -244,9 +339,46 @@ def test_update_options_revalidates(db_session):
     with pytest.raises(ValidationError):
         update_question(db_session, question_id=q.id, actor_id=_actor(db_session),
                         payload=QuestionUpdateIn(options=[
-                            OptionIn(content="a", is_correct=False, order_index=0),
-                            OptionIn(content="b", is_correct=False, order_index=1),
+                            OptionIn(order_index=0, is_correct=False),
+                            OptionIn(order_index=1, is_correct=False),
                         ]))
+
+
+def test_update_replaces_translations(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=actor,
+                        payload=_single_payload(translations=[_trans("en")]))
+    assert q.available_languages == ["en"]
+    # Replace en-only with zh-only (translations are replaced, not appended)
+    update_question(db_session, question_id=q.id, actor_id=actor,
+                    payload=QuestionUpdateIn(translations=[
+                        _trans("zh", stem="中?", rationale="中r",
+                               options=[TranslationOptionIn(order_index=0, content="甲"),
+                                        TranslationOptionIn(order_index=1, content="乙")]),
+                    ]))
+    db_session.refresh(q)
+    assert q.available_languages == ["zh"]
+    trans = get_translations(db_session, q.id)
+    assert len(trans) == 1
+    assert trans[0].language == "zh"
+
+
+def test_update_adds_bilingual_translations(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=actor,
+                        payload=_single_payload(translations=[_trans("en")]))
+    update_question(db_session, question_id=q.id, actor_id=actor,
+                    payload=QuestionUpdateIn(translations=[
+                        _trans("en", stem="en?"),
+                        _trans("zh", stem="中?",
+                               options=[TranslationOptionIn(order_index=0, content="甲"),
+                                        TranslationOptionIn(order_index=1, content="乙")]),
+                    ]))
+    db_session.refresh(q)
+    assert q.available_languages == ["en", "zh"]
+    assert len(get_translations(db_session, q.id)) == 2
 
 
 def test_update_noop_does_not_bump(db_session):
@@ -257,9 +389,7 @@ def test_update_noop_does_not_bump(db_session):
     assert updated.version == 1
 
 
-# --- Task 7: soft delete ---
-
-from app.services.question import delete_question  # noqa: E402
+# --- soft delete -------------------------------------------------------------
 
 
 def test_soft_delete_excludes_from_list(db_session):
@@ -273,10 +403,7 @@ def test_soft_delete_excludes_from_list(db_session):
         get_question(db_session, q.id)
 
 
-# --- Task 8: review state machine ---
-
-from app.schemas.question import ReviewAction  # noqa: E402
-from app.services.question import IllegalTransition, submit_review  # noqa: E402
+# --- review state machine ----------------------------------------------------
 
 
 def test_review_draft_to_published(db_session):
@@ -321,14 +448,69 @@ def test_review_illegal_transition(db_session):
                       action=ReviewAction.approve)
 
 
-# --- Task 9: correction feedback ---
+# --- publish validation (FR-LANG-09) ----------------------------------------
 
-from app.models.enums import QuestionFeedbackStatus, QuestionFeedbackType  # noqa: E402
-from app.schemas.question import FeedbackIn  # noqa: E402
-from app.services.question import create_feedback, list_feedback  # noqa: E402
+
+def test_publish_requires_complete_translations(db_session):
+    """A question whose zh translation is present but incomplete must NOT be
+    approvable (FR-LANG-09: present translations must all be complete)."""
+    org = _org(db_session)
+    actor = _actor(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=actor,
+                        payload=_single_payload(translations=[
+                            _trans("en", stem="en?", rationale="en r"),
+                            _trans("zh", stem="中?", rationale="中r",
+                                   options=[TranslationOptionIn(order_index=0, content="甲"),
+                                            TranslationOptionIn(order_index=1, content="乙")]),
+                        ]))
+    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit)
+    # Make zh incomplete: blank the rationale.
+    zh = db_session.query(QuestionTranslation).filter_by(
+        question_id=q.id, language="zh").one()
+    zh.correct_answer_rationale = ""
+    db_session.flush()
+    with pytest.raises(ValidationError):
+        submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve)
+
+
+def test_publish_blocks_when_no_complete_translation(db_session):
+    """If no translation is complete, approve fails with the no-complete rule."""
+    org = _org(db_session)
+    actor = _actor(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=actor,
+                        payload=_single_payload(translations=[_trans("en")]))
+    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit)
+    # Blank the only translation's rationale -> no complete translation.
+    en = db_session.query(QuestionTranslation).filter_by(
+        question_id=q.id, language="en").one()
+    en.correct_answer_rationale = ""
+    db_session.flush()
+    with pytest.raises(ValidationError):
+        submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve)
+
+
+def test_publish_allows_bilingual_when_both_complete(db_session):
+    org = _org(db_session)
+    actor = _actor(db_session)
+    q = create_question(db_session, org_id=org.id, actor_id=actor,
+                        payload=_single_payload(translations=[
+                            _trans("en", stem="en?", rationale="en r"),
+                            _trans("zh", stem="中?", rationale="中r",
+                                   options=[TranslationOptionIn(order_index=0, content="甲"),
+                                            TranslationOptionIn(order_index=1, content="乙")]),
+                        ]))
+    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit)
+    q = submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve)
+    assert q.status == QuestionStatus.published
+
+
+# --- correction feedback -----------------------------------------------------
 
 
 def test_create_and_list_feedback(db_session):
+    from app.models.enums import QuestionFeedbackStatus, QuestionFeedbackType
+    from app.schemas.question import FeedbackIn
+
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
     fb = create_feedback(db_session, org_id=org.id, question_id=q.id, reporter_id=_actor(db_session),
@@ -340,6 +522,9 @@ def test_create_and_list_feedback(db_session):
 
 
 def test_create_feedback_on_deleted_question_raises(db_session):
+    from app.models.enums import QuestionFeedbackType
+    from app.schemas.question import FeedbackIn
+
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
     delete_question(db_session, question_id=q.id, actor_id=_actor(db_session))
