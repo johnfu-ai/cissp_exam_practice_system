@@ -113,10 +113,22 @@ def upgrade() -> None:
                  WHERE qt.question_id = primary_id AND qt2.question_id = primary_id
                    AND qt.language = qt2.language AND qt.id < qt2.id;
 
-                -- Repoint user_question_states (dedup unique (user_id, question_id)).
-                DELETE FROM user_question_states
-                 WHERE question_id = sec_id
-                   AND user_id IN (SELECT user_id FROM user_question_states WHERE question_id = primary_id);
+                -- Repoint user_question_states, deduping on (user_id, question_id)
+                -- by keeping the row with the LATER updated_at (tie -> keep the
+                -- primary's). The uq_user_question_state unique constraint would
+                -- otherwise fire when both halves carry a row for the same user;
+                -- always keeping the primary's (the pre-fix behaviour) discards a
+                -- user's newer zh-side state. (a) drop the secondary's row when
+                -- the primary's is newer-or-equal; (b) drop the primary's row when
+                -- the secondary's is strictly newer; (c) repoint the survivor.
+                DELETE FROM user_question_states s
+                 USING user_question_states p
+                 WHERE s.question_id = sec_id AND p.question_id = primary_id
+                   AND s.user_id = p.user_id AND p.updated_at >= s.updated_at;
+                DELETE FROM user_question_states p
+                 USING user_question_states s
+                 WHERE p.question_id = primary_id AND s.question_id = sec_id
+                   AND p.user_id = s.user_id AND s.updated_at > p.updated_at;
                 UPDATE user_question_states SET question_id = primary_id WHERE question_id = sec_id;
 
                 -- Repoint remaining children.
@@ -165,6 +177,28 @@ def upgrade() -> None:
     # 8. question_external_keys: drop old 3-col unique, make language nullable, add 2-col unique.
     op.drop_constraint('uq_qek_dataset_ext_lang', 'question_external_keys', type_='unique')
     op.alter_column('question_external_keys', 'language', existing_type=sa.String(length=5), nullable=True)
+    # Safety net: the merge DO block in step 3 only collapses groups that have a
+    # LIVE primary (its primary SELECT filters q.deleted_at IS NULL). If BOTH
+    # questions in a (dataset_slug, external_id) group were already soft-deleted
+    # before this migration, primary_id stays NULL, the secondary loop never runs,
+    # and two external_key rows survive on the same group — which would make the
+    # unique constraint below abort. Keep only the earliest (min-id) row per group
+    # so the constraint can be created regardless of prior soft-deletes. (uuid has
+    # no min() aggregate, so use ROW_NUMBER() ordered by id.)
+    op.execute("""
+    DELETE FROM question_external_keys
+     WHERE id IN (
+       SELECT id FROM (
+         SELECT id,
+                ROW_NUMBER() OVER (
+                  PARTITION BY dataset_slug, external_id
+                  ORDER BY id
+                ) AS rn
+           FROM question_external_keys
+       ) x
+        WHERE x.rn > 1
+     );
+    """)
     op.create_unique_constraint('uq_qek_dataset_ext', 'question_external_keys', ['dataset_slug', 'external_id'])
 
     # 9. Drop explanations table.
