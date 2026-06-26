@@ -19,7 +19,7 @@ import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { STATUS_LABELS, statusVariant } from "./labels";
-import type { QuestionStatus, QuestionType, QuestionFilters } from "@/lib/api/types";
+import type { QuestionStatus, QuestionType, QuestionFilters, LanguageCode } from "@/lib/api/types";
 
 const ANY = "__any__";
 const STATUSES: QuestionStatus[] = ["draft", "pending_review", "published", "needs_revision", "archived"];
@@ -29,12 +29,23 @@ function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Compact badge label for a question's available languages. */
+function langBadge(languages: LanguageCode[]): string {
+  const hasEn = languages.includes("en");
+  const hasZh = languages.includes("zh");
+  if (hasEn && hasZh) return "EN+中";
+  if (hasZh) return "中";
+  if (hasEn) return "EN";
+  return "—";
+}
+
 export function QuestionList() {
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [status, setStatus] = useState<QuestionStatus | null>(null);
   const [type, setType] = useState<QuestionType | null>(null);
   const [domainId, setDomainId] = useState<string | null>(null);
+  const [missingLang, setMissingLang] = useState<LanguageCode | null>(null);
   const [page, setPage] = useState(1);
   const size = 20;
 
@@ -46,6 +57,7 @@ export function QuestionList() {
     ...(status ? { status } : {}),
     ...(type ? { question_type: type } : {}),
     ...(domainId ? { domain_id: domainId } : {}),
+    ...(missingLang ? { missing_language: missingLang } : {}),
   };
   const list = useQuestions(filters);
 
@@ -98,6 +110,15 @@ export function QuestionList() {
             {domains.data?.map((d) => <SelectItem key={d.id} value={d.id}>{d.number}. {d.name}</SelectItem>)}
           </SelectContent>
         </Select>
+
+        <Select value={missingLang ?? ANY} onValueChange={(v) => resetPageAnd(() => setMissingLang(v === ANY ? null : (v as LanguageCode)))}>
+          <SelectTrigger className="w-48"><SelectValue placeholder="Missing language" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Missing language: any</SelectItem>
+            <SelectItem value="en">Missing English</SelectItem>
+            <SelectItem value="zh">Missing Chinese</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {list.isLoading && <Loading label="Loading questions…" />}
@@ -112,24 +133,24 @@ export function QuestionList() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Stem</th>
+                  <th className="px-4 py-2 font-medium">Question</th>
                   <th className="px-4 py-2 font-medium">Type</th>
                   <th className="px-4 py-2 font-medium">Status</th>
                   <th className="px-4 py-2 font-medium">Diff.</th>
-                  <th className="px-4 py-2 font-medium">Lang</th>
+                  <th className="px-4 py-2 font-medium">Languages</th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {list.data.items.map((q) => (
                   <tr key={q.id} className="border-b last:border-0 hover:bg-accent/40">
-                    <td className="max-w-md truncate px-4 py-2">
-                      <Link href={`/questions/${q.id}`} className="hover:underline">{q.stem}</Link>
+                    <td className="px-4 py-2">
+                      <Link href={`/questions/${q.id}`} className="font-mono text-xs hover:underline">#{q.id.slice(0, 8)}</Link>
                     </td>
                     <td className="px-4 py-2 text-muted-foreground">{labelize(q.question_type)}</td>
                     <td className="px-4 py-2"><Badge variant={statusVariant(q.status)}>{STATUS_LABELS[q.status]}</Badge></td>
                     <td className="px-4 py-2 text-muted-foreground">{q.difficulty ?? "—"}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{q.language}</td>
+                    <td className="px-4 py-2"><Badge variant="outline">{langBadge(q.available_languages)}</Badge></td>
                     <td className="px-4 py-2 text-right">
                       <Button asChild variant="ghost" size="sm"><Link href={`/questions/${q.id}`}>Open</Link></Button>
                     </td>

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Select,
   SelectTrigger,
@@ -24,8 +25,9 @@ import type {
   QuestionDetail,
   QuestionType,
   LicenseStatus,
-  QuestionOption,
   QuestionCreateInput,
+  LanguageCode,
+  Translation,
 } from "@/lib/api/types";
 
 const ANY = "__none__";
@@ -36,10 +38,23 @@ function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-interface OptionRow {
-  content: string;
-  is_correct: boolean;
-  explanation: string;
+/** Per-language content for stem / each option / rationale. */
+interface LangContent {
+  stem: string;
+  rationale: string;
+  opts: string[];
+}
+
+function emptyLang(optCount: number): LangContent {
+  return { stem: "", rationale: "", opts: Array.from({ length: optCount }, () => "") };
+}
+
+function fromTranslation(t: Translation): LangContent {
+  return {
+    stem: t.stem,
+    rationale: t.correct_answer_rationale,
+    opts: t.options.map((o) => o.content),
+  };
 }
 
 export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
@@ -48,77 +63,114 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
   const create = useCreateQuestion();
   const update = useUpdateQuestion(initial?.id ?? "");
 
+  const initOpts = initial?.options ?? [{ is_correct: true }, { is_correct: false }];
+  const initEn = initial?.translations.find((t) => t.language === "en");
+  const initZh = initial?.translations.find((t) => t.language === "zh");
+
   const [type, setType] = useState<QuestionType>(initial?.question_type ?? "single_choice");
-  const [stem, setStem] = useState(initial?.stem ?? "");
-  const [difficulty, setDifficulty] = useState<string>(initial?.difficulty != null ? String(initial.difficulty) : "");
-  const [language, setLanguage] = useState(initial?.language ?? "en");
+  const [difficulty, setDifficulty] = useState<string>(
+    initial?.difficulty != null ? String(initial.difficulty) : "",
+  );
   const [source, setSource] = useState(initial?.source ?? "");
   const [license, setLicense] = useState<LicenseStatus>(initial?.license_status ?? "unconfirmed");
   const [domainId, setDomainId] = useState<string | null>(initial?.mappings.domain_id ?? null);
-  const [options, setOptions] = useState<OptionRow[]>(
-    initial?.options.map((o) => ({
-      content: o.content,
-      is_correct: o.is_correct,
-      explanation: o.explanation ?? "",
-    })) ?? [
-      { content: "", is_correct: true, explanation: "" },
-      { content: "", is_correct: false, explanation: "" },
-    ]
+
+  // Canonical options: shared correctness + order across languages.
+  const [options, setOptions] = useState<{ is_correct: boolean }[]>(
+    initOpts.map((o) => ({ is_correct: o.is_correct })),
   );
-  const [rationale, setRationale] = useState(initial?.explanation?.correct_answer_rationale ?? "");
-  const [keyPoint, setKeyPoint] = useState(initial?.explanation?.key_point_summary ?? "");
+  // Per-language content. English is always present; Chinese is null until the
+  // author opts in via "Add Chinese version".
+  const [en, setEn] = useState<LangContent>(
+    initEn ? fromTranslation(initEn) : emptyLang(initOpts.length),
+  );
+  const [zh, setZh] = useState<LangContent | null>(initZh ? fromTranslation(initZh) : null);
+  const [tab, setTab] = useState<LanguageCode>("en");
 
   const isMulti = type === "multiple_choice";
 
-  function setOption(i: number, patch: Partial<OptionRow>) {
-    setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
-  }
   function setCorrect(i: number, checked: boolean) {
     setOptions((prev) =>
       prev.map((o, idx) =>
-        isMulti ? (idx === i ? { ...o, is_correct: checked } : o) : { ...o, is_correct: idx === i }
-      )
+        isMulti ? (idx === i ? { ...o, is_correct: checked } : o) : { ...o, is_correct: idx === i },
+      ),
     );
   }
   function addOption() {
-    setOptions((prev) => [...prev, { content: "", is_correct: false, explanation: "" }]);
+    setOptions((prev) => [...prev, { is_correct: false }]);
+    setEn((prev) => ({ ...prev, opts: [...prev.opts, ""] }));
+    setZh((prev) => (prev ? { ...prev, opts: [...prev.opts, ""] } : prev));
   }
   function removeOption(i: number) {
     setOptions((prev) => prev.filter((_, idx) => idx !== i));
+    setEn((prev) => ({ ...prev, opts: prev.opts.filter((_, idx) => idx !== i) }));
+    setZh((prev) => (prev ? { ...prev, opts: prev.opts.filter((_, idx) => idx !== i) } : prev));
   }
 
+  function enableZh() {
+    setZh(emptyLang(options.length));
+    setTab("zh");
+  }
+  function disableZh() {
+    setZh(null);
+    setTab("en");
+  }
+
+  // English setters.
+  const setEnStem = (v: string) => setEn((p) => ({ ...p, stem: v }));
+  const setEnRationale = (v: string) => setEn((p) => ({ ...p, rationale: v }));
+  const setEnOpt = (i: number, v: string) =>
+    setEn((p) => ({ ...p, opts: p.opts.map((c, idx) => (idx === i ? v : c)) }));
+  // Chinese setters (no-op when zh is null — the zh tab body is only rendered
+  // when zh is set, so these are never called with a null zh).
+  const setZhStem = (v: string) => setZh((p) => (p ? { ...p, stem: v } : p));
+  const setZhRationale = (v: string) => setZh((p) => (p ? { ...p, rationale: v } : p));
+  const setZhOpt = (i: number, v: string) =>
+    setZh((p) => (p ? { ...p, opts: p.opts.map((c, idx) => (idx === i ? v : c)) } : p));
+
   function validate(): string | null {
-    if (!stem.trim()) return "Stem is required.";
-    const filled = options.filter((o) => o.content.trim());
-    if (filled.length < 2) return "Provide at least two options.";
-    const correct = filled.filter((o) => o.is_correct).length;
+    if (!en.stem.trim()) return "English stem is required.";
+    const enFilled = en.opts.filter((c) => c.trim());
+    if (enFilled.length < 2) return "Provide at least two options with content.";
+    const correct = options.filter((o) => o.is_correct).length;
     if (correct === 0) return "Mark at least one correct option.";
     if (!isMulti && correct !== 1) return "Single-answer questions need exactly one correct option.";
-    if (!rationale.trim()) return "An answer rationale is required.";
+    if (!en.rationale.trim()) return "An English answer rationale is required.";
+    // Completeness: when a Chinese version is enabled, every field must be filled
+    // (mirrors the backend publish rule FR-LANG-09).
+    if (zh) {
+      if (!zh.stem.trim()) return "Chinese stem is required when a Chinese version is enabled.";
+      if (zh.opts.some((c) => !c.trim())) return "All Chinese option contents are required.";
+      if (!zh.rationale.trim()) return "Chinese answer rationale is required.";
+    }
     return null;
   }
 
   function buildPayload(): QuestionCreateInput {
-    const opts: QuestionOption[] = options
-      .filter((o) => o.content.trim())
-      .map((o, idx) => ({
-        content: o.content.trim(),
-        is_correct: o.is_correct,
-        order_index: idx,
-        explanation: o.explanation.trim() || null,
-      }));
+    const canonical = options.map((o, i) => ({ order_index: i, is_correct: o.is_correct }));
+    const translations: Translation[] = [
+      {
+        language: "en",
+        stem: en.stem.trim(),
+        correct_answer_rationale: en.rationale.trim(),
+        options: en.opts.map((c, i) => ({ order_index: i, content: c.trim() })),
+      },
+    ];
+    if (zh) {
+      translations.push({
+        language: "zh",
+        stem: zh.stem.trim(),
+        correct_answer_rationale: zh.rationale.trim(),
+        options: zh.opts.map((c, i) => ({ order_index: i, content: c.trim() })),
+      });
+    }
     return {
       question_type: type,
-      stem: stem.trim(),
       difficulty: difficulty.trim() === "" ? null : Number(difficulty),
-      language: language.trim() || "en",
       source: source.trim() || null,
       license_status: license,
-      options: opts,
-      explanation: {
-        correct_answer_rationale: rationale.trim(),
-        key_point_summary: keyPoint.trim() || null,
-      },
+      options: canonical,
+      translations,
       mappings: domainId ? { domain_id: domainId } : {},
     };
   }
@@ -131,7 +183,11 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
     }
     const payload = buildPayload();
     const onErr = (e: unknown) =>
-      toast.error(e instanceof ApiError && e.status === 422 ? "Validation failed — check your inputs." : "Could not save the question.");
+      toast.error(
+        e instanceof ApiError && e.status === 422
+          ? "Validation failed — check your inputs."
+          : "Could not save the question.",
+      );
 
     if (initial) {
       update.mutate(payload, {
@@ -154,6 +210,77 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
 
   const pending = create.isPending || update.isPending;
 
+  /** Render the stem / options / rationale inputs for one language. */
+  function renderLangContent(
+    lang: LanguageCode,
+    c: LangContent,
+    onStem: (v: string) => void,
+    onOpt: (i: number, v: string) => void,
+    onRationale: (v: string) => void,
+  ) {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor={`stem-${lang}`}>Stem</Label>
+          <Textarea
+            id={`stem-${lang}`}
+            rows={4}
+            value={c.stem}
+            onChange={(e) => onStem(e.target.value)}
+            placeholder="The question text…"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {isMulti ? "Check all correct options." : "Select the single correct option."}
+          </p>
+          {options.map((o, i) => (
+            <div key={i} className="flex items-start gap-3 rounded-md border p-3">
+              <div className="pt-2">
+                <Checkbox
+                  checked={o.is_correct}
+                  onCheckedChange={(ck) => setCorrect(i, ck === true)}
+                  aria-label={`Option ${i + 1} correct`}
+                />
+              </div>
+              <div className="flex-1">
+                <Input
+                  value={c.opts[i] ?? ""}
+                  onChange={(e) => onOpt(i, e.target.value)}
+                  aria-label={`Option ${i + 1} content`}
+                  placeholder={`Option ${i + 1}`}
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => removeOption(i)}
+                disabled={options.length <= 2}
+                aria-label={`Remove option ${i + 1}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={addOption}>
+            <Plus className="h-4 w-4" /> Add option
+          </Button>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor={`rationale-${lang}`}>Correct-answer rationale</Label>
+          <Textarea
+            id={`rationale-${lang}`}
+            rows={3}
+            value={c.rationale}
+            onChange={(e) => onRationale(e.target.value)}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <Card>
@@ -172,16 +299,6 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
               <Input id="difficulty" type="number" min={1} max={5} value={difficulty} onChange={(e) => setDifficulty(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="language">Language</Label>
-              <Input id="language" value={language} onChange={(e) => setLanguage(e.target.value)} />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="stem">Stem</Label>
-            <Textarea id="stem" rows={4} value={stem} onChange={(e) => setStem(e.target.value)} placeholder="The question text…" />
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="space-y-1.5">
               <Label>Domain</Label>
               <Select value={domainId ?? ANY} onValueChange={(v) => setDomainId(v === ANY ? null : v)}>
                 <SelectTrigger><SelectValue placeholder="Unmapped" /></SelectTrigger>
@@ -191,6 +308,8 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>License</Label>
               <Select value={license} onValueChange={(v) => setLicense(v as LicenseStatus)}>
@@ -207,46 +326,27 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Options</CardTitle>
-          <Button variant="outline" size="sm" onClick={addOption}><Plus className="h-4 w-4" /> Add option</Button>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle>Content</CardTitle>
+          {zh ? (
+            <Button variant="ghost" size="sm" onClick={disableZh}>Remove Chinese version</Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={enableZh}>Add Chinese version</Button>
+          )}
         </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            {isMulti ? "Check all correct options." : "Select the single correct option."}
-          </p>
-          {options.map((o, i) => (
-            <div key={i} className="flex items-start gap-3 rounded-md border p-3">
-              <div className="pt-2">
-                <Checkbox
-                  checked={o.is_correct}
-                  onCheckedChange={(c) => setCorrect(i, c === true)}
-                  aria-label="Correct option"
-                />
-              </div>
-              <div className="flex-1 space-y-2">
-                <Input value={o.content} onChange={(e) => setOption(i, { content: e.target.value })} placeholder={`Option ${i + 1}`} />
-                <Input value={o.explanation} onChange={(e) => setOption(i, { explanation: e.target.value })} placeholder="Why this option is right/wrong (optional)" className="text-sm" />
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => removeOption(i)} disabled={options.length <= 2} aria-label="Remove option">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Explanation</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="rationale">Correct-answer rationale</Label>
-            <Textarea id="rationale" rows={3} value={rationale} onChange={(e) => setRationale(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="keypoint">Key-point summary (optional)</Label>
-            <Textarea id="keypoint" rows={2} value={keyPoint} onChange={(e) => setKeyPoint(e.target.value)} />
-          </div>
+        <CardContent>
+          <Tabs value={tab} onValueChange={(v) => setTab(v as LanguageCode)}>
+            <TabsList>
+              <TabsTrigger value="en">English</TabsTrigger>
+              <TabsTrigger value="zh" disabled={!zh}>中文</TabsTrigger>
+            </TabsList>
+            <TabsContent value="en">
+              {renderLangContent("en", en, setEnStem, setEnOpt, setEnRationale)}
+            </TabsContent>
+            <TabsContent value="zh">
+              {zh && renderLangContent("zh", zh, setZhStem, setZhOpt, setZhRationale)}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 

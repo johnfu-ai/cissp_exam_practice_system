@@ -29,11 +29,23 @@ import {
   STATUS_LABELS, statusVariant, availableActions,
   FEEDBACK_TYPE_LABELS, FEEDBACK_STATUS_LABELS,
 } from "./labels";
-import type { ReviewAction, FeedbackType } from "@/lib/api/types";
+import type { ReviewAction, FeedbackType, LanguageCode } from "@/lib/api/types";
 
 const FEEDBACK_TYPES: FeedbackType[] = [
   "unclear_explanation", "suspected_wrong_answer", "ambiguous_stem", "copyright_issue", "other",
 ];
+
+const LANG_LABEL: Record<LanguageCode, string> = { en: "English", zh: "中文" };
+
+/** Compact badge label for a question's available languages. */
+function langBadge(languages: LanguageCode[]): string {
+  const hasEn = languages.includes("en");
+  const hasZh = languages.includes("zh");
+  if (hasEn && hasZh) return "EN+中";
+  if (hasZh) return "中";
+  if (hasEn) return "EN";
+  return "—";
+}
 
 export function QuestionDetailView({ questionId }: { questionId: string }) {
   const router = useRouter();
@@ -50,6 +62,12 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
   if (detail.isLoading) return <Loading label="Loading question…" />;
   if (detail.isError || !detail.data) return <ErrorState message="Could not load this question." />;
   const q = detail.data;
+
+  // Canonical correctness keyed by order_index (shared across translations).
+  const correctByOrder = new Map<number, boolean>();
+  q.options.forEach((o) => {
+    if (o.order_index != null) correctByOrder.set(o.order_index, o.is_correct);
+  });
 
   function act(action: ReviewAction) {
     review.mutate({ action }, {
@@ -90,7 +108,7 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
       <PageHeader
         title="Question"
         crumbs={["Questions"]}
-        description={`v${q.version} · ${q.language} · ${q.question_type.replace(/_/g, " ")}`}
+        description={`v${q.version} · ${langBadge(q.available_languages)} · ${q.question_type.replace(/_/g, " ")}`}
         actions={
           <div className="flex items-center gap-2">
             <Badge variant={statusVariant(q.status)}>{STATUS_LABELS[q.status]}</Badge>
@@ -101,33 +119,39 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
         }
       />
 
-      <Card>
-        <CardHeader><CardTitle className="text-base leading-relaxed">{q.stem}</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          {q.options.map((o) => (
-            <div
-              key={o.id ?? o.order_index}
-              className={cn("flex items-start gap-2 rounded-md border p-2 text-sm", o.is_correct && "border-success/50 bg-success/10")}
-            >
-              <span className="font-mono text-xs text-muted-foreground">{o.order_index}</span>
-              <div className="flex-1">
-                <div>{o.content}</div>
-                {o.explanation && <div className="mt-1 text-xs text-muted-foreground">{o.explanation}</div>}
-              </div>
-              {o.is_correct && <Badge variant="success">Correct</Badge>}
-            </div>
-          ))}
-          {q.explanation && (
+      {q.translations.map((t) => (
+        <Card key={t.language}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base leading-relaxed">{t.stem}</CardTitle>
+            <Badge variant="outline">{LANG_LABEL[t.language]}</Badge>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {t.options.map((o) => {
+              const isCorrect = correctByOrder.get(o.order_index) ?? false;
+              return (
+                <div
+                  key={o.order_index}
+                  className={cn("flex items-start gap-2 rounded-md border p-2 text-sm", isCorrect && "border-success/50 bg-success/10")}
+                >
+                  <span className="font-mono text-xs text-muted-foreground">{o.order_index}</span>
+                  <div className="flex-1">
+                    <div>{o.content}</div>
+                    {o.explanation && <div className="mt-1 text-xs text-muted-foreground">{o.explanation}</div>}
+                  </div>
+                  {isCorrect && <Badge variant="success">Correct</Badge>}
+                </div>
+              );
+            })}
             <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm">
               <div className="font-medium">Rationale</div>
-              <p className="mt-1 leading-relaxed">{q.explanation.correct_answer_rationale}</p>
-              {q.explanation.key_point_summary && (
-                <p className="mt-2 text-muted-foreground">{q.explanation.key_point_summary}</p>
+              <p className="mt-1 leading-relaxed">{t.correct_answer_rationale}</p>
+              {t.key_point_summary && (
+                <p className="mt-2 text-muted-foreground">{t.key_point_summary}</p>
               )}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ))}
 
       <RequirePermission perm="question:publish">
         <Card>
