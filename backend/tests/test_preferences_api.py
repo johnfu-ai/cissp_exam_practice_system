@@ -111,3 +111,74 @@ def test_preferences_require_auth(auth_client):
     assert auth_client.put(
         "/api/users/me/preferences", json={"language_mode": "zh"}
     ).status_code == 401
+
+
+def test_get_preferences_returns_interface_language(auth_client):
+    token = _register(auth_client)
+    prefs = auth_client.get("/api/users/me/preferences", headers=_auth(token)).json()
+    assert prefs["interface_language"] == "en"
+
+
+def test_me_default_interface_language_is_en(auth_client):
+    token = _register(auth_client)
+    r = auth_client.get("/api/auth/me", headers=_auth(token))
+    assert r.status_code == 200
+    assert r.json()["interface_language"] == "en"
+
+
+def test_put_preferences_sets_interface_language(auth_client):
+    token = _register(auth_client)
+    r = auth_client.put(
+        "/api/users/me/preferences",
+        json={"interface_language": "zh"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200
+    assert r.json()["interface_language"] == "zh"
+    me = auth_client.get("/api/auth/me", headers=_auth(token)).json()
+    assert me["interface_language"] == "zh"
+    prefs = auth_client.get("/api/users/me/preferences", headers=_auth(token)).json()
+    assert prefs["interface_language"] == "zh"
+
+
+def test_put_preferences_rejects_invalid_interface_language(auth_client):
+    token = _register(auth_client)
+    r = auth_client.put(
+        "/api/users/me/preferences",
+        json={"interface_language": "fr"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422
+
+
+def test_put_preferences_rejects_bilingual_interface_language(auth_client):
+    token = _register(auth_client)
+    r = auth_client.put(
+        "/api/users/me/preferences",
+        json={"interface_language": "bilingual"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422
+
+
+def test_put_preferences_updates_both_fields(auth_client):
+    token = _register(auth_client)
+    r = auth_client.put(
+        "/api/users/me/preferences",
+        json={"language_mode": "bilingual", "interface_language": "zh"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["language_mode"] == "bilingual"
+    assert body["interface_language"] == "zh"
+
+
+def test_put_preferences_rejects_empty_body(auth_client):
+    token = _register(auth_client)
+    r = auth_client.put(
+        "/api/users/me/preferences",
+        json={},
+        headers=_auth(token),
+    )
+    assert r.status_code == 422

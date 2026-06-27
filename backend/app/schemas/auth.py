@@ -34,14 +34,17 @@ class UserOut(BaseModel):
     roles: list[str]
     perms: list[str]
     language_mode: str = "en"
+    interface_language: str = "en"
 
 
 class PreferencesIn(BaseModel):
-    language_mode: Literal["en", "zh", "bilingual"]
+    language_mode: Literal["en", "zh", "bilingual"] | None = None
+    interface_language: Literal["en", "zh"] | None = None
 
 
 class PreferencesOut(BaseModel):
     language_mode: str
+    interface_language: str
 
 
 class TokenOut(BaseModel):

@@ -30,8 +30,15 @@ def put_prefs(
     session: Session = Depends(get_session),
     current: CurrentUser = Depends(get_current_user),
 ) -> PreferencesOut:
+    if body.language_mode is None and body.interface_language is None:
+        raise HTTPException(status_code=422, detail="no preferences provided")
     try:
-        out = svc.set_preferences(session, current.user, body.language_mode)
+        out = svc.set_preferences(
+            session,
+            current.user,
+            language_mode=body.language_mode,
+            interface_language=body.interface_language,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     session.commit()

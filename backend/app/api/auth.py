@@ -45,6 +45,7 @@ def _user_out(session, user, org_id) -> UserOut:
         roles=load_user_roles(session, user.id, org_id),
         perms=load_user_perms(session, user.id, org_id),
         language_mode=getattr(user, "language_mode", "en") or "en",
+        interface_language=getattr(user, "interface_language", "en") or "en",
     )
 
 
