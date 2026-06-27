@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithProviders } from "@/test/render-with-providers";
 import userEvent from "@testing-library/user-event";
 import { useAuthStore } from "@/lib/auth-store";
 import type { AuthUser } from "@/lib/auth-store";
@@ -73,7 +74,7 @@ describe("ExamStartForm", () => {
       refreshToken: "r",
       hydrated: true,
     });
-    render(<ExamStartForm />);
+    renderWithProviders(<ExamStartForm />);
 
     // Open the language-mode select and pick 中文 (zh).
     await userEvent.click(screen.getByRole("combobox", { name: /language mode/i }));
@@ -93,7 +94,7 @@ describe("ExamStartForm", () => {
       refreshToken: "r",
       hydrated: true,
     });
-    render(<ExamStartForm />);
+    renderWithProviders(<ExamStartForm />);
 
     // Switch to the CAT card (form defaults to "fixed").
     await userEvent.click(screen.getByRole("button", { name: /cat mock exam/i }));

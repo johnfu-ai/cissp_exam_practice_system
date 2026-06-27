@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCreateExam } from "@/lib/api/exam";
 import { useAuthStore } from "@/lib/auth-store";
 import { ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n/provider";
 import { trackExam } from "./exam-tracker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eyebrow } from "@/components/eyebrow";
@@ -25,13 +26,9 @@ import { Clock, Forward, Check } from "lucide-react";
 import type { ExamKind, LanguageMode } from "@/lib/api/types";
 
 const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
-const LANGUAGE_LABELS: Record<LanguageMode, string> = {
-  en: "English",
-  zh: "中文",
-  bilingual: "Both",
-};
 
 export function ExamStartForm() {
+  const t = useT();
   const router = useRouter();
   const [kind, setKind] = useState<ExamKind>("fixed");
   const [count, setCount] = useState<string>("");
@@ -42,9 +39,6 @@ export function ExamStartForm() {
   const create = useCreateExam();
 
   function start() {
-    // CAT: { kind, language_mode }. Fixed: include `count` only when the user
-    // supplied one — a blank count means "full-length" and is omitted so the
-    // backend applies the blueprint range.
     const body =
       kind === "cat"
         ? { kind, language_mode: languageMode }
@@ -58,17 +52,19 @@ export function ExamStartForm() {
       },
       onError: (e) => {
         if (e instanceof ApiError && e.status === 422) {
-          toast.error("Not enough published questions to assemble this exam.");
+          toast.error(t("examStart.notEnough"));
         } else {
-          toast.error("Could not start the exam.");
+          toast.error(t("examStart.couldNotStart"));
         }
       },
     });
   }
 
   const startLabel = create.isPending
-    ? "Starting…"
-    : `Start ${kind === "cat" ? "CAT" : "fixed"} exam`;
+    ? t("examStart.starting")
+    : kind === "cat"
+      ? t("examStart.startCat")
+      : t("examStart.startFixed");
 
   return (
     <div className="space-y-6">
@@ -77,31 +73,33 @@ export function ExamStartForm() {
         <KindCard
           selected={kind === "fixed"}
           onSelect={() => setKind("fixed")}
-          title="Fixed mock exam"
+          title={t("examStart.fixedTitle")}
           icon={<Clock className="h-5 w-5" />}
-          meta="Timed · 3 hours"
-          description="A blueprint-weighted, fixed-length exam. Timed, no feedback until you finish; you can revise answers before submitting."
+          meta={t("examStart.fixedMeta")}
+          description={t("examStart.fixedDesc")}
+          selectedLabel={t("examStart.selected")}
         />
         <KindCard
           selected={kind === "cat"}
           onSelect={() => setKind("cat")}
-          title="CAT mock exam"
+          title={t("examStart.catTitle")}
           icon={<Forward className="h-5 w-5" />}
-          meta="Adaptive · 100–150 items"
-          description="Adaptive, forward-only delivery (100–150 items). You cannot revise a submitted answer. Study tool — not an official ISC2 score."
+          meta={t("examStart.catMeta")}
+          description={t("examStart.catDesc")}
+          selectedLabel={t("examStart.selected")}
         />
       </div>
 
       {/* Confirm + start */}
       <Card>
         <CardHeader>
-          <Eyebrow>Confirm</Eyebrow>
-          <CardTitle>Configure and start</CardTitle>
+          <Eyebrow>{t("examStart.confirm")}</Eyebrow>
+          <CardTitle>{t("examStart.configureStart")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="exam-language-mode">Language mode</Label>
+              <Label htmlFor="exam-language-mode">{t("examStart.languageMode")}</Label>
               <Select
                 value={languageMode}
                 onValueChange={(v) => setLanguageMode(v as LanguageMode)}
@@ -112,50 +110,42 @@ export function ExamStartForm() {
                 <SelectContent>
                   {LANGUAGE_MODES.map((m) => (
                     <SelectItem key={m} value={m}>
-                      {LANGUAGE_LABELS[m]}
+                      {t(`lang.${m}`)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                Choose how questions are displayed during the exam.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("examStart.languageHint")}</p>
             </div>
 
             {kind === "fixed" ? (
               <div className="space-y-2">
-                <Label htmlFor="exam-count">Question count (optional)</Label>
+                <Label htmlFor="exam-count">{t("examStart.countLabel")}</Label>
                 <Input
                   id="exam-count"
                   type="number"
                   min={1}
                   max={500}
-                  placeholder="Full-length"
+                  placeholder={t("examStart.countPlaceholder")}
                   value={count}
                   onChange={(e) => setCount(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Leave blank for a full-length exam. Count is clamped to the blueprint range.
-                </p>
+                <p className="text-xs text-muted-foreground">{t("examStart.countHint")}</p>
               </div>
             ) : (
               <div className="space-y-2">
-                <Label>Duration</Label>
+                <Label>{t("examStart.duration")}</Label>
                 <div className="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">
-                  Up to 3 hours · 100–150 adaptive items
+                  {t("examStart.durationValue")}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  The engine adapts to your ability and ends early on convergence.
-                </p>
+                <p className="text-xs text-muted-foreground">{t("examStart.durationHint")}</p>
               </div>
             )}
           </div>
 
           <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
-              {kind === "cat"
-                ? "Forward-only · answers cannot be revised · study tool."
-                : "Revisable answers · question palette · lazy auto-submit on time-up."}
+              {kind === "cat" ? t("examStart.footerCat") : t("examStart.footerFixed")}
             </p>
             <Button size="pill" onClick={start} disabled={create.isPending} className="sm:min-w-[180px]">
               {startLabel}
@@ -174,6 +164,7 @@ function KindCard({
   icon,
   meta,
   description,
+  selectedLabel,
 }: {
   selected: boolean;
   onSelect: () => void;
@@ -181,6 +172,7 @@ function KindCard({
   icon: React.ReactNode;
   meta: string;
   description: string;
+  selectedLabel: string;
 }) {
   return (
     <button
@@ -208,7 +200,7 @@ function KindCard({
         </div>
         {selected && (
           <Badge>
-            <Check className="h-3 w-3" /> Selected
+            <Check className="h-3 w-3" /> {selectedLabel}
           </Badge>
         )}
       </div>
