@@ -5,10 +5,11 @@ workflow, practice sessions, fixed-form and computer-adaptive (CAT) mock exams, 
 learning analytics, and an admin backoffice — built on a data-driven exam blueprint so the
 official CISSP rules (domain weights, item counts, duration, passing line) live in data, not code.
 
-> **Status.** The complete PRD backend scope is implemented and tested — **104 endpoints
-> across 8 routers, 366 passing backend tests, zero migration drift**. The frontend is under
-> active development (sub-project I): the auth flow and the full **practice-taking flow** are
-> built; fixed/CAT exam delivery, the analytics dashboard, and the admin UI are next.
+> **Status.** Feature-complete and runnable. The full PRD backend scope is implemented and
+> tested — **104 endpoints across 8 routers, 427 passing backend tests, zero migration drift**.
+> The interactive frontend is fully built: all 13 routes (dashboard, analytics, practice,
+> review, fixed + CAT exam, import, questions, taxonomy, admin) with an Apple-inspired design
+> system and bilingual (English / 中文) question content throughout — **75 frontend tests**.
 
 ## Features
 
@@ -31,12 +32,15 @@ official CISSP rules (domain weights, item counts, duration, passing line) live 
   detection, error-type breakdown, and a weekly review recommendation.
 - **Admin backoffice** — user & class management, CAT-parameter versioning, a content-quality
   queue, an audit-log viewer, and operational reports.
+- **Bilingual content** — questions carry English + 中文 translations; users pick a default
+  language mode (en / zh / bilingual) and toggle it live in practice/exam runners without
+  refetching or advancing the item (FR-LANG-01..10).
 
 ## Tech Stack
 
 | Layer        | Technology                                                              |
 | ------------ | ----------------------------------------------------------------------- |
-| Frontend     | Next.js 14 (App Router), TypeScript, Tailwind CSS, Zustand, Vitest      |
+| Frontend     | Next.js 14 (App Router), TypeScript, Tailwind CSS, shadcn/ui, DM Sans, Zustand, Vitest |
 | Backend      | FastAPI, SQLAlchemy 2.x, Alembic, Pydantic Settings                     |
 | Data / Cache | PostgreSQL 16, Redis 7                                                   |
 | Tooling      | Docker Compose, pytest, ESLint                                          |
