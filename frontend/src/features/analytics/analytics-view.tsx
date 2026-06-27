@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import { useT } from "@/lib/i18n/provider";
 import type { TrendPoint } from "@/lib/api/types";
 import {
   fmtPct,
@@ -23,9 +24,9 @@ import {
   MASTERY_CLASSES,
 } from "./format";
 
-function Sparkline({ points }: { points: TrendPoint[] }) {
+function Sparkline({ points, ariaLabel }: { points: TrendPoint[]; ariaLabel: string }) {
   if (points.length === 0) {
-    return <p className="text-sm text-muted-foreground">No activity in this window.</p>;
+    return <p className="text-sm text-muted-foreground">{ariaLabel}</p>;
   }
   const W = 600;
   const H = 120;
@@ -36,7 +37,7 @@ function Sparkline({ points }: { points: TrendPoint[] }) {
   const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(p.accuracy)}`).join(" ");
   const areaPath = `${path} L${x(n - 1)},${H - pad} L${x(0)},${H - pad} Z`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="none" role="img" aria-label="Accuracy trend">
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-32 w-full" preserveAspectRatio="none" role="img" aria-label={ariaLabel}>
       <line x1={pad} y1={y(0.7)} x2={W - pad} y2={y(0.7)} stroke="currentColor" strokeDasharray="4 4" className="text-muted-foreground/40" />
       <path d={areaPath} className="fill-primary/10" />
       <path d={path} fill="none" stroke="currentColor" strokeWidth={2} className="text-primary" />
@@ -48,29 +49,30 @@ function Sparkline({ points }: { points: TrendPoint[] }) {
 }
 
 export function AnalyticsView() {
+  const t = useT();
   const [window, setWindow] = useState<30 | 90>(30);
   const domains = useDomainMastery();
   const trend = useTrend(window);
   const weak = useWeakAreas();
   const errors = useErrorTypes();
 
-  if (domains.isLoading) return <Loading label="Loading analytics…" />;
+  if (domains.isLoading) return <Loading label={t("analytics.loadingAnalytics")} />;
   if (domains.isError) {
-    return <ErrorState message="Could not load analytics." onRetry={() => domains.refetch()} />;
+    return <ErrorState message={t("analytics.loadFailed")} onRetry={() => domains.refetch()} />;
   }
 
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader
-        eyebrow="Insights"
-        title="Analytics"
-        description="Detailed breakdown of your performance over time."
+        eyebrow={t("analytics.eyebrow")}
+        title={t("analytics.title")}
+        description={t("analytics.description")}
       />
 
-      <Eyebrow className="mb-3">Performance</Eyebrow>
+      <Eyebrow className="mb-3">{t("analytics.performance")}</Eyebrow>
       <Card className="mb-8">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Accuracy trend</CardTitle>
+          <CardTitle>{t("analytics.accuracyTrend")}</CardTitle>
           <div className="flex gap-1">
             {([30, 90] as const).map((w) => (
               <Button
@@ -79,39 +81,39 @@ export function AnalyticsView() {
                 size="sm"
                 onClick={() => setWindow(w)}
               >
-                {w}d
+                {t("analytics.days", { w })}
               </Button>
             ))}
           </div>
         </CardHeader>
         <CardContent>
           {trend.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
           ) : (
-            <Sparkline points={trend.data?.points ?? []} />
+            <Sparkline points={trend.data?.points ?? []} ariaLabel={t("analytics.noActivityWindow")} />
           )}
         </CardContent>
       </Card>
 
-      <Eyebrow className="mb-3">Mastery</Eyebrow>
+      <Eyebrow className="mb-3">{t("analytics.mastery")}</Eyebrow>
       <Card className="mb-8">
         <CardHeader>
-          <CardTitle>Domain mastery</CardTitle>
+          <CardTitle>{t("analytics.domainMastery")}</CardTitle>
         </CardHeader>
         <CardContent>
           {domains.data && domains.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No exam blueprint configured yet.</p>
+            <p className="text-sm text-muted-foreground">{t("analytics.noBlueprint")}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2 pr-4 font-medium">Domain</th>
-                    <th className="py-2 pr-4 font-medium">Weight</th>
-                    <th className="py-2 pr-4 font-medium">Answered</th>
-                    <th className="py-2 pr-4 font-medium">Accuracy</th>
-                    <th className="py-2 pr-4 font-medium">Avg time</th>
-                    <th className="py-2 font-medium">Mastery</th>
+                    <th className="py-2 pr-4 font-medium">{t("analytics.colDomain")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("analytics.colWeight")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("analytics.colAnswered")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("analytics.colAccuracy")}</th>
+                    <th className="py-2 pr-4 font-medium">{t("analytics.colAvgTime")}</th>
+                    <th className="py-2 font-medium">{t("analytics.colMastery")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -147,16 +149,16 @@ export function AnalyticsView() {
         </CardContent>
       </Card>
 
-      <Eyebrow className="mb-3">Focus areas</Eyebrow>
+      <Eyebrow className="mb-3">{t("analytics.focusAreas")}</Eyebrow>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Weak knowledge points</CardTitle>
+            <CardTitle>{t("analytics.weakKp")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {weak.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+            {weak.isLoading && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
             {weak.data && weak.data.weak_knowledge_points.length === 0 && (
-              <p className="text-sm text-muted-foreground">No weak knowledge points detected.</p>
+              <p className="text-sm text-muted-foreground">{t("analytics.noWeakKp")}</p>
             )}
             {weak.data?.weak_knowledge_points.map((w) => (
               <div key={w.knowledge_point_id ?? w.label} className="flex items-center justify-between text-sm">
@@ -171,12 +173,12 @@ export function AnalyticsView() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Error types</CardTitle>
+            <CardTitle>{t("analytics.errorTypes")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {errors.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+            {errors.isLoading && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
             {errors.data && errors.data.distribution.length === 0 && (
-              <p className="text-sm text-muted-foreground">No wrong answers recorded.</p>
+              <p className="text-sm text-muted-foreground">{t("analytics.noWrongRecorded")}</p>
             )}
             {errors.data?.distribution.map((e) => (
               <div key={e.error_type ?? "unclassified"} className="flex items-center justify-between text-sm">
@@ -186,7 +188,7 @@ export function AnalyticsView() {
             ))}
             {errors.data && errors.data.total_wrong_classified > 0 && (
               <p className="pt-2 text-xs text-muted-foreground">
-                {errors.data.total_wrong_classified} wrong answers classified.
+                {t("analytics.wrongClassified", { n: errors.data.total_wrong_classified })}
               </p>
             )}
           </CardContent>

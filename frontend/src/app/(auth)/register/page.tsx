@@ -9,10 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/field";
+import { useT } from "@/lib/i18n/provider";
 
 export default function RegisterPage() {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const t = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -27,8 +29,8 @@ export default function RegisterPage() {
       body: JSON.stringify({ email, password, display_name: displayName || null }),
     });
     if (!resp.ok) {
-      const t = await resp.text();
-      setError(resp.status === 409 ? "Email already registered." : t);
+      const body = await resp.text();
+      setError(resp.status === 409 ? t("auth.emailExists") : body);
       return;
     }
     const data = await resp.json();
@@ -42,42 +44,42 @@ export default function RegisterPage() {
         <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary">
           <ShieldCheck className="h-6 w-6 text-primary-foreground" />
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">CISSP Exam Prep</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Master cybersecurity certification</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("auth.brand")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t("auth.tagline")}</p>
       </div>
 
       <Card className="rounded-2xl p-6 sm:p-8">
-        <h2 className="mb-6 text-lg font-semibold">Register</h2>
+        <h2 className="mb-6 text-lg font-semibold">{t("auth.register")}</h2>
         <form onSubmit={submit} className="space-y-4">
-          <Field label="Email" htmlFor="signup-email" icon={Mail}>
+          <Field label={t("auth.email")} htmlFor="signup-email" icon={Mail}>
             <Input
               id="signup-email"
               type="email"
               autoComplete="email"
-              placeholder="you@example.com"
+              placeholder={t("auth.emailPlaceholder")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
               required
             />
           </Field>
-          <Field label="Display name" htmlFor="signup-name" icon={User}>
+          <Field label={t("auth.displayName")} htmlFor="signup-name" icon={User}>
             <Input
               id="signup-name"
               type="text"
               autoComplete="name"
-              placeholder="Optional"
+              placeholder={t("auth.optional")}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </Field>
-          <Field label="Password" htmlFor="signup-password" icon={Lock}>
+          <Field label={t("auth.password")} htmlFor="signup-password" icon={Lock}>
             <Input
               id="signup-password"
               type="password"
               autoComplete="new-password"
-              placeholder="Min 8 characters"
+              placeholder={t("auth.passwordHint")}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -86,13 +88,13 @@ export default function RegisterPage() {
           </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" size="pill" className="w-full">
-            Register
+            {t("auth.register")}
           </Button>
         </form>
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
+          {t("auth.haveAccount")}{" "}
           <a href="/login" className="font-medium text-primary hover:underline">
-            Log in
+            {t("auth.login")}
           </a>
         </p>
       </Card>

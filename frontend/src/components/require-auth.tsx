@@ -4,11 +4,13 @@ import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useHydratedAuth } from "@/lib/use-hydrated-auth";
 import { Loading } from "@/components/loading";
+import { useT } from "@/lib/i18n/provider";
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { hydrated, accessToken } = useHydratedAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const t = useT();
 
   useEffect(() => {
     if (hydrated && !accessToken) {
@@ -19,7 +21,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   if (!hydrated || !accessToken) {
     return (
       <div className="p-8">
-        <Loading label="Loading…" />
+        <Loading label={t("common.loading")} />
       </div>
     );
   }

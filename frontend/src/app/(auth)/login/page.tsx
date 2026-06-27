@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/field";
+import { useT } from "@/lib/i18n/provider";
 
 const DEV_ADMIN_EMAIL = "admin@example.com";
 const DEV_ADMIN_PASSWORD = "admin";
@@ -19,6 +20,7 @@ function LoginForm() {
   const next = params.get("next") || "/practice";
   const setAuth = useAuthStore((s) => s.setAuth);
   const setHydrated = useAuthStore((s) => s.setHydrated);
+  const t = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +36,9 @@ function LoginForm() {
         body: JSON.stringify(creds),
       });
       if (!resp.ok) {
-        setError(resp.status === 429 ? "Too many attempts. Try later." : "Invalid credentials.");
+        setError(
+          resp.status === 429 ? t("auth.tooManyAttempts") : t("auth.invalidCredentials"),
+        );
         return;
       }
       const data = await resp.json();
@@ -57,31 +61,31 @@ function LoginForm() {
         <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary">
           <ShieldCheck className="h-6 w-6 text-primary-foreground" />
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight">CISSP Exam Prep</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Master cybersecurity certification</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("auth.brand")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t("auth.tagline")}</p>
       </div>
 
       <Card className="rounded-2xl p-6 sm:p-8">
-        <h2 className="mb-6 text-lg font-semibold">Log in</h2>
+        <h2 className="mb-6 text-lg font-semibold">{t("auth.login")}</h2>
         <form onSubmit={submit} className="space-y-4">
-          <Field label="Email" htmlFor="signin-email" icon={Mail}>
+          <Field label={t("auth.email")} htmlFor="signin-email" icon={Mail}>
             <Input
               id="signin-email"
               type="email"
               autoComplete="email"
-              placeholder="you@example.com"
+              placeholder={t("auth.emailPlaceholder")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
               required
             />
           </Field>
-          <Field label="Password" htmlFor="signin-password" icon={Lock}>
+          <Field label={t("auth.password")} htmlFor="signin-password" icon={Lock}>
             <Input
               id="signin-password"
               type="password"
               autoComplete="current-password"
-              placeholder="Enter your password"
+              placeholder={t("auth.passwordPlaceholder")}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -90,7 +94,7 @@ function LoginForm() {
           </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" size="pill" className="w-full" disabled={busy}>
-            {busy ? "Logging in…" : "Log in"}
+            {busy ? t("auth.loggingIn") : t("auth.login")}
           </Button>
         </form>
         <Button
@@ -102,12 +106,12 @@ function LoginForm() {
           onClick={() => void loginWith({ email: DEV_ADMIN_EMAIL, password: DEV_ADMIN_PASSWORD })}
           title={`Logs in as ${DEV_ADMIN_EMAIL} / ${DEV_ADMIN_PASSWORD}`}
         >
-          Dev login (admin / admin)
+          {t("auth.devLogin")}
         </Button>
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          No account?{" "}
+          {t("auth.noAccount")}{" "}
           <a href="/register" className="font-medium text-primary hover:underline">
-            Register
+            {t("auth.register")}
           </a>
         </p>
       </Card>
