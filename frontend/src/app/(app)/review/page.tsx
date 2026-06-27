@@ -6,7 +6,7 @@ import { SubsetLauncher } from "@/features/review/subset-launcher";
 
 export default function ReviewPage() {
   return (
-    <div>
+    <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
         eyebrow="Review"
         title="Wrong / Bookmarked / Flagged"

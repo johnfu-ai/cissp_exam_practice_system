@@ -7,7 +7,7 @@ import { ImportWizard } from "@/features/import/import-wizard";
 
 export default function ImportPage() {
   return (
-    <div>
+    <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
         eyebrow="Content"
         title="Import"
