@@ -20,6 +20,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
+import { useT } from "@/lib/i18n/provider";
 import type { Subset, SessionCreateInput } from "@/lib/api/types";
 
 const ANY = "__any__";
@@ -47,6 +48,7 @@ export function SubsetLauncher({
   emptyHint: string;
 }) {
   const router = useRouter();
+  const t = useT();
   const [count, setCount] = useState(10);
   const [domainId, setDomainId] = useState<string | null>(null);
   const domains = useDomains();
@@ -65,7 +67,7 @@ export function SubsetLauncher({
         if (e instanceof ApiError && e.status === 422) {
           toast.error(emptyHint);
         } else {
-          toast.error("Could not start the session.");
+          toast.error(t("subsetLauncher.couldNotStart"));
         }
       },
     });
@@ -78,7 +80,7 @@ export function SubsetLauncher({
           <Icon className="h-6 w-6" />
         </div>
         <div className="min-w-0">
-          <Eyebrow className="mb-1">Re-practice</Eyebrow>
+          <Eyebrow className="mb-1">{t("subsetLauncher.rePractice")}</Eyebrow>
           <CardTitle className="text-xl">{title}</CardTitle>
         </div>
       </div>
@@ -86,7 +88,7 @@ export function SubsetLauncher({
         <p className="text-sm text-muted-foreground">{description}</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor={`count-${subset}`}>Question count</Label>
+            <Label htmlFor={`count-${subset}`}>{t("subsetLauncher.questionCount")}</Label>
             <Input
               id={`count-${subset}`}
               type="number"
@@ -97,16 +99,16 @@ export function SubsetLauncher({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Domain (optional)</Label>
+            <Label>{t("subsetLauncher.domainOptional")}</Label>
             <Select
               value={domainId ?? ANY}
               onValueChange={(v) => setDomainId(v === ANY ? null : v)}
             >
               <SelectTrigger>
-                <SelectValue placeholder="All domains" />
+                <SelectValue placeholder={t("subsetLauncher.allDomains")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ANY}>All domains</SelectItem>
+                <SelectItem value={ANY}>{t("subsetLauncher.allDomains")}</SelectItem>
                 {domains.data?.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
                     {d.number}. {d.name}
@@ -117,7 +119,7 @@ export function SubsetLauncher({
           </div>
         </div>
         <Button size="pill" onClick={start} disabled={create.isPending}>
-          {create.isPending ? "Starting…" : "Start review session"}
+          {create.isPending ? t("subsetLauncher.starting") : t("subsetLauncher.startReview")}
         </Button>
       </div>
     </Card>

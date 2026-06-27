@@ -10,8 +10,10 @@ import { getTrackedSessionIds, untrackSession } from "./session-tracker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
+import { useT } from "@/lib/i18n/provider";
 
 export function ResumePanel() {
+  const t = useT();
   const [ids, setIds] = useState<string[]>([]);
   useEffect(() => {
     setIds(getTrackedSessionIds());
@@ -50,8 +52,8 @@ export function ResumePanel() {
   if (ids.length === 0 || (results.every((r) => !r.isLoading) && active.length === 0)) {
     return (
       <EmptyState
-        title="No sessions in progress"
-        description="Create a new practice session from the New tab to get started."
+        title={t("resumePanel.noSessions")}
+        description={t("resumePanel.noSessionsDesc")}
       />
     );
   }
@@ -65,11 +67,11 @@ export function ResumePanel() {
         return (
           <Card key={s.id}>
             <CardHeader>
-              <CardTitle className="text-base">Practice session</CardTitle>
+              <CardTitle className="text-base">{t("resumePanel.practiceSession")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                {s.correct_count} correct of {s.total_questions} questions
+                {t("resumePanel.correctOf", { c: s.correct_count, t: s.total_questions })}
               </p>
               <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div
@@ -84,7 +86,7 @@ export function ResumePanel() {
                 />
               </div>
               <Button asChild size="sm">
-                <Link href={`/practice/sessions/${s.id}`}>Resume</Link>
+                <Link href={`/practice/sessions/${s.id}`}>{t("resumePanel.resume")}</Link>
               </Button>
             </CardContent>
           </Card>

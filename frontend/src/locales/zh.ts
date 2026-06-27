@@ -176,6 +176,22 @@ export const zh: typeof en = {
     noMatch: "没有符合筛选条件的题目。",
     couldNotStart: "无法开始会话，请重试。",
   },
+  resumePanel: {
+    noSessions: "没有进行中的会话",
+    noSessionsDesc: "从“新建”标签页创建一个新练习会话开始。",
+    practiceSession: "练习会话",
+    correctOf: "{c} / {t} 题正确",
+    resume: "继续",
+  },
+  subsetLauncher: {
+    rePractice: "重练",
+    questionCount: "题目数量",
+    domainOptional: "Domain（可选）",
+    allDomains: "全部 domain",
+    starting: "开始中…",
+    startReview: "开始复习会话",
+    couldNotStart: "无法开始会话。",
+  },
   review: {
     eyebrow: "复习",
     title: "错题 / 收藏 / 标记",

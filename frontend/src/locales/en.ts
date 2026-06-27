@@ -175,6 +175,22 @@ export const en = {
     noMatch: "No questions match the selected filters.",
     couldNotStart: "Could not start the session. Please try again.",
   },
+  resumePanel: {
+    noSessions: "No sessions in progress",
+    noSessionsDesc: "Create a new practice session from the New tab to get started.",
+    practiceSession: "Practice session",
+    correctOf: "{c} correct of {t} questions",
+    resume: "Resume",
+  },
+  subsetLauncher: {
+    rePractice: "Re-practice",
+    questionCount: "Question count",
+    domainOptional: "Domain (optional)",
+    allDomains: "All domains",
+    starting: "Starting…",
+    startReview: "Start review session",
+    couldNotStart: "Could not start the session.",
+  },
   review: {
     eyebrow: "Review",
     title: "Wrong / Bookmarked / Flagged",
