@@ -26,14 +26,20 @@ describe("auth store", () => {
   });
 
   it("setUser stores the user object", () => {
-    const u = { id: "1", email: "x@y.z", display_name: null, roles: ["r"], perms: ["practice:read"], language_mode: "en" as const };
+    const u = { id: "1", email: "x@y.z", display_name: null, roles: ["r"], perms: ["practice:read"], language_mode: "en" as const, interface_language: "en" as const };
     useAuthStore.getState().setUser(u);
     expect(useAuthStore.getState().user).toEqual(u);
   });
 
   it("setAuth round-trips language_mode on the user", () => {
-    const u = { id: "1", email: "x@y.z", display_name: null, roles: ["r"], perms: ["practice:read"], language_mode: "zh" as const };
+    const u = { id: "1", email: "x@y.z", display_name: null, roles: ["r"], perms: ["practice:read"], language_mode: "zh" as const, interface_language: "en" as const };
     useAuthStore.getState().setAuth(u, "a1", "r1");
     expect(useAuthStore.getState().user?.language_mode).toBe("zh");
+  });
+
+  it("setAuth round-trips interface_language on the user", () => {
+    const u = { id: "1", email: "x@y.z", display_name: null, roles: ["r"], perms: ["practice:read"], language_mode: "en" as const, interface_language: "zh" as const };
+    useAuthStore.getState().setAuth(u, "a1", "r1");
+    expect(useAuthStore.getState().user?.interface_language).toBe("zh");
   });
 });

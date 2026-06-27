@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { LanguageMode } from "./api/types";
+import type { LanguageCode, LanguageMode } from "./api/types";
 
 export interface AuthUser {
   id: string;
@@ -10,6 +10,7 @@ export interface AuthUser {
   roles: string[];
   perms: string[];
   language_mode: LanguageMode;
+  interface_language: LanguageCode;
 }
 
 interface AuthState {

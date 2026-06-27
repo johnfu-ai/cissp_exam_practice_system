@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import type { Locale } from "@/lib/i18n/types";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -14,15 +16,17 @@ export const metadata: Metadata = {
   description: "CISSP exam preparation platform",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const uiLang = cookies().get("ui_lang")?.value;
+  const locale: Locale = uiLang === "zh" ? "zh" : "en";
   return (
-    <html lang="en" className={dmSans.variable}>
+    <html lang={locale} className={dmSans.variable}>
       <body className="font-sans antialiased">
-        <Providers>{children}</Providers>
+        <Providers initialLocale={locale}>{children}</Providers>
       </body>
     </html>
   );

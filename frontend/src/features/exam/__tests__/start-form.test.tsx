@@ -50,6 +50,7 @@ function userWith(language_mode: LanguageMode): AuthUser {
     roles: [],
     perms: [],
     language_mode,
+    interface_language: "en",
   };
 }
 

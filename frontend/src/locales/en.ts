@@ -66,4 +66,4 @@ export const en = {
     invalidCredentials: "Invalid credentials.",
     emailExists: "Email already registered.",
   },
-} as const;
+};
