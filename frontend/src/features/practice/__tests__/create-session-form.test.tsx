@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithProviders } from "@/test/render-with-providers";
 import userEvent from "@testing-library/user-event";
 
 const mutate = vi.fn();
@@ -25,7 +26,7 @@ beforeEach(() => {
 
 describe("CreateSessionForm", () => {
   it("submits count + defaults using backend field names", async () => {
-    render(<CreateSessionForm />);
+    renderWithProviders(<CreateSessionForm />);
     const count = screen.getByLabelText(/number of questions/i);
     await userEvent.clear(count);
     await userEvent.type(count, "15");
@@ -36,7 +37,7 @@ describe("CreateSessionForm", () => {
   });
 
   it("disables Start when count is below 1", async () => {
-    render(<CreateSessionForm />);
+    renderWithProviders(<CreateSessionForm />);
     const count = screen.getByLabelText(/number of questions/i);
     await userEvent.clear(count);
     await userEvent.type(count, "0");

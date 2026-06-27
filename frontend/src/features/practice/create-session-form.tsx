@@ -6,6 +6,7 @@ import { useDomains, useBooks, useChapters, useTags } from "@/lib/api/taxonomy";
 import { useCreateSession } from "@/lib/api/practice";
 import { useAuthStore } from "@/lib/auth-store";
 import { ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n/provider";
 import {
   buildSessionPayload,
   defaultSessionFormState,
@@ -40,17 +41,13 @@ const TYPES: QuestionType[] = [
   "hotspot",
 ];
 const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
-const LANGUAGE_LABELS: Record<LanguageMode, string> = {
-  en: "English",
-  zh: "中文",
-  bilingual: "Both",
-};
 
 function labelize(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function CreateSessionForm() {
+  const t = useT();
   const router = useRouter();
   const [form, setForm] = useState<SessionFormState>(defaultSessionFormState);
   const domains = useDomains();
@@ -60,9 +57,6 @@ export function CreateSessionForm() {
   const create = useCreateSession();
   const user = useAuthStore((s) => s.user);
 
-  // Pre-select the user's preferred language mode once it is available. The
-  // select itself also falls back to this value while `form.languageMode` is
-  // still null, so the UI never shows an empty selection before the effect runs.
   useEffect(() => {
     if (form.languageMode === null && user?.language_mode) {
       set("languageMode", user.language_mode);
@@ -84,8 +78,8 @@ export function CreateSessionForm() {
       onError: (e) => {
         const msg =
           e instanceof ApiError && e.status === 422
-            ? "No questions match the selected filters."
-            : "Could not start the session. Please try again.";
+            ? t("practiceForm.noMatch")
+            : t("practiceForm.couldNotStart");
         toast.error(msg);
       },
     });
@@ -95,32 +89,34 @@ export function CreateSessionForm() {
 
   const activeLanguage = form.languageMode ?? user?.language_mode ?? "en";
   const domainLabel = form.domainId
-    ? (domains.data ?? []).find((d) => d.id === form.domainId)?.name ?? "Selected domain"
-    : "Any domain";
+    ? (domains.data ?? []).find((d) => d.id === form.domainId)?.name ?? t("practiceForm.selectedDomain")
+    : t("practiceForm.anyDomain");
+
+  const langLabel = (m: LanguageMode) => t(`lang.${m}`);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       {/* Left column: configuration */}
       <Card>
         <CardHeader>
-          <Eyebrow>Configure</Eyebrow>
-          <CardTitle className="text-xl">New practice session</CardTitle>
+          <Eyebrow>{t("practiceForm.configure")}</Eyebrow>
+          <CardTitle className="text-xl">{t("practiceForm.newSession")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-8">
           <section className="space-y-4">
-            <Eyebrow>Scope</Eyebrow>
+            <Eyebrow>{t("practiceForm.scope")}</Eyebrow>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Domain</Label>
+                <Label>{t("practiceForm.domain")}</Label>
                 <Select
                   value={form.domainId ?? ANY}
                   onValueChange={(v) => set("domainId", v === ANY ? null : v)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Any domain" />
+                    <SelectValue placeholder={t("practiceForm.anyDomain")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>Any domain</SelectItem>
+                    <SelectItem value={ANY}>{t("practiceForm.anyDomain")}</SelectItem>
                     {(domains.data ?? []).map((d) => (
                       <SelectItem key={d.id} value={d.id}>
                         {d.number}. {d.name}
@@ -131,7 +127,7 @@ export function CreateSessionForm() {
               </div>
 
               <div className="space-y-2">
-                <Label>Subset</Label>
+                <Label>{t("practiceForm.subset")}</Label>
                 <Select value={form.subset} onValueChange={(v) => set("subset", v as Subset)}>
                   <SelectTrigger>
                     <SelectValue />
@@ -147,7 +143,7 @@ export function CreateSessionForm() {
               </div>
 
               <div className="space-y-2">
-                <Label>Book</Label>
+                <Label>{t("practiceForm.book")}</Label>
                 <Select
                   value={form.bookId ?? ANY}
                   onValueChange={(v) =>
@@ -155,10 +151,10 @@ export function CreateSessionForm() {
                   }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Any book" />
+                    <SelectValue placeholder={t("practiceForm.anyBook")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>Any book</SelectItem>
+                    <SelectItem value={ANY}>{t("practiceForm.anyBook")}</SelectItem>
                     {(books.data ?? []).map((b) => (
                       <SelectItem key={b.id} value={b.id}>
                         {b.title}
@@ -169,17 +165,19 @@ export function CreateSessionForm() {
               </div>
 
               <div className="space-y-2">
-                <Label>Chapter</Label>
+                <Label>{t("practiceForm.chapter")}</Label>
                 <Select
                   value={form.chapterIds[0] ?? ANY}
                   disabled={!form.bookId}
                   onValueChange={(v) => set("chapterIds", v === ANY ? [] : [v])}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={form.bookId ? "Any chapter" : "Select a book first"} />
+                    <SelectValue
+                      placeholder={form.bookId ? t("practiceForm.anyChapter") : t("practiceForm.selectBookFirst")}
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>Any chapter</SelectItem>
+                    <SelectItem value={ANY}>{t("practiceForm.anyChapter")}</SelectItem>
                     {(chapters.data ?? []).map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.order_index}. {c.title}
@@ -192,10 +190,10 @@ export function CreateSessionForm() {
           </section>
 
           <section className="space-y-4">
-            <Eyebrow>Questions</Eyebrow>
+            <Eyebrow>{t("practiceForm.questions")}</Eyebrow>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="count">Number of questions</Label>
+                <Label htmlFor="count">{t("practiceForm.numQuestions")}</Label>
                 <Input
                   id="count"
                   type="number"
@@ -207,19 +205,19 @@ export function CreateSessionForm() {
               </div>
 
               <div className="space-y-2">
-                <Label>Question type</Label>
+                <Label>{t("practiceForm.questionType")}</Label>
                 <Select
                   value={form.questionType ?? ANY}
                   onValueChange={(v) => set("questionType", v === ANY ? null : v)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Any type" />
+                    <SelectValue placeholder={t("practiceForm.anyType")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>Any type</SelectItem>
-                    {TYPES.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {labelize(t)}
+                    <SelectItem value={ANY}>{t("practiceForm.anyType")}</SelectItem>
+                    {TYPES.map((qt) => (
+                      <SelectItem key={qt} value={qt}>
+                        {labelize(qt)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -227,19 +225,19 @@ export function CreateSessionForm() {
               </div>
 
               <div className="space-y-2">
-                <Label>Difficulty</Label>
+                <Label>{t("practiceForm.difficulty")}</Label>
                 <Select
                   value={form.difficulty != null ? String(form.difficulty) : ANY}
                   onValueChange={(v) => set("difficulty", v === ANY ? null : Number(v))}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Any difficulty" />
+                    <SelectValue placeholder={t("practiceForm.anyDifficulty")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>Any difficulty</SelectItem>
+                    <SelectItem value={ANY}>{t("practiceForm.anyDifficulty")}</SelectItem>
                     {[1, 2, 3, 4, 5].map((d) => (
                       <SelectItem key={d} value={String(d)}>
-                        Level {d}
+                        {t("practiceForm.levelN", { n: d })}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -247,16 +245,16 @@ export function CreateSessionForm() {
               </div>
 
               <div className="space-y-2">
-                <Label>Tag</Label>
+                <Label>{t("practiceForm.tag")}</Label>
                 <Select value={form.tagId ?? ANY} onValueChange={(v) => set("tagId", v === ANY ? null : v)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Any tag" />
+                    <SelectValue placeholder={t("practiceForm.anyTag")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>Any tag</SelectItem>
-                    {(tags.data ?? []).map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
+                    <SelectItem value={ANY}>{t("practiceForm.anyTag")}</SelectItem>
+                    {(tags.data ?? []).map((tg) => (
+                      <SelectItem key={tg.id} value={tg.id}>
+                        {tg.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -266,10 +264,10 @@ export function CreateSessionForm() {
           </section>
 
           <section className="space-y-4">
-            <Eyebrow>Delivery</Eyebrow>
+            <Eyebrow>{t("practiceForm.delivery")}</Eyebrow>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Order</Label>
+                <Label>{t("practiceForm.order")}</Label>
                 <Select value={form.orderMode} onValueChange={(v) => set("orderMode", v as OrderMode)}>
                   <SelectTrigger>
                     <SelectValue />
@@ -285,7 +283,7 @@ export function CreateSessionForm() {
               </div>
 
               <div className="space-y-2">
-                <Label>Language mode</Label>
+                <Label>{t("practiceForm.languageMode")}</Label>
                 <Select
                   value={form.languageMode ?? user?.language_mode ?? "en"}
                   onValueChange={(v) => set("languageMode", v as LanguageMode)}
@@ -296,7 +294,7 @@ export function CreateSessionForm() {
                   <SelectContent>
                     {LANGUAGE_MODES.map((m) => (
                       <SelectItem key={m} value={m}>
-                        {LANGUAGE_LABELS[m]}
+                        {langLabel(m)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -310,15 +308,15 @@ export function CreateSessionForm() {
       {/* Right column: summary + start CTA */}
       <Card className="lg:sticky lg:top-6 lg:self-start">
         <CardHeader>
-          <CardTitle>Session summary</CardTitle>
+          <CardTitle>{t("practiceForm.sessionSummary")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           <dl className="space-y-3 text-sm">
-            <SummaryRow label="Questions" value={String(form.count)} />
-            <SummaryRow label="Domain" value={domainLabel} />
-            <SummaryRow label="Source" value={labelize(form.subset)} />
-            <SummaryRow label="Order" value={labelize(form.orderMode)} />
-            <SummaryRow label="Language" value={LANGUAGE_LABELS[activeLanguage]} />
+            <SummaryRow label={t("practiceForm.summaryQuestions")} value={String(form.count)} />
+            <SummaryRow label={t("practiceForm.summaryDomain")} value={domainLabel} />
+            <SummaryRow label={t("practiceForm.summarySource")} value={labelize(form.subset)} />
+            <SummaryRow label={t("practiceForm.summaryOrder")} value={labelize(form.orderMode)} />
+            <SummaryRow label={t("practiceForm.summaryLanguage")} value={langLabel(activeLanguage)} />
           </dl>
           <Button
             size="pill"
@@ -326,12 +324,10 @@ export function CreateSessionForm() {
             disabled={!countValid || create.isPending}
             className="w-full"
           >
-            {create.isPending ? "Starting…" : "Start practice"}
+            {create.isPending ? t("practiceForm.starting") : t("practiceForm.startPractice")}
           </Button>
           {!countValid && (
-            <p className="text-center text-xs text-muted-foreground">
-              Choose between 1 and 200 questions.
-            </p>
+            <p className="text-center text-xs text-muted-foreground">{t("practiceForm.countHint")}</p>
           )}
         </CardContent>
       </Card>
