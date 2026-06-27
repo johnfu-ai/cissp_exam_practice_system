@@ -46,6 +46,9 @@ class User(UUIDPrimaryKey, TimestampMixin, Base):
     language_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=text("'en'")
     )
+    interface_language: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'en'")
+    )
 
 
 class Role(UUIDPrimaryKey, TimestampMixin, Base):

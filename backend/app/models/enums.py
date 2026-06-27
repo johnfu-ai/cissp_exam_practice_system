@@ -138,6 +138,8 @@ class AuditAction(str, enum.Enum):
 
 LanguageCode = Literal["en", "zh"]
 LanguageMode = Literal["en", "zh", "bilingual"]
+InterfaceLanguage = Literal["en", "zh"]
 
 LANGUAGE_CODES: tuple[str, ...] = ("en", "zh")
 LANGUAGE_MODES: tuple[str, ...] = ("en", "zh", "bilingual")
+INTERFACE_LANGUAGES: tuple[str, ...] = ("en", "zh")

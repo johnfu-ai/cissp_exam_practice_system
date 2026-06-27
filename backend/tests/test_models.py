@@ -198,3 +198,16 @@ def test_user_has_language_mode(db_session):
     db_session.add(u)
     db_session.flush()
     assert u.language_mode == "bilingual"
+
+
+def test_user_has_interface_language(db_session):
+    from app.models.auth import User
+
+    u = User(email="if@y.com", interface_language="zh")
+    db_session.add(u)
+    db_session.flush()
+    assert u.interface_language == "zh"
+    u2 = User(email="if2@y.com")
+    db_session.add(u2)
+    db_session.flush()
+    assert u2.interface_language == "en"
