@@ -5,14 +5,22 @@ import { QuestionEditor } from "@/features/questions/editor";
 import { useQuestionDetail } from "@/lib/api/questions";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import { useT } from "@/lib/i18n/provider";
 
 export default function EditQuestionPage({ params }: { params: { id: string } }) {
+  const t = useT();
   const detail = useQuestionDetail(params.id);
-  if (detail.isLoading) return <Loading label="Loading question…" />;
-  if (detail.isError || !detail.data) return <ErrorState message="Could not load this question." />;
+  if (detail.isLoading) return <Loading label={t("questions.loadingQuestion")} />;
+  if (detail.isError || !detail.data)
+    return <ErrorState message={t("questions.loadFailedQuestion")} />;
   return (
     <div>
-      <PageHeader eyebrow="Content" title="Edit question" crumbs={["Questions"]} description={`v${detail.data.version}`} />
+      <PageHeader
+        eyebrow={t("questions.eyebrow")}
+        title={t("questions.editTitle")}
+        crumbs={[t("questions.title")]}
+        description={t("questions.versionDesc", { n: detail.data.version })}
+      />
       <QuestionEditor initial={detail.data} />
     </div>
   );

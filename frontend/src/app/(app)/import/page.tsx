@@ -4,21 +4,23 @@ import { PageHeader } from "@/components/page-header";
 import { RequirePermission } from "@/components/require-permission";
 import { EmptyState } from "@/components/empty-state";
 import { ImportWizard } from "@/features/import/import-wizard";
+import { useT } from "@/lib/i18n/provider";
 
 export default function ImportPage() {
+  const t = useT();
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
-        eyebrow="Content"
-        title="Import"
-        description="Preview, validate, and commit question datasets. Imports run as a two-phase preview → commit with full rollback."
+        eyebrow={t("importPage.eyebrow")}
+        title={t("importPage.title")}
+        description={t("importPage.description")}
       />
       <RequirePermission
         perm="question:import"
         fallback={
           <EmptyState
-            title="Import not available"
-            description="You need the question import permission to use this page."
+            title={t("importPage.notAvailable")}
+            description={t("importPage.notAvailableDesc")}
           />
         }
       >

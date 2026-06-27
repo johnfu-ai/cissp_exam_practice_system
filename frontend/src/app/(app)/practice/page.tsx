@@ -4,19 +4,21 @@ import { PageHeader } from "@/components/page-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ResumePanel } from "@/features/practice/resume-panel";
 import { CreateSessionForm } from "@/features/practice/create-session-form";
+import { useT } from "@/lib/i18n/provider";
 
 export default function PracticePage() {
+  const t = useT();
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
-        eyebrow="Practice"
-        title="Practice"
-        description="Build and resume scoped practice sessions."
+        eyebrow={t("practice.eyebrow")}
+        title={t("practice.title")}
+        description={t("practice.description")}
       />
       <Tabs defaultValue="new">
         <TabsList>
-          <TabsTrigger value="new">New session</TabsTrigger>
-          <TabsTrigger value="resume">Resume</TabsTrigger>
+          <TabsTrigger value="new">{t("practice.newSession")}</TabsTrigger>
+          <TabsTrigger value="resume">{t("practice.resume")}</TabsTrigger>
         </TabsList>
         <TabsContent value="new" className="pt-2">
           <CreateSessionForm />
