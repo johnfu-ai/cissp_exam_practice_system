@@ -16,6 +16,7 @@ import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { toast } from "@/components/ui/sonner";
+import { useT } from "@/lib/i18n/provider";
 import type { EtlRun } from "@/lib/api/types";
 
 function Count({ label, value, tone }: { label: string; value: number; tone?: "create" | "update" | "muted" | "error" }) {
@@ -32,6 +33,7 @@ function Count({ label, value, tone }: { label: string; value: number; tone?: "c
 }
 
 export function ImportWizard() {
+  const t = useT();
   const datasets = useDatasets();
   const createRun = useCreateRun();
   const commit = useCommitRun();
@@ -43,7 +45,7 @@ export function ImportWizard() {
     setActiveSlug(slug);
     createRun.mutate(slug, {
       onSuccess: (r) => setRun(r),
-      onError: () => toast.error("Could not generate a preview for this dataset."),
+      onError: () => toast.error(t("importWiz.toastPreviewFail")),
     });
   }
 
@@ -52,9 +54,9 @@ export function ImportWizard() {
     commit.mutate(run.run_id, {
       onSuccess: (r) => {
         setRun((cur) => (cur ? { ...cur, phase: r.phase } : cur));
-        toast.success("Import committed.");
+        toast.success(t("importWiz.toastCommitted"));
       },
-      onError: () => toast.error("Could not commit this import."),
+      onError: () => toast.error(t("importWiz.toastCommitFail")),
     });
   }
 
@@ -63,15 +65,15 @@ export function ImportWizard() {
     rollback.mutate(run.run_id, {
       onSuccess: (r) => {
         setRun((cur) => (cur ? { ...cur, phase: r.phase } : cur));
-        toast.message("Import discarded.");
+        toast.message(t("importWiz.toastDiscarded"));
       },
-      onError: () => toast.error("Could not discard this import."),
+      onError: () => toast.error(t("importWiz.toastDiscardFail")),
     });
   }
 
-  if (datasets.isLoading) return <Loading label="Loading datasets…" />;
+  if (datasets.isLoading) return <Loading label={t("importWiz.loadingDatasets")} />;
   if (datasets.isError) {
-    return <ErrorState message="Could not load import datasets." onRetry={() => datasets.refetch()} />;
+    return <ErrorState message={t("importWiz.loadFailed")} onRetry={() => datasets.refetch()} />;
   }
 
   const summary = run?.preview_summary;
@@ -79,9 +81,9 @@ export function ImportWizard() {
   return (
     <div className="space-y-8">
       <section>
-        <Eyebrow className="mb-3">Datasets</Eyebrow>
+        <Eyebrow className="mb-3">{t("importWiz.datasets")}</Eyebrow>
         {datasets.data && datasets.data.length === 0 ? (
-          <EmptyState title="No datasets available" description="Seeded import datasets will appear here." />
+          <EmptyState title={t("importWiz.noDatasets")} description={t("importWiz.noDatasetsDesc")} />
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {datasets.data?.map((d) => (
@@ -92,7 +94,7 @@ export function ImportWizard() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex flex-wrap gap-2 text-xs">
-                    <Badge variant="secondary">{d.total_questions} questions</Badge>
+                    <Badge variant="secondary">{t("importWiz.nQuestions", { n: d.total_questions })}</Badge>
                     {d.languages.map((l) => (
                       <Badge key={l} variant="outline">{l}</Badge>
                     ))}
@@ -102,7 +104,7 @@ export function ImportWizard() {
                     onClick={() => preview(d.slug)}
                     disabled={createRun.isPending && activeSlug === d.slug}
                   >
-                    {createRun.isPending && activeSlug === d.slug ? "Previewing…" : "Preview import"}
+                    {createRun.isPending && activeSlug === d.slug ? t("importWiz.previewing") : t("importWiz.previewImport")}
                   </Button>
                 </CardContent>
               </Card>
@@ -113,25 +115,25 @@ export function ImportWizard() {
 
       {run && summary && (
         <section>
-          <Eyebrow className="mb-3">Preview</Eyebrow>
+          <Eyebrow className="mb-3">{t("importWiz.preview")}</Eyebrow>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Preview — {activeSlug}</CardTitle>
+              <CardTitle>{t("importWiz.previewOf", { slug: activeSlug })}</CardTitle>
               <Badge variant={run.phase === "committed" ? "success" : run.phase === "rolled_back" ? "destructive" : "secondary"}>
                 {run.phase}
               </Badge>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Count label="Would create" value={summary.would_create} tone="create" />
-                <Count label="Would update" value={summary.would_update} tone="update" />
-                <Count label="Unchanged" value={summary.unchanged} tone="muted" />
-                <Count label="Errors" value={summary.errors.length} tone="error" />
+                <Count label={t("importWiz.wouldCreate")} value={summary.would_create} tone="create" />
+                <Count label={t("importWiz.wouldUpdate")} value={summary.would_update} tone="update" />
+                <Count label={t("importWiz.unchanged")} value={summary.unchanged} tone="muted" />
+                <Count label={t("importWiz.errors")} value={summary.errors.length} tone="error" />
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <h4 className="mb-1 text-sm font-medium">By type</h4>
+                  <h4 className="mb-1 text-sm font-medium">{t("importWiz.byType")}</h4>
                   <ul className="space-y-1 text-sm text-muted-foreground">
                     {Object.entries(summary.by_type).map(([k, v]) => (
                       <li key={k} className="flex justify-between">
@@ -143,7 +145,7 @@ export function ImportWizard() {
                   </ul>
                 </div>
                 <div>
-                  <h4 className="mb-1 text-sm font-medium">By language</h4>
+                  <h4 className="mb-1 text-sm font-medium">{t("importWiz.byLanguage")}</h4>
                   <ul className="space-y-1 text-sm text-muted-foreground">
                     {Object.entries(summary.by_language).map(([k, v]) => (
                       <li key={k} className="flex justify-between">
@@ -159,15 +161,15 @@ export function ImportWizard() {
               {summary.errors.length > 0 && (
                 <div>
                   <h4 className="mb-2 text-sm font-medium text-destructive">
-                    Validation issues ({summary.errors.length})
+                    {t("importWiz.validationIssues", { n: summary.errors.length })}
                   </h4>
                   <div className="max-h-64 overflow-y-auto rounded-md border">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-muted/60">
                         <tr className="text-left text-muted-foreground">
-                          <th className="px-3 py-2 font-medium">Row / ID</th>
-                          <th className="px-3 py-2 font-medium">Language</th>
-                          <th className="px-3 py-2 font-medium">Reason</th>
+                          <th className="px-3 py-2 font-medium">{t("importWiz.colRowId")}</th>
+                          <th className="px-3 py-2 font-medium">{t("importWiz.colLanguage")}</th>
+                          <th className="px-3 py-2 font-medium">{t("importWiz.colReason")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -187,19 +189,19 @@ export function ImportWizard() {
               {run.phase === "preview" ? (
                 <div className="flex flex-wrap gap-2">
                   <Button size="pill" onClick={doCommit} disabled={commit.isPending}>
-                    {commit.isPending ? "Committing…" : `Commit import (${summary.would_create + summary.would_update} rows)`}
+                    {commit.isPending ? t("importWiz.committing") : t("importWiz.commitImport", { n: summary.would_create + summary.would_update })}
                   </Button>
                   <Button variant="outline" size="pill" onClick={doRollback} disabled={rollback.isPending}>
-                    Discard
+                    {t("importWiz.discard")}
                   </Button>
                 </div>
               ) : (
                 <Alert>
-                  <AlertTitle>{run.phase === "committed" ? "Import committed" : "Import discarded"}</AlertTitle>
+                  <AlertTitle>{run.phase === "committed" ? t("importWiz.committedTitle") : t("importWiz.discardedTitle")}</AlertTitle>
                   <AlertDescription>
                     {run.phase === "committed"
-                      ? "Questions have been imported. Manage them from the Questions page."
-                      : "No changes were applied. You can preview again at any time."}
+                      ? t("importWiz.committedDesc")
+                      : t("importWiz.discardedDesc")}
                   </AlertDescription>
                 </Alert>
               )}

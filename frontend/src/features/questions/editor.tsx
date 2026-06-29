@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n/provider";
+import { enumLabel } from "@/features/shared/enum-label";
 import { Trash2, Plus } from "lucide-react";
 import type {
   QuestionDetail,
@@ -33,10 +35,6 @@ import type {
 const ANY = "__none__";
 const TYPES: QuestionType[] = ["single_choice", "multiple_choice", "true_false", "scenario"];
 const LICENSES: LicenseStatus[] = ["user_owned", "third_party_licensed", "public_domain", "unconfirmed"];
-
-function labelize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 /** Per-language content for stem / each option / rationale / key point. */
 interface LangContent {
@@ -65,6 +63,7 @@ function fromTranslation(t: Translation): LangContent {
 }
 
 export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
+  const t = useT();
   const router = useRouter();
   const domains = useDomains();
   const create = useCreateQuestion();
@@ -138,19 +137,19 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
     setZh((p) => (p ? { ...p, opts: p.opts.map((c, idx) => (idx === i ? v : c)) } : p));
 
   function validate(): string | null {
-    if (!en.stem.trim()) return "English stem is required.";
+    if (!en.stem.trim()) return t("questionEditor.enStemRequired");
     const enFilled = en.opts.filter((c) => c.trim());
-    if (enFilled.length < 2) return "Provide at least two options with content.";
+    if (enFilled.length < 2) return t("questionEditor.twoOptions");
     const correct = options.filter((o) => o.is_correct).length;
-    if (correct === 0) return "Mark at least one correct option.";
-    if (!isMulti && correct !== 1) return "Single-answer questions need exactly one correct option.";
-    if (!en.rationale.trim()) return "An English answer rationale is required.";
+    if (correct === 0) return t("questionEditor.oneCorrect");
+    if (!isMulti && correct !== 1) return t("questionEditor.singleOneCorrect");
+    if (!en.rationale.trim()) return t("questionEditor.enRationaleRequired");
     // Completeness: when a Chinese version is enabled, every field must be filled
     // (mirrors the backend publish rule FR-LANG-09).
     if (zh) {
-      if (!zh.stem.trim()) return "Chinese stem is required when a Chinese version is enabled.";
-      if (zh.opts.some((c) => !c.trim())) return "All Chinese option contents are required.";
-      if (!zh.rationale.trim()) return "Chinese answer rationale is required.";
+      if (!zh.stem.trim()) return t("questionEditor.zhStemRequired");
+      if (zh.opts.some((c) => !c.trim())) return t("questionEditor.zhOptsRequired");
+      if (!zh.rationale.trim()) return t("questionEditor.zhRationaleRequired");
     }
     return null;
   }
@@ -196,14 +195,14 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
     const onErr = (e: unknown) =>
       toast.error(
         e instanceof ApiError && e.status === 422
-          ? "Validation failed — check your inputs."
-          : "Could not save the question.",
+          ? t("questionEditor.validationFailed")
+          : t("questionEditor.couldNotSave"),
       );
 
     if (initial) {
       update.mutate(payload, {
         onSuccess: (q) => {
-          toast.success("Question updated.");
+          toast.success(t("questionEditor.toastUpdated"));
           router.push(`/questions/${q.id}`);
         },
         onError: onErr,
@@ -211,7 +210,7 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
     } else {
       create.mutate(payload, {
         onSuccess: (q) => {
-          toast.success("Question created.");
+          toast.success(t("questionEditor.toastCreated"));
           router.push(`/questions/${q.id}`);
         },
         onError: onErr,
@@ -233,19 +232,19 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
     return (
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor={`stem-${lang}`}>Stem</Label>
+          <Label htmlFor={`stem-${lang}`}>{t("questionEditor.stem")}</Label>
           <Textarea
             id={`stem-${lang}`}
             rows={4}
             value={c.stem}
             onChange={(e) => onStem(e.target.value)}
-            placeholder="The question text…"
+            placeholder={t("questionEditor.stemPlaceholder")}
           />
         </div>
 
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            {isMulti ? "Check all correct options." : "Select the single correct option."}
+            {isMulti ? t("questionEditor.multiHint") : t("questionEditor.singleHint")}
           </p>
           {options.map((o, i) => (
             <div key={i} className="flex items-start gap-3 rounded-md border p-3">
@@ -253,15 +252,15 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
                 <Checkbox
                   checked={o.is_correct}
                   onCheckedChange={(ck) => setCorrect(i, ck === true)}
-                  aria-label={`Option ${i + 1} correct`}
+                  aria-label={t("questionEditor.optionCorrectAria", { n: i + 1 })}
                 />
               </div>
               <div className="flex-1">
                 <Input
                   value={c.opts[i] ?? ""}
                   onChange={(e) => onOpt(i, e.target.value)}
-                  aria-label={`Option ${i + 1} content`}
-                  placeholder={`Option ${i + 1}`}
+                  aria-label={t("questionEditor.optionContentAria", { n: i + 1 })}
+                  placeholder={t("questionEditor.optionPlaceholder", { n: i + 1 })}
                 />
               </div>
               <Button
@@ -269,19 +268,19 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
                 size="sm"
                 onClick={() => removeOption(i)}
                 disabled={options.length <= 2}
-                aria-label={`Remove option ${i + 1}`}
+                aria-label={t("questionEditor.removeOptionAria", { n: i + 1 })}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={addOption}>
-            <Plus className="h-4 w-4" /> Add option
+            <Plus className="h-4 w-4" /> {t("questionEditor.addOption")}
           </Button>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor={`rationale-${lang}`}>Correct-answer rationale</Label>
+          <Label htmlFor={`rationale-${lang}`}>{t("questionEditor.rationaleLabel")}</Label>
           <Textarea
             id={`rationale-${lang}`}
             rows={3}
@@ -291,13 +290,13 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor={`keypoint-${lang}`}>Key point summary</Label>
+          <Label htmlFor={`keypoint-${lang}`}>{t("questionEditor.keyPointLabel")}</Label>
           <Textarea
             id={`keypoint-${lang}`}
             rows={2}
             value={c.keyPoint}
             onChange={(e) => onKeyPoint(e.target.value)}
-            placeholder="Optional one-line takeaway…"
+            placeholder={t("questionEditor.keyPointPlaceholder")}
           />
         </div>
       </div>
@@ -307,26 +306,26 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <Card>
-        <CardHeader><CardTitle>Question</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("questionEditor.questionTitle")}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="space-y-1.5">
-              <Label>Type</Label>
+              <Label>{t("questionEditor.type")}</Label>
               <Select value={type} onValueChange={(v) => setType(v as QuestionType)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{TYPES.map((t) => <SelectItem key={t} value={t}>{labelize(t)}</SelectItem>)}</SelectContent>
+                <SelectContent>{TYPES.map((ty) => <SelectItem key={ty} value={ty}>{enumLabel(t, "qType", ty)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="difficulty">Difficulty (1–5)</Label>
+              <Label htmlFor="difficulty">{t("questionEditor.difficulty")}</Label>
               <Input id="difficulty" type="number" min={1} max={5} value={difficulty} onChange={(e) => setDifficulty(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Domain</Label>
+              <Label>{t("questionEditor.domain")}</Label>
               <Select value={domainId ?? ANY} onValueChange={(v) => setDomainId(v === ANY ? null : v)}>
-                <SelectTrigger><SelectValue placeholder="Unmapped" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t("questionEditor.unmapped")} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ANY}>Unmapped</SelectItem>
+                  <SelectItem value={ANY}>{t("questionEditor.unmapped")}</SelectItem>
                   {domains.data?.map((d) => <SelectItem key={d.id} value={d.id}>{d.number}. {d.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -334,15 +333,15 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>License</Label>
+              <Label>{t("questionEditor.license")}</Label>
               <Select value={license} onValueChange={(v) => setLicense(v as LicenseStatus)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{LICENSES.map((l) => <SelectItem key={l} value={l}>{labelize(l)}</SelectItem>)}</SelectContent>
+                <SelectContent>{LICENSES.map((l) => <SelectItem key={l} value={l}>{enumLabel(t, "license", l)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="source">Source</Label>
-              <Input id="source" value={source} onChange={(e) => setSource(e.target.value)} placeholder="e.g. OSG ch.1" />
+              <Label htmlFor="source">{t("questionEditor.source")}</Label>
+              <Input id="source" value={source} onChange={(e) => setSource(e.target.value)} placeholder={t("questionEditor.sourcePlaceholder")} />
             </div>
           </div>
         </CardContent>
@@ -350,18 +349,18 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle>Content</CardTitle>
+          <CardTitle>{t("questionEditor.content")}</CardTitle>
           {zh ? (
-            <Button variant="ghost" size="sm" onClick={disableZh}>Remove Chinese version</Button>
+            <Button variant="ghost" size="sm" onClick={disableZh}>{t("questionEditor.removeZh")}</Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={enableZh}>Add Chinese version</Button>
+            <Button variant="outline" size="sm" onClick={enableZh}>{t("questionEditor.addZh")}</Button>
           )}
         </CardHeader>
         <CardContent>
           <Tabs value={tab} onValueChange={(v) => setTab(v as LanguageCode)}>
             <TabsList>
-              <TabsTrigger value="en">English</TabsTrigger>
-              <TabsTrigger value="zh" disabled={!zh}>中文</TabsTrigger>
+              <TabsTrigger value="en">{t("lang.en")}</TabsTrigger>
+              <TabsTrigger value="zh" disabled={!zh}>{t("lang.zh")}</TabsTrigger>
             </TabsList>
             <TabsContent value="en">
               {renderLangContent("en", en, setEnStem, setEnOpt, setEnRationale, setEnKeyPoint)}
@@ -374,9 +373,9 @@ export function QuestionEditor({ initial }: { initial?: QuestionDetail }) {
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" size="pill" onClick={() => router.back()}>Cancel</Button>
+        <Button variant="outline" size="pill" onClick={() => router.back()}>{t("questionEditor.cancel")}</Button>
         <Button size="pill" onClick={save} disabled={pending}>
-          {pending ? "Saving…" : initial ? "Save changes" : "Create question"}
+          {pending ? t("questionEditor.saving") : initial ? t("questionEditor.saveChanges") : t("questionEditor.createQuestion")}
         </Button>
       </div>
     </div>

@@ -21,21 +21,21 @@ import { ErrorState } from "@/components/error-state";
 import { RequirePermission } from "@/components/require-permission";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import { enumLabel } from "@/features/shared/enum-label";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import { fmtDate } from "@/features/analytics/format";
 import {
-  STATUS_LABELS, statusVariant, availableActions,
-  FEEDBACK_TYPE_LABELS, FEEDBACK_STATUS_LABELS,
+  statusLabel, statusVariant, availableActions,
+  feedbackTypeLabel, feedbackStatusLabel,
 } from "./labels";
 import type { ReviewAction, FeedbackType, LanguageCode } from "@/lib/api/types";
 
 const FEEDBACK_TYPES: FeedbackType[] = [
   "unclear_explanation", "suspected_wrong_answer", "ambiguous_stem", "copyright_issue", "other",
 ];
-
-const LANG_LABEL: Record<LanguageCode, string> = { en: "English", zh: "中文" };
 
 // Presentational only: elevates the positive publish action as the primary
 // button in the review state-machine control row. Does not alter the state
@@ -55,6 +55,7 @@ function langBadge(languages: LanguageCode[]): string {
 }
 
 export function QuestionDetailView({ questionId }: { questionId: string }) {
+  const t = useT();
   const router = useRouter();
   const detail = useQuestionDetail(questionId);
   const review = useReviewQuestion(questionId);
@@ -66,8 +67,8 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
   const [fbType, setFbType] = useState<FeedbackType>("unclear_explanation");
   const [fbComment, setFbComment] = useState("");
 
-  if (detail.isLoading) return <Loading label="Loading question…" />;
-  if (detail.isError || !detail.data) return <ErrorState message="Could not load this question." />;
+  if (detail.isLoading) return <Loading label={t("questionDetail.loadingQuestion")} />;
+  if (detail.isError || !detail.data) return <ErrorState message={t("questionDetail.loadFailed")} />;
   const q = detail.data;
 
   // Canonical correctness keyed by order_index (shared across translations).
@@ -78,34 +79,34 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
 
   function act(action: ReviewAction) {
     review.mutate({ action }, {
-      onSuccess: () => toast.success("Status updated."),
-      onError: () => toast.error("Could not update the status."),
+      onSuccess: () => toast.success(t("questionDetail.toastStatusUpdated")),
+      onError: () => toast.error(t("questionDetail.toastCouldNotUpdateStatus")),
     });
   }
 
   function remove() {
     del.mutate(questionId, {
       onSuccess: () => {
-        toast.success("Question deleted.");
+        toast.success(t("questionDetail.toastDeleted"));
         router.push("/questions");
       },
-      onError: () => toast.error("Could not delete the question."),
+      onError: () => toast.error(t("questionDetail.toastCouldNotDelete")),
     });
   }
 
   function submitFeedback() {
     if (!fbComment.trim()) {
-      toast.error("Add a comment describing the issue.");
+      toast.error(t("questionDetail.toastNeedComment"));
       return;
     }
     createFeedback.mutate(
       { feedback_type: fbType, comment: fbComment.trim() },
       {
         onSuccess: () => {
-          toast.success("Feedback submitted.");
+          toast.success(t("questionDetail.toastFeedbackSubmitted"));
           setFbComment("");
         },
-        onError: () => toast.error("Could not submit feedback."),
+        onError: () => toast.error(t("questionDetail.toastCouldNotSubmitFeedback")),
       }
     );
   }
@@ -113,28 +114,28 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
-        eyebrow="Content"
-        title="Question"
-        crumbs={["Questions"]}
-        description={`v${q.version} · ${langBadge(q.available_languages)} · ${q.question_type.replace(/_/g, " ")}`}
+        eyebrow={t("questions.eyebrow")}
+        title={t("questionDetail.title")}
+        crumbs={[t("nav.questions")]}
+        description={t("questionDetail.desc", { version: q.version, lang: langBadge(q.available_languages), type: enumLabel(t, "qType", q.question_type) })}
         actions={
           <div className="flex items-center gap-2">
-            <Badge variant={statusVariant(q.status)}>{STATUS_LABELS[q.status]}</Badge>
+            <Badge variant={statusVariant(q.status)}>{statusLabel(t, q.status)}</Badge>
             <RequirePermission perm="question:write">
-              <Button asChild variant="outline" size="sm"><Link href={`/questions/${q.id}/edit`}>Edit</Link></Button>
+              <Button asChild variant="outline" size="sm"><Link href={`/questions/${q.id}/edit`}>{t("questionDetail.edit")}</Link></Button>
             </RequirePermission>
           </div>
         }
       />
 
-      {q.translations.map((t) => (
-        <Card key={t.language}>
+      {q.translations.map((tr) => (
+        <Card key={tr.language}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-base leading-relaxed">{t.stem}</CardTitle>
-            <Badge variant="outline">{LANG_LABEL[t.language]}</Badge>
+            <CardTitle className="text-base leading-relaxed">{tr.stem}</CardTitle>
+            <Badge variant="outline">{t(`lang.${tr.language}`)}</Badge>
           </CardHeader>
           <CardContent className="space-y-2">
-            {t.options.map((o) => {
+            {tr.options.map((o) => {
               const isCorrect = correctByOrder.get(o.order_index) ?? false;
               return (
                 <div
@@ -146,15 +147,15 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
                     <div>{o.content}</div>
                     {o.explanation && <div className="mt-1 text-xs text-muted-foreground">{o.explanation}</div>}
                   </div>
-                  {isCorrect && <Badge variant="success">Correct</Badge>}
+                  {isCorrect && <Badge variant="success">{t("questionDetail.correct")}</Badge>}
                 </div>
               );
             })}
             <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm">
-              <div className="font-medium">Rationale</div>
-              <p className="mt-1 leading-relaxed">{t.correct_answer_rationale}</p>
-              {t.key_point_summary && (
-                <p className="mt-2 text-muted-foreground">{t.key_point_summary}</p>
+              <div className="font-medium">{t("questionDetail.rationale")}</div>
+              <p className="mt-1 leading-relaxed">{tr.correct_answer_rationale}</p>
+              {tr.key_point_summary && (
+                <p className="mt-2 text-muted-foreground">{tr.key_point_summary}</p>
               )}
             </div>
           </CardContent>
@@ -163,14 +164,14 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
 
       <RequirePermission perm="question:publish">
         <Card>
-          <CardHeader><CardTitle>Review</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t("questionDetail.reviewTitle")}</CardTitle></CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             {availableActions(q.status).length === 0 && (
-              <p className="text-sm text-muted-foreground">No review actions available in this state.</p>
+              <p className="text-sm text-muted-foreground">{t("questionDetail.noReviewActions")}</p>
             )}
             {availableActions(q.status).map((a) => (
               <Button key={a.action} size="sm" variant={REVIEW_ACTION_VARIANT[a.action] ?? "outline"} disabled={review.isPending} onClick={() => act(a.action as ReviewAction)}>
-                {a.label}
+                {t(a.labelKey)}
               </Button>
             ))}
           </CardContent>
@@ -178,10 +179,10 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
       </RequirePermission>
 
       <Card>
-        <CardHeader><CardTitle>Revision history</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("questionDetail.revisionHistory")}</CardTitle></CardHeader>
         <CardContent className="space-y-2">
-          {revisions.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-          {revisions.data && revisions.data.length === 0 && <p className="text-sm text-muted-foreground">No revisions yet.</p>}
+          {revisions.isLoading && <p className="text-sm text-muted-foreground">{t("questionDetail.loading")}</p>}
+          {revisions.data && revisions.data.length === 0 && <p className="text-sm text-muted-foreground">{t("questionDetail.noRevisions")}</p>}
           {revisions.data?.map((r) => (
             <div key={r.revision_number} className="flex items-center justify-between border-b py-1 text-sm last:border-0">
               <span>#{r.revision_number} {r.change_summary ? `· ${r.change_summary}` : ""}</span>
@@ -192,29 +193,29 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Correction feedback</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("questionDetail.correctionFeedback")}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             {feedback.data?.map((f) => (
               <div key={f.id} className="rounded-md border p-2 text-sm">
                 <div className="flex items-center justify-between">
-                  <Badge variant="outline">{FEEDBACK_TYPE_LABELS[f.feedback_type]}</Badge>
-                  <span className="text-xs text-muted-foreground">{FEEDBACK_STATUS_LABELS[f.status]} · {fmtDate(f.created_at)}</span>
+                  <Badge variant="outline">{feedbackTypeLabel(t, f.feedback_type)}</Badge>
+                  <span className="text-xs text-muted-foreground">{feedbackStatusLabel(t, f.status)} · {fmtDate(f.created_at)}</span>
                 </div>
                 {f.comment && <p className="mt-1 text-muted-foreground">{f.comment}</p>}
               </div>
             ))}
-            {feedback.data && feedback.data.length === 0 && <p className="text-sm text-muted-foreground">No feedback reported.</p>}
+            {feedback.data && feedback.data.length === 0 && <p className="text-sm text-muted-foreground">{t("questionDetail.noFeedback")}</p>}
           </div>
           <div className="space-y-2 rounded-md border p-3">
             <div className="flex flex-wrap items-center gap-2">
               <Select value={fbType} onValueChange={(v) => setFbType(v as FeedbackType)}>
                 <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-                <SelectContent>{FEEDBACK_TYPES.map((t) => <SelectItem key={t} value={t}>{FEEDBACK_TYPE_LABELS[t]}</SelectItem>)}</SelectContent>
+                <SelectContent>{FEEDBACK_TYPES.map((ft) => <SelectItem key={ft} value={ft}>{feedbackTypeLabel(t, ft)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <Textarea rows={2} value={fbComment} onChange={(e) => setFbComment(e.target.value)} placeholder="Describe the issue…" />
-            <Button size="sm" onClick={submitFeedback} disabled={createFeedback.isPending}>Report feedback</Button>
+            <Textarea rows={2} value={fbComment} onChange={(e) => setFbComment(e.target.value)} placeholder={t("questionDetail.describeIssue")} />
+            <Button size="sm" onClick={submitFeedback} disabled={createFeedback.isPending}>{t("questionDetail.reportFeedback")}</Button>
           </div>
         </CardContent>
       </Card>
@@ -222,7 +223,7 @@ export function QuestionDetailView({ questionId }: { questionId: string }) {
       <RequirePermission perm="question:write">
         <div className="flex justify-end">
           <Button variant="ghost" className="text-destructive" onClick={remove} disabled={del.isPending}>
-            Delete question
+            {t("questionDetail.deleteQuestion")}
           </Button>
         </div>
       </RequirePermission>

@@ -19,8 +19,8 @@ import {
   fmtPct,
   fmtDuration,
   errorTypeLabel,
+  masteryLabel,
   accuracyColor,
-  MASTERY_LABELS,
   MASTERY_CLASSES,
 } from "./format";
 
@@ -137,7 +137,7 @@ export function AnalyticsView() {
                       </td>
                       <td className="py-2">
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${MASTERY_CLASSES[m.mastery_level]}`}>
-                          {MASTERY_LABELS[m.mastery_level]}
+                          {masteryLabel(t, m.mastery_level)}
                         </span>
                       </td>
                     </tr>
@@ -182,7 +182,7 @@ export function AnalyticsView() {
             )}
             {errors.data?.distribution.map((e) => (
               <div key={e.error_type ?? "unclassified"} className="flex items-center justify-between text-sm">
-                <span>{errorTypeLabel(e.error_type)}</span>
+                <span>{errorTypeLabel(t, e.error_type)}</span>
                 <span className="text-muted-foreground">{e.count}</span>
               </div>
             ))}

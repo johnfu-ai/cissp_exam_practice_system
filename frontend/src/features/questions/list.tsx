@@ -18,16 +18,14 @@ import {
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
-import { STATUS_LABELS, statusVariant } from "./labels";
+import { useT } from "@/lib/i18n/provider";
+import { enumLabel } from "@/features/shared/enum-label";
+import { statusLabel, statusVariant } from "./labels";
 import type { QuestionStatus, QuestionType, QuestionFilters, LanguageCode } from "@/lib/api/types";
 
 const ANY = "__any__";
 const STATUSES: QuestionStatus[] = ["draft", "pending_review", "published", "needs_revision", "archived"];
 const TYPES: QuestionType[] = ["single_choice", "multiple_choice", "true_false", "scenario", "ordering", "drag_drop", "hotspot"];
-
-function labelize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 /** Compact badge label for a question's available languages. */
 function langBadge(languages: LanguageCode[]): string {
@@ -40,6 +38,7 @@ function langBadge(languages: LanguageCode[]): string {
 }
 
 export function QuestionList() {
+  const t = useT();
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [status, setStatus] = useState<QuestionStatus | null>(null);
@@ -81,54 +80,54 @@ export function QuestionList() {
               }}
             >
               <Input
-                placeholder="Search stem…"
+                placeholder={t("questionsList.searchPlaceholder")}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="w-56"
               />
-              <Button type="submit" variant="outline" size="sm">Search</Button>
+              <Button type="submit" variant="outline" size="sm">{t("questionsList.search")}</Button>
             </form>
 
             <Select value={status ?? ANY} onValueChange={(v) => resetPageAnd(() => setStatus(v === ANY ? null : (v as QuestionStatus)))}>
-              <SelectTrigger className="w-44"><SelectValue placeholder="Any status" /></SelectTrigger>
+              <SelectTrigger className="w-44"><SelectValue placeholder={t("questionsList.anyStatus")} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={ANY}>Any status</SelectItem>
-                {STATUSES.map((s) => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}
+                <SelectItem value={ANY}>{t("questionsList.anyStatus")}</SelectItem>
+                {STATUSES.map((s) => <SelectItem key={s} value={s}>{statusLabel(t, s)}</SelectItem>)}
               </SelectContent>
             </Select>
 
             <Select value={type ?? ANY} onValueChange={(v) => resetPageAnd(() => setType(v === ANY ? null : (v as QuestionType)))}>
-              <SelectTrigger className="w-44"><SelectValue placeholder="Any type" /></SelectTrigger>
+              <SelectTrigger className="w-44"><SelectValue placeholder={t("questionsList.anyType")} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={ANY}>Any type</SelectItem>
-                {TYPES.map((t) => <SelectItem key={t} value={t}>{labelize(t)}</SelectItem>)}
+                <SelectItem value={ANY}>{t("questionsList.anyType")}</SelectItem>
+                {TYPES.map((ty) => <SelectItem key={ty} value={ty}>{enumLabel(t, "qType", ty)}</SelectItem>)}
               </SelectContent>
             </Select>
 
             <Select value={domainId ?? ANY} onValueChange={(v) => resetPageAnd(() => setDomainId(v === ANY ? null : v))}>
-              <SelectTrigger className="w-52"><SelectValue placeholder="Any domain" /></SelectTrigger>
+              <SelectTrigger className="w-52"><SelectValue placeholder={t("questionsList.anyDomain")} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={ANY}>Any domain</SelectItem>
+                <SelectItem value={ANY}>{t("questionsList.anyDomain")}</SelectItem>
                 {domains.data?.map((d) => <SelectItem key={d.id} value={d.id}>{d.number}. {d.name}</SelectItem>)}
               </SelectContent>
             </Select>
 
             <Select value={missingLang ?? ANY} onValueChange={(v) => resetPageAnd(() => setMissingLang(v === ANY ? null : (v as LanguageCode)))}>
-              <SelectTrigger className="w-48"><SelectValue placeholder="Missing language" /></SelectTrigger>
+              <SelectTrigger className="w-48"><SelectValue placeholder={t("questionsList.missingLang")} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={ANY}>Missing language: any</SelectItem>
-                <SelectItem value="en">Missing English</SelectItem>
-                <SelectItem value="zh">Missing Chinese</SelectItem>
+                <SelectItem value={ANY}>{t("questionsList.missingLangAny")}</SelectItem>
+                <SelectItem value="en">{t("questionsList.missingEn")}</SelectItem>
+                <SelectItem value="zh">{t("questionsList.missingZh")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
 
-      {list.isLoading && <Loading label="Loading questions…" />}
-      {list.isError && <ErrorState message="Could not load questions." onRetry={() => list.refetch()} />}
+      {list.isLoading && <Loading label={t("questionsList.loadingQuestions")} />}
+      {list.isError && <ErrorState message={t("questionsList.loadFailed")} onRetry={() => list.refetch()} />}
       {list.data && list.data.items.length === 0 && (
-        <EmptyState title="No questions found" description="Adjust your filters or import a dataset." />
+        <EmptyState title={t("questionsList.noQuestions")} description={t("questionsList.noQuestionsDesc")} />
       )}
 
       {list.data && list.data.items.length > 0 && (
@@ -138,11 +137,11 @@ export function QuestionList() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="px-4 py-2 font-medium">Question</th>
-                    <th className="px-4 py-2 font-medium">Type</th>
-                    <th className="px-4 py-2 font-medium">Status</th>
-                    <th className="px-4 py-2 font-medium">Diff.</th>
-                    <th className="px-4 py-2 font-medium">Languages</th>
+                    <th className="px-4 py-2 font-medium">{t("questionsList.colQuestion")}</th>
+                    <th className="px-4 py-2 font-medium">{t("questionsList.colType")}</th>
+                    <th className="px-4 py-2 font-medium">{t("questionsList.colStatus")}</th>
+                    <th className="px-4 py-2 font-medium">{t("questionsList.colDiff")}</th>
+                    <th className="px-4 py-2 font-medium">{t("questionsList.colLanguages")}</th>
                     <th className="px-4 py-2"></th>
                   </tr>
                 </thead>
@@ -152,12 +151,12 @@ export function QuestionList() {
                       <td className="px-4 py-2">
                         <Link href={`/questions/${q.id}`} className="font-mono text-xs hover:underline">#{q.id.slice(0, 8)}</Link>
                       </td>
-                      <td className="px-4 py-2 text-muted-foreground">{labelize(q.question_type)}</td>
-                      <td className="px-4 py-2"><Badge variant={statusVariant(q.status)}>{STATUS_LABELS[q.status]}</Badge></td>
+                      <td className="px-4 py-2 text-muted-foreground">{enumLabel(t, "qType", q.question_type)}</td>
+                      <td className="px-4 py-2"><Badge variant={statusVariant(q.status)}>{statusLabel(t, q.status)}</Badge></td>
                       <td className="px-4 py-2 text-muted-foreground">{q.difficulty ?? "—"}</td>
                       <td className="px-4 py-2"><Badge variant="outline">{langBadge(q.available_languages)}</Badge></td>
                       <td className="px-4 py-2 text-right">
-                        <Button asChild variant="ghost" size="sm"><Link href={`/questions/${q.id}`}>Open</Link></Button>
+                        <Button asChild variant="ghost" size="sm"><Link href={`/questions/${q.id}`}>{t("questionsList.open")}</Link></Button>
                       </td>
                     </tr>
                   ))}
@@ -171,11 +170,11 @@ export function QuestionList() {
       {list.data && list.data.total > size && (
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            {list.data.total} questions · page {page} of {totalPages}
+            {t("questionsList.pagination", { total: list.data.total, page, totalPages })}
           </span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>{t("common.previous")}</Button>
+            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>{t("common.next")}</Button>
           </div>
         </div>
       )}

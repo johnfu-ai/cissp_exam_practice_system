@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { renderWithProviders } from "@/test/render-with-providers";
 import userEvent from "@testing-library/user-event";
 import type { QuestionDetail } from "@/lib/api/types";
 
@@ -76,7 +77,7 @@ async function fillEnglishBasics(user: ReturnType<typeof userEvent.setup>) {
 describe("QuestionEditor", () => {
   it("enables save after filling the English tab + canonical options and posts translations+options", async () => {
     const user = userEvent.setup();
-    render(<QuestionEditor />);
+    renderWithProviders(<QuestionEditor />);
 
     await fillEnglishBasics(user);
     await user.click(screen.getByRole("button", { name: /create question/i }));
@@ -138,7 +139,7 @@ describe("QuestionEditor", () => {
       ],
       mappings: { domain_id: null, chapter_id: null, knowledge_point_id: null, tag_ids: [] },
     };
-    render(<QuestionEditor initial={initial} />);
+    renderWithProviders(<QuestionEditor initial={initial} />);
 
     // Save without touching any field — the existing key_point_summary must survive.
     await user.click(screen.getByRole("button", { name: /save changes/i }));
@@ -153,7 +154,7 @@ describe("QuestionEditor", () => {
 
   it("blocks save with a toast when the Chinese tab is enabled but its stem is blank", async () => {
     const user = userEvent.setup();
-    render(<QuestionEditor />);
+    renderWithProviders(<QuestionEditor />);
 
     await fillEnglishBasics(user);
 

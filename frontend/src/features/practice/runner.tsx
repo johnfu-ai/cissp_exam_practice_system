@@ -21,6 +21,7 @@ import {
 import { OptionList } from "./option-list";
 import { untrackSession } from "./session-tracker";
 import { ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { BilingualText } from "@/components/bilingual-text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,11 +58,6 @@ const ERROR_TYPES: ErrorType[] = [
   "time_pressure",
 ];
 const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
-const LANGUAGE_LABELS: Record<LanguageMode, string> = {
-  en: "English",
-  zh: "中文",
-  bilingual: "Both",
-};
 
 /** True when a Localized slot carries any translatable content. */
 function hasContent(loc: Localized | null | undefined): boolean {
@@ -73,6 +69,7 @@ function labelize(s: string): string {
 }
 
 export function Runner({ sessionId }: { sessionId: string }) {
+  const t = useT();
   const router = useRouter();
   const [position, setPosition] = useState(0);
   const [runner, setRunner] = useState<RunnerState>(initialRunnerState(null));
@@ -89,16 +86,11 @@ export function Runner({ sessionId }: { sessionId: string }) {
   const delivery = question.data;
   const paused = !!session.data?.paused_at;
 
-  // Local language mode for the in-runner toggle. Defaults to the session's
-  // delivered `language_mode` and re-initialises whenever that changes (e.g. a
-  // new session). Toggling only mutates this local state — it never refetches
-  // and never touches selections or the timer (those are index/time based).
   const [mode, setMode] = useState<LanguageMode>("en");
   useEffect(() => {
     if (delivery?.language_mode) setMode(delivery.language_mode);
   }, [delivery?.language_mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset the per-question machine whenever a new question is delivered.
   useEffect(() => {
     if (!delivery) return;
     setRunner(initialRunnerState(delivery.previous_answer));
@@ -113,9 +105,9 @@ export function Runner({ sessionId }: { sessionId: string }) {
         onSuccess: (result) => setRunner((s) => markSubmitted(s, result)),
         onError: (e) => {
           if (e instanceof ApiError && e.status === 409) {
-            toast.error("This question has already been answered.");
+            toast.error(t("practiceRunner.toastAlreadyAnswered"));
           } else {
-            toast.error("Could not submit your answer.");
+            toast.error(t("practiceRunner.toastCouldNotSubmit"));
           }
         },
       }
@@ -130,7 +122,7 @@ export function Runner({ sessionId }: { sessionId: string }) {
           untrackSession(sessionId);
           router.push(`/practice/sessions/${sessionId}/done`);
         },
-        onError: () => toast.error("Could not finish the session."),
+        onError: () => toast.error(t("practiceRunner.toastCouldNotFinish")),
       });
     } else {
       setPosition((p) => p + 1);
@@ -142,8 +134,8 @@ export function Runner({ sessionId }: { sessionId: string }) {
     updateState.mutate(
       { questionId: delivery.question_id, body },
       {
-        onSuccess: () => toast.success("Saved."),
-        onError: () => toast.error("Could not save."),
+        onSuccess: () => toast.success(t("practiceRunner.toastSaved")),
+        onError: () => toast.error(t("practiceRunner.toastCouldNotSave")),
       }
     );
   }
@@ -152,19 +144,19 @@ export function Runner({ sessionId }: { sessionId: string }) {
     const stale = session.error instanceof ApiError && session.error.status === 409;
     return (
       <ErrorState
-        title={stale ? "Session unavailable" : "Could not load session"}
-        message={stale ? "This session is finished or no longer available." : "Please go back and try again."}
+        title={stale ? t("practiceRunner.sessionUnavailable") : t("practiceRunner.couldNotLoadSession")}
+        message={stale ? t("practiceRunner.sessionStaleMsg") : t("practiceRunner.retryMsg")}
         onRetry={() => router.push("/practice")}
       />
     );
   }
   if (session.isLoading || question.isLoading || !delivery) {
-    return <Loading label="Loading question…" />;
+    return <Loading label={t("practiceRunner.loadingQuestion")} />;
   }
   if (question.isError) {
     return (
       <ErrorState
-        message="Could not load this question."
+        message={t("practiceRunner.couldNotLoadQuestion")}
         onRetry={() => question.refetch()}
       />
     );
@@ -181,9 +173,10 @@ export function Runner({ sessionId }: { sessionId: string }) {
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm text-muted-foreground">
-            Question{" "}
+            {t("practiceRunner.questionLabel")}{" "}
             <span className="font-medium text-foreground tabular-nums">{delivery.position + 1}</span>{" "}
-            of <span className="tabular-nums">{delivery.total}</span>
+            {t("practiceRunner.ofTotal")}{" "}
+            <span className="tabular-nums">{delivery.total}</span>
           </div>
           <div className="flex items-center gap-2">
             <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
@@ -193,18 +186,18 @@ export function Runner({ sessionId }: { sessionId: string }) {
               <SelectContent>
                 {LANGUAGE_MODES.map((m) => (
                   <SelectItem key={m} value={m}>
-                    {LANGUAGE_LABELS[m]}
+                    {t(`lang.${m}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {paused ? (
               <Button variant="outline" size="sm" onClick={() => resume.mutate()}>
-                <PlayCircle className="h-4 w-4" /> Resume
+                <PlayCircle className="h-4 w-4" /> {t("practiceRunner.resume")}
               </Button>
             ) : (
               <Button variant="outline" size="sm" onClick={() => pause.mutate()}>
-                <PauseCircle className="h-4 w-4" /> Pause
+                <PauseCircle className="h-4 w-4" /> {t("practiceRunner.pause")}
               </Button>
             )}
           </div>
@@ -235,7 +228,7 @@ export function Runner({ sessionId }: { sessionId: string }) {
         </CardHeader>
         <CardContent className="space-y-4">
           {paused ? (
-            <p className="text-sm text-muted-foreground">Session paused. Resume to continue.</p>
+            <p className="text-sm text-muted-foreground">{t("practiceRunner.sessionPaused")}</p>
           ) : (
             <OptionList
               questionType={delivery.question_type}
@@ -250,8 +243,10 @@ export function Runner({ sessionId }: { sessionId: string }) {
 
           {submitted && !result && delivery.previous_answer && (
             <p className="text-sm text-muted-foreground">
-              You already answered this question
-              {delivery.previous_answer.is_correct ? " correctly." : " incorrectly."}
+              {t("practiceRunner.alreadyAnsweredPrefix")}
+              {delivery.previous_answer.is_correct
+                ? t("practiceRunner.correctly")
+                : t("practiceRunner.incorrectly")}
             </p>
           )}
 
@@ -276,7 +271,7 @@ export function Runner({ sessionId }: { sessionId: string }) {
                     result.is_correct ? "text-success" : "text-destructive"
                   )}
                 >
-                  {result.is_correct ? "Correct" : "Incorrect"}
+                  {result.is_correct ? t("practiceRunner.correct") : t("practiceRunner.incorrect")}
                 </span>
               </div>
               {hasContent(result.correct_rationale) && (
@@ -305,7 +300,7 @@ export function Runner({ sessionId }: { sessionId: string }) {
                           p.is_correct ? "text-success" : "text-destructive"
                         )}
                       >
-                        Option {p.order_index + 1}
+                        {t("practiceRunner.optionN", { n: p.order_index + 1 })}
                       </span>
                       {hasContent(p.explanation) && (
                         <BilingualText
@@ -335,31 +330,31 @@ export function Runner({ sessionId }: { sessionId: string }) {
                   size="sm"
                   onClick={() => setQuestionState({ is_bookmarked: true })}
                 >
-                  <Bookmark className="h-4 w-4" /> Bookmark
+                  <Bookmark className="h-4 w-4" /> {t("practiceRunner.bookmark")}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setQuestionState({ is_flagged_review: true })}
                 >
-                  <Flag className="h-4 w-4" /> Flag for review
+                  <Flag className="h-4 w-4" /> {t("practiceRunner.flagReview")}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setQuestionState({ is_mastered: true })}
                 >
-                  <CheckCircle2 className="h-4 w-4" /> Mark mastered
+                  <CheckCircle2 className="h-4 w-4" /> {t("practiceRunner.markMastered")}
                 </Button>
-                <NoteDialog onSave={(note) => setQuestionState({ note })} />
+                <NoteDialog onSave={(note) => setQuestionState({ note })} t={t} />
                 <Select onValueChange={(v) => setQuestionState({ error_type: v as ErrorType })}>
                   <SelectTrigger className="h-9 w-[200px]">
-                    <SelectValue placeholder="Tag error type" />
+                    <SelectValue placeholder={t("practiceRunner.tagErrorType")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {ERROR_TYPES.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {labelize(t)}
+                    {ERROR_TYPES.map((et) => (
+                      <SelectItem key={et} value={et}>
+                        {labelize(et)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -374,15 +369,15 @@ export function Runner({ sessionId }: { sessionId: string }) {
                 onClick={submit}
                 disabled={!canSubmit(runner) || paused || submitAnswer.isPending}
               >
-                {submitAnswer.isPending ? "Submitting…" : "Submit"}
+                {submitAnswer.isPending ? t("practiceRunner.submitting") : t("practiceRunner.submit")}
               </Button>
             ) : (
               <Button size="pill" onClick={next} disabled={finish.isPending}>
                 {position + 1 >= delivery.total
                   ? finish.isPending
-                    ? "Finishing…"
-                    : "Finish"
-                  : "Next"}
+                    ? t("practiceRunner.finishing")
+                    : t("practiceRunner.finish")
+                  : t("practiceRunner.next")}
               </Button>
             )}
           </div>
@@ -392,23 +387,25 @@ export function Runner({ sessionId }: { sessionId: string }) {
   );
 }
 
-function NoteDialog({ onSave }: { onSave: (note: string) => void }) {
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
+
+function NoteDialog({ onSave, t }: { onSave: (note: string) => void; t: TFn }) {
   const [note, setNote] = useState("");
   return (
     <Dialog>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
-          Add note
+          {t("practiceRunner.addNote")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Note</DialogTitle>
+          <DialogTitle>{t("practiceRunner.note")}</DialogTitle>
         </DialogHeader>
-        <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Your note…" />
+        <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("practiceRunner.notePlaceholder")} />
         <DialogFooter>
           <DialogClose asChild>
-            <Button onClick={() => onSave(note)}>Save note</Button>
+            <Button onClick={() => onSave(note)}>{t("practiceRunner.saveNote")}</Button>
           </DialogClose>
         </DialogFooter>
       </DialogContent>

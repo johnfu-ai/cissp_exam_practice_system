@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { CheckCircle2, XCircle } from "lucide-react";
 import type { LanguageMode } from "@/lib/api/types";
 
@@ -25,6 +26,7 @@ function fmtDuration(ms: number): string {
 }
 
 export function Summary({ sessionId }: { sessionId: string }) {
+  const t = useT();
   const summary = useSessionSummary(sessionId);
   // Read the session's language mode (stored in `config`) so wrong-question
   // stems render in the language the session was practised in. Falls back to
@@ -33,9 +35,9 @@ export function Summary({ sessionId }: { sessionId: string }) {
   const sessionMode: LanguageMode =
     (session.data?.config?.language_mode as LanguageMode | undefined) ?? "en";
 
-  if (summary.isLoading) return <Loading label="Loading summary…" />;
+  if (summary.isLoading) return <Loading label={t("practiceSummary.loadingSummary")} />;
   if (summary.isError || !summary.data) {
-    return <ErrorState message="Could not load the session summary." />;
+    return <ErrorState message={t("practiceSummary.loadFailed")} />;
   }
   const s = summary.data;
   const passed = s.accuracy >= 0.7;
@@ -44,12 +46,12 @@ export function Summary({ sessionId }: { sessionId: string }) {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
-        eyebrow="Practice"
-        title="Session complete"
-        description={`${s.answered_count} answered of ${s.total_questions} · ${s.correct_count} correct`}
+        eyebrow={t("practice.eyebrow")}
+        title={t("practiceSummary.title")}
+        description={t("practiceSummary.desc", { answered: s.answered_count, total: s.total_questions, correct: s.correct_count })}
         actions={
           <Button asChild size="pill">
-            <Link href="/practice">Back to practice</Link>
+            <Link href="/practice">{t("practiceSummary.backToPractice")}</Link>
           </Button>
         }
       />
@@ -68,34 +70,34 @@ export function Summary({ sessionId }: { sessionId: string }) {
         )}
         <div className="min-w-0 flex-1">
           <p className={cn("font-semibold", passed ? "text-success" : "text-destructive")}>
-            {passed ? "Nice work" : "Keep practicing"}
+            {passed ? t("practiceSummary.niceWork") : t("practiceSummary.keepPracticing")}
           </p>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {fmtPct(s.accuracy)} accuracy · {s.correct_count}/{s.answered_count} correct
-            {unanswered > 0 && ` · ${unanswered} unanswered`}
+            {t("practiceSummary.accuracyLine", { pct: fmtPct(s.accuracy), correct: s.correct_count, answered: s.answered_count })}
+            {unanswered > 0 && ` · ${t("practiceSummary.unansweredCount", { n: unanswered })}`}
           </p>
         </div>
       </div>
 
       {/* KPI row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard label="Accuracy" value={fmtPct(s.accuracy)} />
-        <StatCard label="Correct" value={`${s.correct_count}/${s.answered_count}`} />
-        <StatCard label="Time spent" value={fmtDuration(s.total_time_spent_ms)} />
+        <StatCard label={t("practiceSummary.accuracy")} value={fmtPct(s.accuracy)} />
+        <StatCard label={t("practiceSummary.correct")} value={`${s.correct_count}/${s.answered_count}`} />
+        <StatCard label={t("practiceSummary.timeSpent")} value={fmtDuration(s.total_time_spent_ms)} />
       </div>
 
       {/* By domain */}
       <Card>
         <CardHeader>
-          <CardTitle>By domain</CardTitle>
+          <CardTitle>{t("practiceSummary.byDomain")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {s.domains.length === 0 && <p className="text-sm text-muted-foreground">No domain data.</p>}
+          {s.domains.length === 0 && <p className="text-sm text-muted-foreground">{t("practiceSummary.noDomainData")}</p>}
           {s.domains.map((d, i) => (
             <div key={d.domain_id ?? `none-${i}`} className="flex items-center justify-between text-sm">
-              <span>{d.domain_name ?? "Unmapped"}</span>
+              <span>{d.domain_name ?? t("practiceSummary.unmapped")}</span>
               <span className="text-muted-foreground tabular-nums">
-                {d.correct}/{d.answered} correct
+                {t("practiceSummary.correctOf", { c: d.correct, a: d.answered })}
               </span>
             </div>
           ))}
@@ -105,11 +107,11 @@ export function Summary({ sessionId }: { sessionId: string }) {
       {/* Wrong questions — per-question review */}
       <Card>
         <CardHeader>
-          <CardTitle>Wrong questions</CardTitle>
+          <CardTitle>{t("practiceSummary.wrongQuestions")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {s.wrong_questions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No wrong answers — well done.</p>
+            <p className="text-sm text-muted-foreground">{t("practiceSummary.noWrong")}</p>
           ) : (
             s.wrong_questions.map((w) => (
               <div
@@ -118,8 +120,8 @@ export function Summary({ sessionId }: { sessionId: string }) {
               >
                 <p className="text-sm leading-relaxed">{localizedText(sessionMode, w.stem)}</p>
                 <div className="flex flex-wrap gap-2 text-xs">
-                  <Badge variant="destructive">Your answer: {w.selected_indexes.join(", ") || "—"}</Badge>
-                  <Badge variant="success">Correct: {w.correct_indexes.join(", ")}</Badge>
+                  <Badge variant="destructive">{t("practiceSummary.yourAnswer")}: {w.selected_indexes.join(", ") || "—"}</Badge>
+                  <Badge variant="success">{t("practiceSummary.correctLabel")}: {w.correct_indexes.join(", ")}</Badge>
                 </div>
               </div>
             ))
@@ -130,7 +132,7 @@ export function Summary({ sessionId }: { sessionId: string }) {
       {/* Bottom CTA */}
       <div className="flex justify-center pt-2">
         <Button asChild size="pill">
-          <Link href="/practice">Back to practice</Link>
+          <Link href="/practice">{t("practiceSummary.backToPractice")}</Link>
         </Button>
       </div>
     </div>
