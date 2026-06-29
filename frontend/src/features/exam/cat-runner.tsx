@@ -25,18 +25,11 @@ import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import { enumLabel } from "@/features/shared/enum-label";
 import type { ExamSession, LanguageMode } from "@/lib/api/types";
 
 const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
-const LANGUAGE_LABELS: Record<LanguageMode, string> = {
-  en: "English",
-  zh: "中文",
-  bilingual: "Both",
-};
-
-function labelize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 export function CatExamRunner({
   sessionId,
@@ -45,6 +38,7 @@ export function CatExamRunner({
   sessionId: string;
   session: ExamSession;
 }) {
+  const t = useT();
   const router = useRouter();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<number[]>([]);
@@ -91,24 +85,24 @@ export function CatExamRunner({
   const doFinish = useCallback(() => {
     finish.mutate(undefined, {
       onSuccess: goReport,
-      onError: () => toast.error("Could not submit the exam."),
+      onError: () => toast.error(t("examRunner.toastCouldNotSubmitExam")),
     });
-  }, [finish, goReport]);
+  }, [finish, goReport, t]);
 
   const finishedRef = useRef(false);
   useEffect(() => {
-    const t = setInterval(() => {
+    const interval = setInterval(() => {
       if (deadlineRef.current === null) return;
       const ms = Math.max(0, deadlineRef.current - Date.now());
       setRemaining(ms);
       if (ms <= 0 && !finishedRef.current) {
         finishedRef.current = true;
-        toast.message("Time is up — submitting your exam.");
+        toast.message(t("examRunner.toastTimeUp"));
         doFinish();
       }
     }, 1000);
-    return () => clearInterval(t);
-  }, [doFinish]);
+    return () => clearInterval(interval);
+  }, [doFinish, t]);
 
   // Reset selection whenever a new adaptive item is delivered.
   useEffect(() => {
@@ -143,10 +137,10 @@ export function CatExamRunner({
         },
         onError: (e) => {
           if (e instanceof ApiError && (e.status === 409 || e.status === 422)) {
-            toast.error("The exam is no longer in progress.");
+            toast.error(t("examRunner.toastExamNotInProgress"));
             goReport();
           } else {
-            toast.error("Could not submit your answer.");
+            toast.error(t("examRunner.toastCouldNotSubmitAnswer"));
           }
         },
       }
@@ -157,13 +151,13 @@ export function CatExamRunner({
     const stale = next.error instanceof ApiError && next.error.status === 409;
     return (
       <ErrorState
-        title={stale ? "Exam ended" : "Could not load question"}
-        message={stale ? "This adaptive exam is finished or timed out." : "Please try again."}
+        title={stale ? t("examRunner.errExamEnded") : t("examRunner.errCouldNotLoadQuestion")}
+        message={stale ? t("examRunner.errExamStaleCat") : t("examRunner.errRetry")}
         onRetry={stale ? goReport : () => next.refetch()}
       />
     );
   }
-  if (next.isLoading || !delivery) return <Loading label="Selecting your next question…" />;
+  if (next.isLoading || !delivery) return <Loading label={t("examRunner.loadingNext")} />;
 
   const critical = isTimeCritical(remaining);
   const progressPct =
@@ -175,8 +169,8 @@ export function CatExamRunner({
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm text-muted-foreground tabular-nums">
-            Question {delivery.position + 1}
-            {delivery.total > 0 ? ` (up to ${delivery.total})` : ""}
+            {t("examRunner.questionLabel")} {delivery.position + 1}
+            {delivery.total > 0 ? ` ${t("examRunner.upTo", { n: delivery.total })}` : ""}
           </div>
           <div className="flex items-center gap-2">
             <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
@@ -186,7 +180,7 @@ export function CatExamRunner({
               <SelectContent>
                 {LANGUAGE_MODES.map((m) => (
                   <SelectItem key={m} value={m}>
-                    {LANGUAGE_LABELS[m]}
+                    {t(`lang.${m}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -196,7 +190,7 @@ export function CatExamRunner({
                 "rounded-full px-3 py-1 font-mono text-sm font-semibold tabular-nums",
                 critical ? "bg-destructive text-destructive-foreground" : "bg-muted",
               )}
-              aria-label="Time remaining"
+              aria-label={t("examRunner.timeRemainingAria")}
             >
               {fmtCountdown(remaining)}
             </div>
@@ -218,17 +212,14 @@ export function CatExamRunner({
 
       {/* Persistent study-tool disclaimer — always visible during the exam. */}
       <Alert className="mt-6">
-        <AlertTitle>Adaptive — forward only</AlertTitle>
-        <AlertDescription>
-          Once you submit an answer you cannot return to it. This is a study tool and does not
-          represent an official ISC2 score.
-        </AlertDescription>
+        <AlertTitle>{t("examRunner.adaptiveTitle")}</AlertTitle>
+        <AlertDescription>{t("examRunner.adaptiveDesc")}</AlertDescription>
       </Alert>
 
       {/* Question card */}
       <Card className="mt-4">
         <CardHeader>
-          <Badge variant="secondary" className="w-fit">{labelize(delivery.question_type)}</Badge>
+          <Badge variant="secondary" className="w-fit">{enumLabel(t, "qType", delivery.question_type)}</Badge>
           <CardTitle className="mt-2 text-lg font-medium leading-relaxed">
             <BilingualText mode={mode} en={delivery.stem.en} zh={delivery.stem.zh} />
           </CardTitle>
@@ -250,15 +241,14 @@ export function CatExamRunner({
       <div className="sticky bottom-0 z-10 mt-6 border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
-            Submitted answers cannot be changed. This simulation does not represent ISC2&apos;s
-            official scoring.
+            {t("examRunner.footerReminder")}
           </p>
           <Button
             size="pill"
             onClick={submitAndAdvance}
             disabled={selected.length === 0 || submit.isPending}
           >
-            {submit.isPending ? "Submitting…" : "Submit & continue"}
+            {submit.isPending ? t("examRunner.submitting") : t("examRunner.submitContinue")}
           </Button>
         </div>
       </div>

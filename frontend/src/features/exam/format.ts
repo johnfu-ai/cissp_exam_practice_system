@@ -1,4 +1,5 @@
 // Pure presentation helpers for the exam feature — no React.
+import type { TFn } from "@/lib/i18n/types";
 
 /** Format a millisecond countdown as H:MM:SS (or MM:SS under an hour). */
 export function fmtCountdown(ms: number): string {
@@ -12,17 +13,12 @@ export function fmtCountdown(ms: number): string {
   return `${mm}:${ss}`;
 }
 
-export const READINESS_LABELS: Record<string, string> = {
-  not_ready: "Not ready",
-  developing: "Developing",
-  approaching: "Approaching readiness",
-  ready: "Ready",
-  highly_ready: "Highly ready",
-};
-
-export function readinessLabel(level: string | null): string {
+export function readinessLabel(t: TFn, level: string | null): string {
   if (!level) return "—";
-  return READINESS_LABELS[level] ?? level.replace(/_/g, " ");
+  const k = `readiness.${level}`;
+  const v = t(k);
+  // Unknown levels fall back to a lowercased space-joined rendering of the key.
+  return v === k ? level.replace(/_/g, " ") : v;
 }
 
 /** True when the remaining time is in the final warning window (<= 5 min). */

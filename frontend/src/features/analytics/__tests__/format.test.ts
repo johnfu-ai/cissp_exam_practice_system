@@ -1,12 +1,16 @@
 import { describe, it, expect } from "vitest";
+import { makeT } from "@/locales/t";
+import { en } from "@/locales/en";
 import {
   fmtPct,
   fmtDuration,
   fmtDate,
   errorTypeLabel,
   accuracyColor,
-  MASTERY_LABELS,
+  masteryLabel,
 } from "../format";
+
+const t = makeT(en);
 
 describe("analytics format helpers", () => {
   it("formats percentages by rounding", () => {
@@ -32,9 +36,9 @@ describe("analytics format helpers", () => {
   });
 
   it("labels error types with a human string and an unclassified fallback", () => {
-    expect(errorTypeLabel("concept_unclear")).toBe("Concept unclear");
-    expect(errorTypeLabel(null)).toBe("Unclassified");
-    expect(errorTypeLabel("unknown_key")).toBe("unknown_key");
+    expect(errorTypeLabel(t, "concept_unclear")).toBe("Concept unclear");
+    expect(errorTypeLabel(t, null)).toBe("Unclassified");
+    expect(errorTypeLabel(t, "unknown_key")).toBe("unknown_key");
   });
 
   it("maps accuracy to a color bucket", () => {
@@ -45,7 +49,7 @@ describe("analytics format helpers", () => {
   });
 
   it("has a label for every mastery level", () => {
-    expect(MASTERY_LABELS.mastered).toBe("Mastered");
-    expect(MASTERY_LABELS.not_started).toBe("Not started");
+    expect(masteryLabel(t, "mastered")).toBe("Mastered");
+    expect(masteryLabel(t, "not_started")).toBe("Not started");
   });
 });

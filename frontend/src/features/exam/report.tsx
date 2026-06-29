@@ -12,18 +12,20 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { CheckCircle2, XCircle, Clock, Target, ListChecks } from "lucide-react";
 import { fmtDuration, fmtPct, accuracyColor } from "@/features/analytics/format";
 import { readinessLabel } from "./format";
 import type { LanguageMode } from "@/lib/api/types";
 
 export function ExamReport({ sessionId }: { sessionId: string }) {
+  const t = useT();
   const report = useExamReport(sessionId);
   const session = useExamSession(sessionId);
 
-  if (report.isLoading) return <Loading label="Loading report…" />;
+  if (report.isLoading) return <Loading label={t("examReport.loadingReport")} />;
   if (report.isError || !report.data) {
-    return <ErrorState message="Could not load the exam report. It may not be finished yet." />;
+    return <ErrorState message={t("examReport.loadFailed")} />;
   }
   const r = report.data;
   const isCat = r.ability_estimate != null;
@@ -36,16 +38,16 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
-        eyebrow="Exam"
-        title="Exam report"
-        description={isCat ? "Adaptive (CAT) mock exam result" : "Fixed mock exam result"}
+        eyebrow={t("exam.eyebrow")}
+        title={t("examReport.title")}
+        description={isCat ? t("examReport.descCat") : t("examReport.descFixed")}
         actions={
           <div className="flex gap-2">
             <Button asChild variant="outline">
-              <Link href={`/exam/sessions/${sessionId}/review`}>Review answers</Link>
+              <Link href={`/exam/sessions/${sessionId}/review`}>{t("examReport.reviewAnswers")}</Link>
             </Button>
             <Button asChild size="pill">
-              <Link href="/exam">New exam</Link>
+              <Link href="/exam">{t("exam.newExam")}</Link>
             </Button>
           </div>
         }
@@ -60,17 +62,17 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
               <div className="relative flex h-32 w-32 items-center justify-center rounded-full border-8 border-border">
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <span className="text-3xl font-bold tabular-nums">{r.scaled_score}</span>
-                  <span className="text-xs text-muted-foreground">/ {r.max_score}</span>
+                  <span className="text-xs text-muted-foreground">{t("examReport.ofMax", { n: r.max_score })}</span>
                 </div>
               </div>
               <Badge
                 variant={r.passed ? "success" : "destructive"}
                 className="mt-3 text-sm"
               >
-                {r.passed ? "PASS" : "FAIL"}
+                {r.passed ? t("examReport.pass") : t("examReport.fail")}
               </Badge>
               <p className="mt-2 text-center text-xs text-muted-foreground">
-                Passing {r.passing_score}
+                {t("examReport.passing", { n: r.passing_score })}
               </p>
             </div>
 
@@ -78,21 +80,21 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
             <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
               <StatTile
                 icon={<ListChecks className="h-4 w-4" />}
-                label="Correct"
+                label={t("examReport.correct")}
                 value={`${r.correct_count}/${r.answered_count}`}
                 sub={fmtPct(r.accuracy)}
               />
               <StatTile
                 icon={<Target className="h-4 w-4" />}
-                label="Accuracy"
+                label={t("examReport.accuracy")}
                 value={fmtPct(r.accuracy)}
-                sub={`${r.answered_count} answered`}
+                sub={t("examReport.nAnswered", { n: r.answered_count })}
               />
               <StatTile
                 icon={<Clock className="h-4 w-4" />}
-                label="Total time"
+                label={t("examReport.totalTime")}
                 value={fmtDuration(r.total_time_ms)}
-                sub={r.answered_count > 0 ? `${fmtDuration(r.avg_time_ms)} / question` : undefined}
+                sub={r.answered_count > 0 ? t("examReport.perQuestion", { t: fmtDuration(r.avg_time_ms) }) : undefined}
               />
             </div>
           </div>
@@ -103,23 +105,23 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
       {isCat && (
         <Card>
           <CardHeader>
-            <Eyebrow>Adaptive estimate</Eyebrow>
-            <CardTitle>Ability & readiness</CardTitle>
+            <Eyebrow>{t("examReport.adaptiveEstimate")}</Eyebrow>
+            <CardTitle>{t("examReport.abilityReadiness")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Metric label="Ability θ" value={r.ability_estimate?.toFixed(2) ?? "—"} />
-              <Metric label="95% CI" value={
+              <Metric label={t("examReport.ability")} value={r.ability_estimate?.toFixed(2) ?? "—"} />
+              <Metric label={t("examReport.ci")} value={
                 r.ability_ci_lower != null && r.ability_ci_upper != null
                   ? `${r.ability_ci_lower.toFixed(2)} – ${r.ability_ci_upper.toFixed(2)}`
                   : "—"
               } />
-              <Metric label="SEM" value={r.sem?.toFixed(2) ?? "—"} />
-              <Metric label="Readiness" value={readinessLabel(r.readiness_level)} />
+              <Metric label={t("examReport.sem")} value={r.sem?.toFixed(2) ?? "—"} />
+              <Metric label={t("examReport.readiness")} value={readinessLabel(t, r.readiness_level)} />
             </div>
             {r.disclaimer && (
               <Alert>
-                <AlertTitle>Study tool — not an official score</AlertTitle>
+                <AlertTitle>{t("examReport.studyToolTitle")}</AlertTitle>
                 <AlertDescription>{r.disclaimer}</AlertDescription>
               </Alert>
             )}
@@ -130,15 +132,15 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
       {/* By domain */}
       <Card>
         <CardHeader>
-          <Eyebrow>Breakdown</Eyebrow>
-          <CardTitle>By domain</CardTitle>
+          <Eyebrow>{t("examReport.breakdown")}</Eyebrow>
+          <CardTitle>{t("examReport.byDomain")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {r.domains.length === 0 && <p className="text-sm text-muted-foreground">No domain data.</p>}
+          {r.domains.length === 0 && <p className="text-sm text-muted-foreground">{t("examReport.noDomainData")}</p>}
           {r.domains.map((d, i) => (
             <div key={d.domain_id ?? `none-${i}`} className="space-y-1.5">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{d.domain_name ?? "Unmapped"}</span>
+                <span className="font-medium">{d.domain_name ?? t("examReport.unmapped")}</span>
                 <span className="text-muted-foreground tabular-nums">
                   {d.answered === 0 ? "—" : `${fmtPct(d.accuracy)} · ${d.correct}/${d.answered}`}
                 </span>
@@ -157,13 +159,13 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
       {/* Wrong questions */}
       <Card>
         <CardHeader>
-          <Eyebrow>Review</Eyebrow>
-          <CardTitle>Wrong questions ({r.wrong_questions.length})</CardTitle>
+          <Eyebrow>{t("examReport.review")}</Eyebrow>
+          <CardTitle>{t("examReport.wrongQuestions", { n: r.wrong_questions.length })}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {r.wrong_questions.length === 0 ? (
             <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">
-              <CheckCircle2 className="h-4 w-4" /> No wrong answers — excellent.
+              <CheckCircle2 className="h-4 w-4" /> {t("examReport.noWrong")}
             </div>
           ) : (
             r.wrong_questions.map((w) => (
@@ -175,11 +177,11 @@ export function ExamReport({ sessionId }: { sessionId: string }) {
                 <div className="flex flex-wrap gap-2 text-xs">
                   <Badge variant="destructive">
                     <XCircle className="mr-1 h-3 w-3" />
-                    Your answer: {w.selected_indexes.join(", ") || "—"}
+                    {t("examReport.yourAnswer")}: {w.selected_indexes.join(", ") || "—"}
                   </Badge>
                   <Badge variant="success">
                     <CheckCircle2 className="mr-1 h-3 w-3" />
-                    Correct: {w.correct_indexes.join(", ")}
+                    {t("examReport.correctLabel")}: {w.correct_indexes.join(", ")}
                   </Badge>
                 </div>
               </div>

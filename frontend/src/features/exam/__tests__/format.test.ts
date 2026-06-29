@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { makeT } from "@/locales/t";
+import { en } from "@/locales/en";
 import { fmtCountdown, readinessLabel, isTimeCritical } from "../format";
+
+const t = makeT(en);
 
 describe("exam format helpers", () => {
   it("formats countdown as MM:SS under an hour and H:MM:SS over", () => {
@@ -15,9 +19,9 @@ describe("exam format helpers", () => {
   });
 
   it("labels readiness levels with a fallback", () => {
-    expect(readinessLabel("ready")).toBe("Ready");
-    expect(readinessLabel(null)).toBe("—");
-    expect(readinessLabel("some_new_level")).toBe("some new level");
+    expect(readinessLabel(t, "ready")).toBe("Ready");
+    expect(readinessLabel(t, null)).toBe("—");
+    expect(readinessLabel(t, "some_new_level")).toBe("some new level");
   });
 
   it("flags the final five minutes as critical", () => {

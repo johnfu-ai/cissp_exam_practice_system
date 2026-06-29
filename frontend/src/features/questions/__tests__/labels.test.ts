@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { statusVariant, availableActions, STATUS_LABELS } from "../labels";
+import { makeT } from "@/locales/t";
+import { en } from "@/locales/en";
+import { statusVariant, availableActions, statusLabel } from "../labels";
+
+const t = makeT(en);
 
 describe("question labels + state machine", () => {
   it("maps status to a badge variant", () => {
@@ -19,8 +23,13 @@ describe("question labels + state machine", () => {
     expect(availableActions("archived").map((a) => a.action)).toEqual(["restore"]);
   });
 
+  it("exposes a dotted labelKey per action resolved via t()", () => {
+    expect(availableActions("draft")[0].labelKey).toBe("qAction.submitReview");
+    expect(t(availableActions("draft")[0].labelKey)).toBe("Submit for review");
+  });
+
   it("has a label for every status", () => {
-    expect(STATUS_LABELS.pending_review).toBe("Pending review");
-    expect(STATUS_LABELS.published).toBe("Published");
+    expect(statusLabel(t, "pending_review")).toBe("Pending review");
+    expect(statusLabel(t, "published")).toBe("Published");
   });
 });

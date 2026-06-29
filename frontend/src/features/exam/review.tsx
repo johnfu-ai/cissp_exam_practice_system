@@ -19,15 +19,11 @@ import {
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { CheckCircle2, XCircle, MinusCircle } from "lucide-react";
 import type { LanguageMode, Localized } from "@/lib/api/types";
 
 const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
-const LANGUAGE_LABELS: Record<LanguageMode, string> = {
-  en: "English",
-  zh: "中文",
-  bilingual: "Both",
-};
 
 /** True when a Localized slot carries any translatable content. */
 function hasContent(loc: Localized | null | undefined): boolean {
@@ -39,6 +35,7 @@ function optionLetter(orderIndex: number): string {
 }
 
 export function ExamReview({ sessionId }: { sessionId: string }) {
+  const t = useT();
   const review = useExamReview(sessionId);
   const session = useExamSession(sessionId);
 
@@ -50,17 +47,17 @@ export function ExamReview({ sessionId }: { sessionId: string }) {
     if (m) setMode(m as LanguageMode);
   }, [session.data?.config?.language_mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (review.isLoading) return <Loading label="Loading review…" />;
+  if (review.isLoading) return <Loading label={t("examReview.loadingReview")} />;
   if (review.isError || !review.data) {
-    return <ErrorState message="Could not load the exam review." />;
+    return <ErrorState message={t("examReview.loadFailed")} />;
   }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
-        eyebrow="Exam"
-        title="Answer review"
-        description={`${review.data.length} questions`}
+        eyebrow={t("exam.eyebrow")}
+        title={t("examReview.title")}
+        description={t("examReview.nQuestions", { n: review.data.length })}
         actions={
           <div className="flex items-center gap-2">
             <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
@@ -70,13 +67,13 @@ export function ExamReview({ sessionId }: { sessionId: string }) {
               <SelectContent>
                 {LANGUAGE_MODES.map((m) => (
                   <SelectItem key={m} value={m}>
-                    {LANGUAGE_LABELS[m]}
+                    {t(`lang.${m}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Button asChild variant="outline">
-              <Link href={`/exam/sessions/${sessionId}/report`}>Back to report</Link>
+              <Link href={`/exam/sessions/${sessionId}/report`}>{t("examReview.backToReport")}</Link>
             </Button>
           </div>
         }
@@ -126,7 +123,7 @@ export function ExamReview({ sessionId }: { sessionId: string }) {
                             : "text-destructive",
                       )}
                     >
-                      {!answered ? "Not answered" : isCorrect ? "Correct" : "Incorrect"}
+                      {!answered ? t("examReview.notAnswered") : isCorrect ? t("examReview.correct") : t("examReview.incorrect")}
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       Q{item.position + 1}
@@ -176,12 +173,12 @@ export function ExamReview({ sessionId }: { sessionId: string }) {
                         />
                         {o.is_correct && (
                           <Badge variant="success" className="shrink-0">
-                            Correct
+                            {t("examReview.correct")}
                           </Badge>
                         )}
                         {chosen && !o.is_correct && (
                           <Badge variant="destructive" className="shrink-0">
-                            Your pick
+                            {t("examReview.yourPick")}
                           </Badge>
                         )}
                       </li>
@@ -192,7 +189,7 @@ export function ExamReview({ sessionId }: { sessionId: string }) {
                 {/* Explanation prose */}
                 {hasContent(item.correct_rationale) && (
                   <div className="rounded-lg border border-border bg-muted/30 p-4">
-                    <Eyebrow className="mb-2">Explanation</Eyebrow>
+                    <Eyebrow className="mb-2">{t("examReview.explanation")}</Eyebrow>
                     <BilingualText
                       mode={mode}
                       en={item.correct_rationale.en}
@@ -203,7 +200,7 @@ export function ExamReview({ sessionId }: { sessionId: string }) {
                 )}
                 {hasContent(item.key_point_summary) && (
                   <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">Key point:</span>
+                    <span className="font-medium text-foreground">{t("examReview.keyPoint")}</span>
                     <BilingualText
                       mode={mode}
                       en={item.key_point_summary.en}

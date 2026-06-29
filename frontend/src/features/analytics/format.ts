@@ -1,4 +1,5 @@
 // Pure presentation helpers for analytics — no React, fully unit-testable.
+import type { TFn } from "@/lib/i18n/types";
 import type { MasteryLevel } from "@/lib/api/types";
 
 export function fmtPct(n: number): string {
@@ -23,13 +24,6 @@ export function fmtDate(iso: string | null): string {
   return d.toISOString().slice(0, 10);
 }
 
-export const MASTERY_LABELS: Record<MasteryLevel, string> = {
-  mastered: "Mastered",
-  reviewing: "Reviewing",
-  learning: "Learning",
-  not_started: "Not started",
-};
-
 // Tailwind classes for mastery badges (variant-agnostic; used with className).
 export const MASTERY_CLASSES: Record<MasteryLevel, string> = {
   mastered: "bg-emerald-100 text-emerald-800",
@@ -38,17 +32,20 @@ export const MASTERY_CLASSES: Record<MasteryLevel, string> = {
   not_started: "bg-muted text-muted-foreground",
 };
 
-export const ERROR_TYPE_LABELS: Record<string, string> = {
-  concept_unclear: "Concept unclear",
-  misread_stem: "Misread stem",
-  memory_lapse: "Memory lapse",
-  option_confusion: "Option confusion",
-  time_pressure: "Time pressure",
-};
+/** Resolve a dictionary entry keyed by the raw enum value; fall back to the raw key. */
+function lookup(t: TFn, scope: string, key: string): string {
+  const k = `${scope}.${key}`;
+  const v = t(k);
+  return v === k ? key : v;
+}
 
-export function errorTypeLabel(key: string | null): string {
-  if (key === null) return "Unclassified";
-  return ERROR_TYPE_LABELS[key] ?? key;
+export function masteryLabel(t: TFn, level: MasteryLevel): string {
+  return lookup(t, "mastery", level);
+}
+
+export function errorTypeLabel(t: TFn, key: string | null): string {
+  if (key === null) return t("errorType.unclassified");
+  return lookup(t, "errorType", key);
 }
 
 // Color for an accuracy ratio — used by bars. Mirrors mastery thresholds.

@@ -13,12 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/empty-state";
 import { fmtDate } from "@/features/analytics/format";
+import { useT } from "@/lib/i18n/provider";
 
 function fmtPct(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
 
 export function ExamHistoryPanel() {
+  const t = useT();
   const [ids, setIds] = useState<string[]>([]);
   useEffect(() => setIds(getTrackedExamIds()), []);
 
@@ -53,22 +55,22 @@ export function ExamHistoryPanel() {
     <div className="space-y-6">
       {active.length > 0 && (
         <div>
-          <h3 className="mb-3 text-sm font-medium text-muted-foreground">In progress</h3>
+          <h3 className="mb-3 text-sm font-medium text-muted-foreground">{t("examHistory.inProgress")}</h3>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {active.map((s) => (
               <Card key={s.id} hover>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-base">
-                    {s.session_kind === "cat" ? "CAT exam" : "Fixed exam"}
+                    {s.session_kind === "cat" ? t("examHistory.catExam") : t("examHistory.fixedExam")}
                   </CardTitle>
-                  <Badge variant="secondary">In progress</Badge>
+                  <Badge variant="secondary">{t("examHistory.inProgress")}</Badge>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground tabular-nums">
-                    {s.total_questions > 0 ? `${s.total_questions} questions` : "Adaptive"}
+                    {s.total_questions > 0 ? t("examHistory.nQuestions", { n: s.total_questions }) : t("examHistory.adaptive")}
                   </p>
                   <Button asChild size="sm">
-                    <Link href={`/exam/sessions/${s.id}`}>Resume</Link>
+                    <Link href={`/exam/sessions/${s.id}`}>{t("examHistory.resume")}</Link>
                   </Button>
                 </CardContent>
               </Card>
@@ -78,12 +80,12 @@ export function ExamHistoryPanel() {
       )}
 
       <div>
-        <h3 className="mb-3 text-sm font-medium text-muted-foreground">Completed exams</h3>
-        {history.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        <h3 className="mb-3 text-sm font-medium text-muted-foreground">{t("examHistory.completed")}</h3>
+        {history.isLoading && <p className="text-sm text-muted-foreground">{t("examHistory.loading")}</p>}
         {history.data && history.data.length === 0 && active.length === 0 && (
           <EmptyState
-            title="No exams yet"
-            description="Start a fixed or CAT mock exam to build your exam history here."
+            title={t("examHistory.noExams")}
+            description={t("examHistory.noExamsDesc")}
           />
         )}
         {history.data && history.data.length > 0 && (
@@ -91,11 +93,11 @@ export function ExamHistoryPanel() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40 text-left text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">Date</th>
-                  <th className="px-4 py-2 font-medium">Questions</th>
-                  <th className="px-4 py-2 font-medium">Score</th>
-                  <th className="px-4 py-2 font-medium">Accuracy</th>
-                  <th className="px-4 py-2 font-medium">Result</th>
+                  <th className="px-4 py-2 font-medium">{t("examHistory.colDate")}</th>
+                  <th className="px-4 py-2 font-medium">{t("examHistory.colQuestions")}</th>
+                  <th className="px-4 py-2 font-medium">{t("examHistory.colScore")}</th>
+                  <th className="px-4 py-2 font-medium">{t("examHistory.colAccuracy")}</th>
+                  <th className="px-4 py-2 font-medium">{t("examHistory.colResult")}</th>
                   <th className="px-4 py-2 font-medium"></th>
                 </tr>
               </thead>
@@ -112,12 +114,12 @@ export function ExamHistoryPanel() {
                     <td className="px-4 py-2.5 tabular-nums">{fmtPct(h.accuracy)}</td>
                     <td className="px-4 py-2.5">
                       <Badge variant={h.passed ? "success" : "destructive"}>
-                        {h.passed ? "Pass" : "Fail"}
+                        {h.passed ? t("examHistory.pass") : t("examHistory.fail")}
                       </Badge>
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       <Button asChild variant="ghost" size="sm">
-                        <Link href={`/exam/sessions/${h.id}/report`}>View report</Link>
+                        <Link href={`/exam/sessions/${h.id}/report`}>{t("examHistory.viewReport")}</Link>
                       </Button>
                     </td>
                   </tr>

@@ -5,13 +5,15 @@ import { FixedExamRunner } from "./fixed-runner";
 import { CatExamRunner } from "./cat-runner";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import { useT } from "@/lib/i18n/provider";
 
 export function ExamRunner({ sessionId }: { sessionId: string }) {
+  const t = useT();
   const session = useExamSession(sessionId);
 
-  if (session.isLoading) return <Loading label="Loading exam…" />;
+  if (session.isLoading) return <Loading label={t("examRunnerPage.loadingExam")} />;
   if (session.isError || !session.data) {
-    return <ErrorState message="Could not load this exam session." />;
+    return <ErrorState message={t("examRunnerPage.loadFailed")} />;
   }
   const s = session.data;
 
@@ -20,7 +22,7 @@ export function ExamRunner({ sessionId }: { sessionId: string }) {
     if (typeof window !== "undefined") {
       window.location.replace(`/exam/sessions/${sessionId}/report`);
     }
-    return <Loading label="Loading report…" />;
+    return <Loading label={t("examRunnerPage.loadingReport")} />;
   }
 
   if (s.session_kind === "cat") {

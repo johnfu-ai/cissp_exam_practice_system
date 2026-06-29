@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { I18nProvider } from "@/lib/i18n/provider";
 import type { ExamQuestionDelivery, ExamSession } from "@/lib/api/types";
 
 // Refetch spy for useExamNext — toggling language must never trigger it.
@@ -112,7 +113,9 @@ describe("CatExamRunner language-mode toggle", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <CatExamRunner sessionId="s1" session={session} />
+        <I18nProvider initialLocale="en">
+          <CatExamRunner sessionId="s1" session={session} />
+        </I18nProvider>
       </QueryClientProvider>,
     );
 

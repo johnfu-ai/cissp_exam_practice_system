@@ -36,18 +36,11 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import { enumLabel } from "@/features/shared/enum-label";
 import type { ExamSession, LanguageMode } from "@/lib/api/types";
 
 const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
-const LANGUAGE_LABELS: Record<LanguageMode, string> = {
-  en: "English",
-  zh: "中文",
-  bilingual: "Both",
-};
-
-function labelize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 export function FixedExamRunner({
   sessionId,
@@ -56,6 +49,7 @@ export function FixedExamRunner({
   sessionId: string;
   session: ExamSession;
 }) {
+  const t = useT();
   const router = useRouter();
   const [position, setPosition] = useState(0);
   const [selections, setSelections] = useState<Record<number, number[]>>({});
@@ -96,25 +90,25 @@ export function FixedExamRunner({
   const doFinish = useCallback(() => {
     finish.mutate(undefined, {
       onSuccess: goReport,
-      onError: () => toast.error("Could not submit the exam."),
+      onError: () => toast.error(t("examRunner.toastCouldNotSubmitExam")),
     });
-  }, [finish, goReport]);
+  }, [finish, goReport, t]);
 
   // Tick the countdown; auto-submit when it hits zero.
   const finishedRef = useRef(false);
   useEffect(() => {
-    const t = setInterval(() => {
+    const interval = setInterval(() => {
       if (deadlineRef.current === null) return;
       const ms = Math.max(0, deadlineRef.current - Date.now());
       setRemaining(ms);
       if (ms <= 0 && !finishedRef.current) {
         finishedRef.current = true;
-        toast.message("Time is up — submitting your exam.");
+        toast.message(t("examRunner.toastTimeUp"));
         doFinish();
       }
     }, 1000);
-    return () => clearInterval(t);
-  }, [doFinish]);
+    return () => clearInterval(interval);
+  }, [doFinish, t]);
 
   // Seed selection from the server's stored answer the first time we see a question.
   useEffect(() => {
@@ -169,10 +163,10 @@ export function FixedExamRunner({
         },
         onError: (e) => {
           if (e instanceof ApiError && e.status === 409) {
-            toast.error("The exam is no longer in progress.");
+            toast.error(t("examRunner.toastExamNotInProgress"));
             goReport();
           } else {
-            toast.error("Could not save your answer.");
+            toast.error(t("examRunner.toastCouldNotSaveAnswer"));
           }
         },
       }
@@ -188,13 +182,13 @@ export function FixedExamRunner({
     const stale = question.error instanceof ApiError && question.error.status === 409;
     return (
       <ErrorState
-        title={stale ? "Exam ended" : "Could not load question"}
-        message={stale ? "This exam is finished or timed out." : "Please try again."}
+        title={stale ? t("examRunner.errExamEnded") : t("examRunner.errCouldNotLoadQuestion")}
+        message={stale ? t("examRunner.errExamStaleFixed") : t("examRunner.errRetry")}
         onRetry={stale ? goReport : () => question.refetch()}
       />
     );
   }
-  if (question.isLoading || !delivery) return <Loading label="Loading question…" />;
+  if (question.isLoading || !delivery) return <Loading label={t("examRunner.loadingQuestion")} />;
 
   const critical = isTimeCritical(remaining);
   const progressPct = total > 0 ? ((position + 1) / total) * 100 : 0;
@@ -205,8 +199,9 @@ export function FixedExamRunner({
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm text-muted-foreground">
-            Question{" "}
-            <span className="font-medium text-foreground tabular-nums">{position + 1}</span> of{" "}
+            {t("examRunner.questionLabel")}{" "}
+            <span className="font-medium text-foreground tabular-nums">{position + 1}</span>{" "}
+            {t("examRunner.ofTotal")}{" "}
             <span className="tabular-nums">{total}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -217,7 +212,7 @@ export function FixedExamRunner({
               <SelectContent>
                 {LANGUAGE_MODES.map((m) => (
                   <SelectItem key={m} value={m}>
-                    {LANGUAGE_LABELS[m]}
+                    {t(`lang.${m}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -227,7 +222,7 @@ export function FixedExamRunner({
                 "rounded-full px-3 py-1 font-mono text-sm font-semibold tabular-nums",
                 critical ? "bg-destructive text-destructive-foreground" : "bg-muted",
               )}
-              aria-label="Time remaining"
+              aria-label={t("examRunner.timeRemainingAria")}
             >
               {fmtCountdown(remaining)}
             </div>
@@ -250,7 +245,7 @@ export function FixedExamRunner({
       {/* Question card */}
       <Card className="mt-6">
         <CardHeader>
-          <Badge variant="secondary" className="w-fit">{labelize(delivery.question_type)}</Badge>
+          <Badge variant="secondary" className="w-fit">{enumLabel(t, "qType", delivery.question_type)}</Badge>
           <CardTitle className="mt-2 text-lg font-medium leading-relaxed">
             <BilingualText mode={mode} en={delivery.stem.en} zh={delivery.stem.zh} />
           </CardTitle>
@@ -271,7 +266,7 @@ export function FixedExamRunner({
       {/* Question palette */}
       <Card className="mt-4">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-normal text-muted-foreground">Question palette</CardTitle>
+          <CardTitle className="text-sm font-normal text-muted-foreground">{t("examRunner.palette")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-1.5">
@@ -288,7 +283,7 @@ export function FixedExamRunner({
                       ? "bg-success/20 text-foreground hover:bg-success/30"
                       : "bg-muted hover:bg-accent",
                 )}
-                aria-label={`Go to question ${i + 1}${answered.has(i) ? " (answered)" : ""}`}
+                aria-label={`${t("examRunner.goToQuestionAria", { n: i + 1 })}${answered.has(i) ? ` ${t("examRunner.answered")}` : ""}`}
               >
                 {i + 1}
               </button>
@@ -301,16 +296,16 @@ export function FixedExamRunner({
       <div className="sticky bottom-0 z-10 mt-6 border-t bg-background/95 px-1 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
         <div className="flex items-center justify-between gap-3">
           <Button variant="outline" onClick={() => goTo(position - 1)} disabled={position === 0 || submit.isPending}>
-            Previous
+            {t("examRunner.previous")}
           </Button>
           <div className="flex gap-2">
             {position + 1 < total ? (
               <Button size="pill" onClick={() => goTo(position + 1)} disabled={submit.isPending}>
-                {submit.isPending ? "Saving…" : "Save & next"}
+                {submit.isPending ? t("examRunner.saving") : t("examRunner.saveNext")}
               </Button>
             ) : (
               <Button onClick={() => save()} disabled={submit.isPending} variant="outline">
-                Save
+                {t("examRunner.save")}
               </Button>
             )}
             <FinishDialog
@@ -337,25 +332,26 @@ function FinishDialog({
   onConfirm: () => void;
   pending: boolean;
 }) {
+  const t = useT();
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button>Finish exam</Button>
+        <Button>{t("examRunner.finishExam")}</Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Submit your exam?</DialogTitle>
+          <DialogTitle>{t("examRunner.submitDialogTitle")}</DialogTitle>
           <DialogDescription>
-            You have answered {answered} of {total} questions. You cannot change your answers after submitting.
+            {t("examRunner.submitDialogDesc", { answered, total })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">Keep working</Button>
+            <Button variant="outline">{t("examRunner.keepWorking")}</Button>
           </DialogClose>
           <DialogClose asChild>
             <Button onClick={onConfirm} disabled={pending}>
-              {pending ? "Submitting…" : "Submit exam"}
+              {pending ? t("examRunner.submitting") : t("examRunner.submitExam")}
             </Button>
           </DialogClose>
         </DialogFooter>
