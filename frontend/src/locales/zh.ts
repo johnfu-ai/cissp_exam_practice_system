@@ -681,6 +681,7 @@ export const zh: typeof en = {
     newClassName: "新班级名称",
     addClass: "添加班级",
     noClasses: "暂无班级。",
+    noMembers: "暂无成员。",
     nMembers: "{n} 名成员",
     members: "成员",
     hide: "隐藏",

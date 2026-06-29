@@ -12,6 +12,7 @@ import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n/provider";
 import { Trash2 } from "lucide-react";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
@@ -64,6 +65,7 @@ function ordered(kps: KnowledgePoint[]): { kp: KnowledgePoint; depth: number }[]
 }
 
 export function KnowledgePointsTab() {
+  const t = useT();
   const kps = useKnowledgePoints();
   const create = useCreateKnowledgePoint();
   const update = useUpdateKnowledgePoint();
@@ -71,8 +73,8 @@ export function KnowledgePointsTab() {
   const [name, setName] = useState("");
   const [parent, setParent] = useState<string | null>(null);
 
-  if (kps.isLoading) return <Loading label="Loading knowledge points…" />;
-  if (kps.isError) return <ErrorState message="Could not load knowledge points." onRetry={() => kps.refetch()} />;
+  if (kps.isLoading) return <Loading label={t("taxonomyKps.loading")} />;
+  if (kps.isError) return <ErrorState message={t("taxonomyKps.loadFailed")} onRetry={() => kps.refetch()} />;
 
   const rows = ordered(kps.data ?? []);
 
@@ -81,15 +83,15 @@ export function KnowledgePointsTab() {
       <Card>
         <CardContent className="flex flex-wrap items-end gap-3 p-4">
           <div className="flex-1 space-y-1.5">
-            <Label>New knowledge point</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Risk management concepts" />
+            <Label>{t("taxonomyKps.newKp")}</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("taxonomyKps.newKpPlaceholder")} />
           </div>
           <div className="space-y-1.5">
-            <Label>Parent</Label>
+            <Label>{t("taxonomyKps.parent")}</Label>
             <Select value={parent ?? NONE} onValueChange={(v) => setParent(v === NONE ? null : v)}>
-              <SelectTrigger className="w-56"><SelectValue placeholder="Top level" /></SelectTrigger>
+              <SelectTrigger className="w-56"><SelectValue placeholder={t("taxonomyKps.topLevel")} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>Top level</SelectItem>
+                <SelectItem value={NONE}>{t("taxonomyKps.topLevel")}</SelectItem>
                 {kps.data?.map((k) => <SelectItem key={k.id} value={k.id}>{k.name}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -99,28 +101,28 @@ export function KnowledgePointsTab() {
             onClick={() => {
               if (!name.trim()) return;
               create.mutate({ name: name.trim(), parent_id: parent }, {
-                onSuccess: () => { setName(""); setParent(null); toast.success("Added."); },
-                onError: (e) => err(e, "Could not add knowledge point."),
+                onSuccess: () => { setName(""); setParent(null); toast.success(t("taxonomyKps.toastAdded")); },
+                onError: (e) => err(e, t("taxonomyKps.couldNotAdd")),
               });
             }}
             disabled={create.isPending}
           >
-            Add
+            {t("taxonomyKps.add")}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="space-y-1 p-4">
-          {rows.length === 0 && <p className="text-sm text-muted-foreground">No knowledge points yet.</p>}
+          {rows.length === 0 && <p className="text-sm text-muted-foreground">{t("taxonomyKps.noKps")}</p>}
           {rows.map(({ kp, depth }) => (
             <div key={kp.id} className={`flex items-center gap-2 ${DEPTH_PL[depth] ?? DEPTH_PL[DEPTH_PL.length - 1]}`}>
               <KpRow
                 kp={kp}
-                onSave={(newName) => update.mutate({ id: kp.id, body: { name: newName, parent_id: kp.parent_id } }, { onError: (e) => err(e, "Could not rename.") })}
+                onSave={(newName) => update.mutate({ id: kp.id, body: { name: newName, parent_id: kp.parent_id } }, { onError: (e) => err(e, t("taxonomyKps.couldNotRename")) })}
                 onDelete={() => {
-                  if (!window.confirm(`Delete "${kp.name}"?`)) return;
-                  remove.mutate(kp.id, { onSuccess: () => toast.success("Deleted."), onError: (e) => err(e, "Could not delete (may have children/refs).") });
+                  if (!window.confirm(t("taxonomyKps.deleteConfirm", { name: kp.name }))) return;
+                  remove.mutate(kp.id, { onSuccess: () => toast.success(t("taxonomyKps.toastDeleted")), onError: (e) => err(e, t("taxonomyKps.couldNotDelete")) });
                 }}
               />
             </div>
@@ -132,11 +134,12 @@ export function KnowledgePointsTab() {
 }
 
 function KpRow({ kp, onSave, onDelete }: { kp: KnowledgePoint; onSave: (name: string) => void; onDelete: () => void }) {
+  const t = useT();
   const [name, setName] = useState(kp.name);
   return (
     <div className="flex flex-1 items-center gap-2 py-1">
       <Input className="flex-1" value={name} onChange={(e) => setName(e.target.value)} />
-      <Button size="sm" variant="outline" disabled={name === kp.name} onClick={() => onSave(name)}>Save</Button>
+      <Button size="sm" variant="outline" disabled={name === kp.name} onClick={() => onSave(name)}>{t("taxonomyKps.save")}</Button>
       <Button size="sm" variant="ghost" className="text-destructive" onClick={onDelete}><Trash2 className="h-4 w-4" /></Button>
     </div>
   );

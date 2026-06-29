@@ -118,7 +118,7 @@ export function ImportWizard() {
           <Eyebrow className="mb-3">{t("importWiz.preview")}</Eyebrow>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>{t("importWiz.previewOf", { slug: activeSlug })}</CardTitle>
+              <CardTitle>{t("importWiz.previewOf", { slug: activeSlug ?? "" })}</CardTitle>
               <Badge variant={run.phase === "committed" ? "success" : run.phase === "rolled_back" ? "destructive" : "secondary"}>
                 {run.phase}
               </Badge>

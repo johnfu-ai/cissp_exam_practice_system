@@ -688,6 +688,7 @@ export const en = {
     newClassName: "New class name",
     addClass: "Add class",
     noClasses: "No classes yet.",
+    noMembers: "No members.",
     nMembers: "{n} members",
     members: "Members",
     hide: "Hide",
