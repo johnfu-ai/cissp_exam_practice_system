@@ -12,6 +12,7 @@ htmlcov/
 node_modules/
 .next/
 out/
+.vite/
 
 # Env
 .env
