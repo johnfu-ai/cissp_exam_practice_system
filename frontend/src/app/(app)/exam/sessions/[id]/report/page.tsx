@@ -1,5 +1,10 @@
 import { ExamReport } from "@/features/exam/report";
 
-export default function ExamReportPage({ params }: { params: { id: string } }) {
-  return <ExamReport sessionId={params.id} />;
+export default async function ExamReportPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <ExamReport sessionId={id} />;
 }

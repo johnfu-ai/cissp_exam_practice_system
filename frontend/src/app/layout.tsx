@@ -21,7 +21,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const uiLang = cookies().get("ui_lang")?.value;
+  const uiLang = (await cookies()).get("ui_lang")?.value;
   const locale: Locale = uiLang === "zh" ? "zh" : "en";
   return (
     <html lang={locale} className={dmSans.variable}>

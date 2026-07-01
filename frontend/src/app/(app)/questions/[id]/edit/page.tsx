@@ -1,5 +1,6 @@
 "use client";
 
+import { use } from "react";
 import { PageHeader } from "@/components/page-header";
 import { QuestionEditor } from "@/features/questions/editor";
 import { useQuestionDetail } from "@/lib/api/questions";
@@ -7,9 +8,14 @@ import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { useT } from "@/lib/i18n/provider";
 
-export default function EditQuestionPage({ params }: { params: { id: string } }) {
+export default function EditQuestionPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const t = useT();
-  const detail = useQuestionDetail(params.id);
+  const { id } = use(params);
+  const detail = useQuestionDetail(id);
   if (detail.isLoading) return <Loading label={t("questions.loadingQuestion")} />;
   if (detail.isError || !detail.data)
     return <ErrorState message={t("questions.loadFailedQuestion")} />;
