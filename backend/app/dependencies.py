@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.security import (
     InMemoryRefreshTokenStore,
     RedisRefreshTokenStore,
+    RedisPasswordResetTokenStore,
     RefreshTokenStore,
     decode_access_token,
 )
@@ -29,6 +30,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 
 _store: RefreshTokenStore | None = None
 _lockout: LockoutStore | None = None
+_reset_store: "RedisPasswordResetTokenStore | None" = None
 
 
 def get_refresh_store() -> RefreshTokenStore:
@@ -43,6 +45,13 @@ def get_lockout_store() -> LockoutStore:
     if _lockout is None:
         _lockout = RedisLockoutStore(settings.redis_url)
     return _lockout
+
+
+def get_reset_token_store() -> RedisPasswordResetTokenStore:
+    global _reset_store
+    if _reset_store is None:
+        _reset_store = RedisPasswordResetTokenStore(settings.redis_url)
+    return _reset_store
 
 
 @dataclass

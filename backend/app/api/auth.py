@@ -3,37 +3,46 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import (
+    PasswordResetTokenStore,
     RefreshTokenStore,
     decode_access_token,
-    hash_password,
 )
 from app.db.session import get_session
-from app.dependencies import CurrentUser, get_current_user, get_lockout_store, get_refresh_store
+from app.dependencies import (
+    CurrentUser,
+    get_current_user,
+    get_lockout_store,
+    get_refresh_store,
+    get_reset_token_store,
+)
 from app.models.auth import User
-from app.models.enums import AuditAction
 from app.schemas.auth import (
     LoginIn,
     LogoutIn,
+    PasswordChangeIn,
     RefreshIn,
     RegisterIn,
-    ResetPasswordIn,
+    ResetPasswordConfirmIn,
+    ResetPasswordRequestIn,
     TokenOut,
     UserOut,
 )
-from app.services.audit import log_audit
 from app.services.auth import (
     AuthError,
     LockoutStore,
     authenticate,
+    change_password,
+    confirm_password_reset,
     load_user_perms,
     load_user_roles,
     logout,
     refresh_tokens,
     register_user,
+    request_password_reset,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -110,20 +119,60 @@ def me(current: CurrentUser = Depends(get_current_user),
     return _user_out(session, current.user, current.org_id)
 
 
-@router.post("/reset-password")
-def reset_password(body: ResetPasswordIn, session: Session = Depends(get_session),
-                   lockout_store: LockoutStore = Depends(get_lockout_store)):
-    email = body.email.lower()
-    if lockout_store.is_locked(email):
-        raise HTTPException(status_code=429, detail="too many attempts; try later")
-    user = session.execute(select(User).filter_by(email=email)).scalar_one_or_none()
-    if user is None:
-        lockout_store.record_failure(email)
-        raise HTTPException(status_code=404, detail="not found")
-    user.password_hash = hash_password(body.new_password)
-    log_audit(session, action=AuditAction.config_change, actor_id=user.id,
-              organization_id=user.default_organization_id,
-              entity_type="user", entity_id=str(user.id),
-              details={"reset": True})
+@router.put("/password")
+def change_password_route(
+    body: PasswordChangeIn,
+    current: CurrentUser = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    try:
+        change_password(
+            session, user=current.user,
+            current_password=body.current_password,
+            new_password=body.new_password,
+        )
+    except AuthError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    session.commit()
+    return {"ok": True}
+
+
+@router.post("/reset-password/request")
+def reset_password_request(
+    body: ResetPasswordRequestIn,
+    session: Session = Depends(get_session),
+    reset_store: PasswordResetTokenStore = Depends(get_reset_token_store),
+    lockout_store: LockoutStore = Depends(get_lockout_store),
+):
+    try:
+        token = request_password_reset(
+            session, email=body.email,
+            reset_store=reset_store, lockout_store=lockout_store,
+        )
+    except AuthError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    session.commit()
+    # Always 200 (no email enumeration). The token is returned ONLY in
+    # development so the flow is testable end-to-end without email infra;
+    # a real deployment emails the link (future work).
+    resp = {"ok": True}
+    if token is not None and settings.app_env == "development":
+        resp["token"] = token
+    return resp
+
+
+@router.post("/reset-password/confirm")
+def reset_password_confirm(
+    body: ResetPasswordConfirmIn,
+    session: Session = Depends(get_session),
+    reset_store: PasswordResetTokenStore = Depends(get_reset_token_store),
+):
+    try:
+        confirm_password_reset(
+            session, token=body.token,
+            new_password=body.new_password, reset_store=reset_store,
+        )
+    except AuthError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     session.commit()
     return {"ok": True}

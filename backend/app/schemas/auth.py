@@ -22,8 +22,17 @@ class LogoutIn(BaseModel):
     refresh_token: str
 
 
-class ResetPasswordIn(BaseModel):
+class ResetPasswordRequestIn(BaseModel):
     email: EmailStr
+
+
+class ResetPasswordConfirmIn(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str
     new_password: str = Field(min_length=8, max_length=128)
 
 
