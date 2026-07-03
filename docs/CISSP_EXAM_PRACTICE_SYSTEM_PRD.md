@@ -145,7 +145,7 @@
 |---|---|---|
 | FR-USER-01 | 支持邮箱密码注册、登录和退出 | P0 |
 | FR-USER-02 | 支持 JWT 或 session token 认证，并提供刷新机制 | P0 |
-| FR-USER-03 | 支持密码重置 | P1 |
+| FR-USER-03 | 支持密码重置与修改：已认证用户凭当前密码修改密码（`PUT /api/auth/password`）；忘记密码时通过单次有效令牌重置（`POST /api/auth/reset-password/request` + `/confirm`，令牌 15 分钟过期、一次性使用、不泄露邮箱是否存在）；无邮件基础设施时由管理员代为重置（`POST /api/admin/users/{id}/reset-password`，审计为 `password_reset`） | P1 |
 | FR-USER-04 | 支持角色权限：个人考生、讲师、内容编辑、机构管理员、系统管理员 | P0 |
 | FR-USER-05 | 支持个人空间和机构空间隔离 | P1 |
 | FR-USER-06 | 支持用户资料、头像、考试目标日期和每日练习目标 | P2 |
