@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import (
+    PasswordResetTokenStore,
     RefreshTokenStore,
     create_access_token,
     generate_refresh_token,
@@ -217,3 +218,72 @@ def refresh_tokens(session: Session, refresh_store: RefreshTokenStore,
 
 def logout(refresh_store: RefreshTokenStore, refresh_token: str) -> None:
     refresh_store.delete(refresh_token)
+
+
+# ---- P0 #1: secure password change + reset ----
+
+def change_password(session: Session, *, user: User, current_password: str,
+                    new_password: str) -> None:
+    """Authenticated password change — requires proof of the current password."""
+    if not user.password_hash or not verify_password(current_password, user.password_hash):
+        raise AuthError("incorrect current password", status_code=401)
+    user.password_hash = hash_password(new_password)
+    session.flush()
+    log_audit(
+        session, action=AuditAction.password_change, actor_id=user.id,
+        organization_id=user.default_organization_id,
+        entity_type="user", entity_id=str(user.id),
+    )
+
+
+def request_password_reset(session: Session, *, email: str,
+                           reset_store: PasswordResetTokenStore,
+                           lockout_store: LockoutStore) -> str | None:
+    """Issue a single-use reset token for a known email.
+
+    Returns the token if the email maps to a user, else None. Always returns
+    None-ish for unknown emails without raising, so the API can answer 200
+    uniformly (no email enumeration). Per-email throttling via the lockout store.
+    """
+    email = email.lower().strip()
+    if lockout_store.is_locked(email):
+        raise AuthError("too many attempts; try later", status_code=429)
+    user = session.execute(select(User).filter_by(email=email)).scalar_one_or_none()
+    if user is None:
+        # throttle even on misses so an attacker can't enumerate freely
+        lockout_store.record_failure(email)
+        return None
+    token = reset_store.issue(
+        user.id,
+        ttl_seconds=int(
+            timedelta(minutes=settings.password_reset_token_ttl_minutes).total_seconds()
+        ),
+    )
+    lockout_store.reset(email)
+    log_audit(
+        session, action=AuditAction.password_reset, actor_id=None,
+        organization_id=user.default_organization_id,
+        entity_type="user", entity_id=str(user.id), details={"phase": "requested"},
+    )
+    return token
+
+
+def confirm_password_reset(session: Session, *, token: str, new_password: str,
+                           reset_store: PasswordResetTokenStore) -> User:
+    """Consume a single-use reset token and set the new password."""
+    user_id = reset_store.consume(token)
+    if user_id is None:
+        raise AuthError("invalid or expired reset token", status_code=401)
+    user = session.get(User, user_id)
+    if user is None:
+        raise AuthError("invalid or expired reset token", status_code=401)
+    if user.status != UserStatus.active:
+        raise AuthError("account disabled", status_code=403)
+    user.password_hash = hash_password(new_password)
+    session.flush()
+    log_audit(
+        session, action=AuditAction.password_reset, actor_id=user.id,
+        organization_id=user.default_organization_id,
+        entity_type="user", entity_id=str(user.id), details={"phase": "confirmed"},
+    )
+    return user
