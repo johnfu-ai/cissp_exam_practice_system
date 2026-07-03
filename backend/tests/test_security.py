@@ -4,6 +4,7 @@ import jwt
 import pytest
 
 from app.core.security import (
+    InMemoryPasswordResetTokenStore,
     InMemoryRefreshTokenStore,
     create_access_token,
     decode_access_token,
@@ -54,3 +55,29 @@ def test_refresh_token_store_rotate_invalidates_old():
     new_token = store.rotate("nonexistent", user_id=uid, org_id=oid, ttl_seconds=60)
     # rotating a nonexistent token still issues a new one bound to the caller
     assert store.load(new_token) == {"user_id": str(uid), "org_id": str(oid)}
+
+
+def test_reset_token_store_issue_consume_single_use():
+    store = InMemoryPasswordResetTokenStore()
+    uid = uuid.uuid4()
+    token = store.issue(uid, ttl_seconds=60)
+    assert token  # non-empty
+    assert store.consume(token) == uid  # first use returns the bound user_id
+    assert store.consume(token) is None  # single-use: a second consume fails
+    assert store.consume("bogus") is None  # unknown token -> None
+
+
+def test_reset_token_store_delete():
+    store = InMemoryPasswordResetTokenStore()
+    uid = uuid.uuid4()
+    token = store.issue(uid, ttl_seconds=60)
+    store.delete(token)
+    assert store.consume(token) is None
+
+
+def test_reset_token_store_tokens_are_unique():
+    store = InMemoryPasswordResetTokenStore()
+    uid = uuid.uuid4()
+    t1 = store.issue(uid, ttl_seconds=60)
+    t2 = store.issue(uid, ttl_seconds=60)
+    assert t1 != t2  # each issue mints a fresh token

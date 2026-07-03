@@ -108,3 +108,58 @@ class RedisRefreshTokenStore:
         new = generate_refresh_token()
         self.store(new, user_id, org_id, ttl_seconds)
         return new
+
+
+class PasswordResetTokenStore(Protocol):
+    """Single-use, short-lived password-reset tokens (TTL-bounded)."""
+
+    def issue(self, user_id: uuid.UUID, ttl_seconds: int) -> str: ...
+    def consume(self, token: str) -> uuid.UUID | None: ...
+    def delete(self, token: str) -> None: ...
+
+
+class InMemoryPasswordResetTokenStore:
+    def __init__(self) -> None:
+        self._data: dict[str, uuid.UUID] = {}
+
+    def issue(self, user_id, ttl_seconds):
+        token = generate_refresh_token()
+        self._data[token] = user_id
+        return token
+
+    def consume(self, token):
+        # pop = single-use: a second consume returns None
+        return self._data.pop(token, None)
+
+    def delete(self, token):
+        self._data.pop(token, None)
+
+
+class RedisPasswordResetTokenStore:
+    def __init__(self, redis_url: str, prefix: str = "pwreset:") -> None:
+        import redis
+
+        self._redis = redis.from_url(redis_url, socket_connect_timeout=2)
+        self._prefix = prefix
+
+    def _key(self, token: str) -> str:
+        return f"{self._prefix}{token}"
+
+    def issue(self, user_id, ttl_seconds):
+        token = generate_refresh_token()
+        self._redis.setex(
+            self._key(token), ttl_seconds, json.dumps({"user_id": str(user_id)})
+        )
+        return token
+
+    def consume(self, token):
+        # GETDEL is atomic -> single-use even under concurrency
+        raw = self._redis.getdel(self._key(token))
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        return uuid.UUID(json.loads(raw)["user_id"])
+
+    def delete(self, token):
+        self._redis.delete(self._key(token))

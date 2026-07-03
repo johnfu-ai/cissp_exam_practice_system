@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 14
+    password_reset_token_ttl_minutes: int = 15
     bcrypt_rounds: int = 12
     login_lockout_threshold: int = 5
     login_lockout_window_minutes: int = 15
