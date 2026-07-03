@@ -149,22 +149,33 @@ def run_seed(session: Session) -> dict:
 
     # Bootstrap system_admin (so the system is usable after auth lock-down).
     admin_email = settings.seed_admin_email.lower()
+    dev_mode = settings.app_env.lower() in {"development", "dev", "test"}
+    # In dev the admin defaults to "admin" (dev convenience — no committed
+    # secret). In prod the password is generated (and printed once) or set via
+    # SEED_ADMIN_PASSWORD. effective_pw is None only in prod-without-override,
+    # which means "leave an existing admin's password alone" on re-seed.
+    effective_pw = settings.seed_admin_password or ("admin" if dev_mode else None)
     admin = session.execute(select(User).filter_by(email=admin_email)).scalar_one_or_none()
     if admin is None:
-        pw = settings.seed_admin_password or secrets.token_urlsafe(16)
+        pw = effective_pw or secrets.token_urlsafe(16)
         admin = User(email=admin_email, password_hash=hash_password(pw),
                      display_name="System Admin", status=UserStatus.active,
                      default_organization_id=personal_org.id)
         session.add(admin); session.flush()
-        if not settings.seed_admin_password:
+        if effective_pw == "admin" and not settings.seed_admin_password:
+            print(f"[seed] created admin {admin_email} with dev-default password 'admin' "
+                  "(set SEED_ADMIN_PASSWORD or APP_ENV=production to override)")
+        elif effective_pw is None:
             print(f"[seed] created admin {admin_email} with generated password: {pw}")
-    elif settings.seed_admin_password:
-        # An explicit seed password always wins — keeps dev logins (e.g. admin/admin)
-        # working across restarts even when the admin already exists.
-        new_hash = hash_password(settings.seed_admin_password)
+    elif effective_pw is not None:
+        # Dev default or an explicit operator password wins across restarts.
+        # In prod with NO explicit password, effective_pw is None and we leave
+        # the existing password alone (the admin sets their own via the UI).
+        new_hash = hash_password(effective_pw)
         if admin.password_hash != new_hash:
             admin.password_hash = new_hash
-            print(f"[seed] reset admin {admin_email} password to configured SEED_ADMIN_PASSWORD")
+            src = "configured SEED_ADMIN_PASSWORD" if settings.seed_admin_password else "dev default"
+            print(f"[seed] reset admin {admin_email} password to {src}")
     # Ensure the admin holds the system_admin role in the personal org whether
     # the account was just created or already existed (idempotent).
     sa_role = role_by_name[RoleName.system_admin]

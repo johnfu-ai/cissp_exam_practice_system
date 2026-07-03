@@ -1,11 +1,25 @@
 from sqlalchemy import func, select
 
+from app.core.config import Settings
+from app.core.security import hash_password, verify_password
 from app.db.seed import run_seed
 from app.models.admin import SchemaMeta
 from app.models.auth import Organization, OrganizationMembership, Permission, Role, RolePermission, User
 from app.models.enums import RoleName
 from app.models.etl import ChapterDomainMapping, EtlDataset
 from app.models.taxonomy import ExamBlueprint, ExamDomain
+
+
+def _settings(app_env: str, seed_admin_password: str = "") -> Settings:
+    """A Settings instance for prod/dev seed tests (strong jwt_secret so the
+    prod validator passes; _env_file=None ignores any local .env)."""
+    return Settings(
+        _env_file=None,
+        app_env=app_env,
+        jwt_secret="x" * 32,
+        seed_admin_email="admin@example.com",
+        seed_admin_password=seed_admin_password,
+    )
 
 
 def test_seed_creates_expected_reference_data(db_session):
@@ -130,3 +144,53 @@ def test_seed_includes_reports_permission(db_session):
             select(RolePermission).filter_by(role_id=role.id, permission_id=rep.id)
         ).scalar_one_or_none()
         assert link is None
+
+
+# ---- P0 #2: dev-only admin reset ----
+
+def _admin(db_session):
+    return db_session.execute(select(User).filter_by(email="admin@example.com")).scalar_one()
+
+
+def test_seed_dev_defaults_admin_password_to_admin(db_session, monkeypatch):
+    monkeypatch.setattr("app.db.seed.settings", _settings("development"))
+    run_seed(db_session)
+    assert verify_password("admin", _admin(db_session).password_hash)
+
+
+def test_seed_prod_generates_random_admin_password(db_session, monkeypatch, capsys):
+    monkeypatch.setattr("app.db.seed.settings", _settings("production"))
+    run_seed(db_session)
+    admin = _admin(db_session)
+    assert not verify_password("admin", admin.password_hash)  # random, not the dev default
+    assert "generated password" in capsys.readouterr().out  # printed once
+
+
+def test_seed_prod_does_not_reset_existing_admin(db_session, monkeypatch):
+    # create the admin in dev (password "admin")
+    monkeypatch.setattr("app.db.seed.settings", _settings("development"))
+    run_seed(db_session)
+    # admin sets their own password via the UI
+    _admin(db_session).password_hash = hash_password("custompw1")
+    db_session.flush()
+    # re-seed in PROD with no explicit seed_admin_password -> must NOT reset
+    monkeypatch.setattr("app.db.seed.settings", _settings("production"))
+    run_seed(db_session)
+    assert verify_password("custompw1", _admin(db_session).password_hash)
+
+
+def test_seed_prod_resets_when_explicit_operator_password(db_session, monkeypatch):
+    monkeypatch.setattr("app.db.seed.settings", _settings("development"))
+    run_seed(db_session)
+    # re-seed in PROD with an explicit operator password -> reset to it
+    monkeypatch.setattr("app.db.seed.settings", _settings("production", seed_admin_password="operator123"))
+    run_seed(db_session)
+    assert verify_password("operator123", _admin(db_session).password_hash)
+
+
+def test_seed_dev_resets_existing_admin_to_explicit(db_session, monkeypatch):
+    monkeypatch.setattr("app.db.seed.settings", _settings("development"))
+    run_seed(db_session)
+    monkeypatch.setattr("app.db.seed.settings", _settings("development", seed_admin_password="devpw123"))
+    run_seed(db_session)
+    assert verify_password("devpw123", _admin(db_session).password_hash)
