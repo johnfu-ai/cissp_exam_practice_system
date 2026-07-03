@@ -209,10 +209,10 @@ def language_coverage(
 def get_question(
     question_id: uuid.UUID,
     session: Session = Depends(get_session),
-    _: CurrentUser = Depends(require_permission("question:read")),
+    current: CurrentUser = Depends(require_permission("question:read")),
 ):
     try:
-        q = svc.get_question(session, question_id)
+        q = svc.get_question(session, question_id, org_id=current.org_id)
     except svc.NotFound:
         raise HTTPException(status_code=404, detail="question not found")
     return _question_out(session, q)
@@ -227,7 +227,8 @@ def update_question(
 ):
     try:
         q = svc.update_question(
-            session, question_id=question_id, actor_id=current.user.id, payload=body
+            session, question_id=question_id, actor_id=current.user.id,
+            payload=body, org_id=current.org_id,
         )
     except svc.NotFound:
         raise HTTPException(status_code=404, detail="question not found")
@@ -245,7 +246,8 @@ def delete_question(
     current: CurrentUser = Depends(require_permission("question:write")),
 ):
     try:
-        svc.delete_question(session, question_id=question_id, actor_id=current.user.id)
+        svc.delete_question(session, question_id=question_id,
+                            actor_id=current.user.id, org_id=current.org_id)
     except svc.NotFound:
         raise HTTPException(status_code=404, detail="question not found")
     session.commit()
@@ -266,7 +268,7 @@ def review_question(
     try:
         q = svc.submit_review(
             session, question_id=question_id, actor_id=current.user.id,
-            action=body.action, comment=body.comment,
+            action=body.action, comment=body.comment, org_id=current.org_id,
         )
     except svc.NotFound:
         raise HTTPException(status_code=404, detail="question not found")
@@ -283,10 +285,10 @@ def review_question(
 def list_revisions(
     question_id: uuid.UUID,
     session: Session = Depends(get_session),
-    _: CurrentUser = Depends(require_permission("question:read")),
+    current: CurrentUser = Depends(require_permission("question:read")),
 ):
     try:
-        svc.get_question(session, question_id)
+        svc.get_question(session, question_id, org_id=current.org_id)
     except svc.NotFound:
         raise HTTPException(status_code=404, detail="question not found")
     return [
@@ -321,6 +323,10 @@ def create_feedback(
 def list_feedback(
     question_id: uuid.UUID,
     session: Session = Depends(get_session),
-    _: CurrentUser = Depends(require_permission("question:read")),
+    current: CurrentUser = Depends(require_permission("question:read")),
 ):
+    try:
+        svc.get_question(session, question_id, org_id=current.org_id)
+    except svc.NotFound:
+        raise HTTPException(status_code=404, detail="question not found")
     return [_feedback_out(fb) for fb in svc.list_feedback(session, question_id=question_id)]

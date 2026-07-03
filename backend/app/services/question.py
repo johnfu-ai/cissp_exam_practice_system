@@ -255,10 +255,12 @@ def create_question(
     return q
 
 
-def get_question(session: Session, question_id) -> Question:
-    """Return a live question by id. Raises ``NotFound`` if missing or soft-deleted."""
+def get_question(session: Session, question_id, *, org_id) -> Question:
+    """Return a live question by id. Raises ``NotFound`` if missing, soft-deleted,
+    or belonging to a different org (cross-tenant access -> 404; never reveal
+    existence)."""
     q = session.get(Question, question_id)
-    if q is None or q.deleted_at is not None:
+    if q is None or q.deleted_at is not None or q.organization_id != org_id:
         raise NotFound(f"question {question_id} not found")
     return q
 
@@ -355,14 +357,14 @@ def _delete_rows(session: Session, model, question_id) -> None:
 
 
 def update_question(
-    session: Session, *, question_id, actor_id, payload: QuestionUpdateIn
+    session: Session, *, question_id, actor_id, payload: QuestionUpdateIn, org_id
 ) -> Question:
     """Partial update. Writes a pre-edit revision snapshot, bumps version, and
     revalidates options when supplied. Replaces (not appends) translations and
     options when supplied. A no-op payload (nothing set) does not bump the
     version.
     """
-    q = get_question(session, question_id)
+    q = get_question(session, question_id, org_id=org_id)
     data = payload.model_dump(exclude_unset=True)
     changed = bool(data)
 
@@ -437,11 +439,11 @@ def list_revisions(session: Session, question_id) -> list[QuestionRevision]:
     )
 
 
-def delete_question(session: Session, *, question_id, actor_id) -> None:
+def delete_question(session: Session, *, question_id, actor_id, org_id) -> None:
     """Soft-delete a question (sets ``deleted_at``). Excluded from list/get."""
     from datetime import datetime, timezone
 
-    q = get_question(session, question_id)
+    q = get_question(session, question_id, org_id=org_id)
     q.deleted_at = datetime.now(timezone.utc)
     q.updated_by_id = actor_id
     log_audit(
@@ -486,8 +488,9 @@ def submit_review(
     actor_id,
     action: ReviewAction,
     comment: str | None = None,
+    org_id,
 ) -> Question:
-    q = get_question(session, question_id)
+    q = get_question(session, question_id, org_id=org_id)
     if action == ReviewAction.approve:
         # FR-LANG-09: require >=1 complete translation; if multiple present,
         # all must be complete.
@@ -543,7 +546,7 @@ def create_feedback(
     payload: FeedbackIn,
 ) -> QuestionFeedback:
     """Create a correction-feedback entry on a live question (FR-Q-07)."""
-    get_question(session, question_id)  # raises NotFound if missing/deleted
+    get_question(session, question_id, org_id=org_id)  # raises NotFound if missing/deleted/cross-org
     fb = QuestionFeedback(
         organization_id=org_id,
         question_id=question_id,

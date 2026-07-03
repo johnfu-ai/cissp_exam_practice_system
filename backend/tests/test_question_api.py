@@ -228,3 +228,30 @@ def test_language_coverage_requires_reports_perm(client):
     h = _headers(db, store, email="nocov@example.com", role=RoleName.individual_learner,
                  perms=["question:read", "practice:read", "exam:read"])
     assert c.get("/api/questions/language-coverage", headers=h).status_code == 403
+
+
+# --- P0 #3: cross-tenant IDOR ------------------------------------------------
+
+def test_cross_org_question_access_returns_404(client):
+    """A user cannot reach another org's question via any {question_id} route."""
+    c, store, db = client
+    h_a = _headers(db, store, email="ido-a@x.com")
+    h_b = _headers(db, store, email="ido-b@x.com")
+    # B creates a question in B's personal org
+    create = c.post("/api/questions", headers=h_b, json=_single_body())
+    assert create.status_code == 200, create.text
+    qid = create.json()["id"]
+
+    # A (different org) is denied on every {question_id} route
+    assert c.get(f"/api/questions/{qid}", headers=h_a).status_code == 404
+    assert c.put(f"/api/questions/{qid}", headers=h_a, json={"difficulty": 3}).status_code == 404
+    assert c.delete(f"/api/questions/{qid}", headers=h_a).status_code == 404
+    assert c.post(f"/api/questions/{qid}/review", headers=h_a,
+                  json={"action": "submit"}).status_code == 404
+    assert c.get(f"/api/questions/{qid}/revisions", headers=h_a).status_code == 404
+    assert c.get(f"/api/questions/{qid}/feedback", headers=h_a).status_code == 404
+    assert c.post(f"/api/questions/{qid}/feedback", headers=h_a,
+                  json={"feedback_type": "other", "comment": "x"}).status_code == 404
+
+    # the question is unchanged + still visible to B (A's attempts did nothing)
+    assert c.get(f"/api/questions/{qid}", headers=h_b).status_code == 200

@@ -242,7 +242,7 @@ def test_create_empty_stem_rejected(db_session):
 
 def test_get_question_missing_raises(db_session):
     with pytest.raises(NotFound):
-        get_question(db_session, uuid.uuid4())
+        get_question(db_session, uuid.uuid4(), org_id=uuid.uuid4())
 
 
 def test_get_question_excludes_soft_deleted(db_session):
@@ -254,7 +254,7 @@ def test_get_question_excludes_soft_deleted(db_session):
     q.deleted_at = datetime.now(timezone.utc)
     db_session.flush()
     with pytest.raises(NotFound):
-        get_question(db_session, q.id)
+        get_question(db_session, q.id, org_id=org.id)
 
 
 def test_list_pagination_and_tenant(db_session):
@@ -323,7 +323,7 @@ def test_update_bumps_version_and_writes_revision(db_session):
     org = _org(db_session)
     actor = _actor(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=actor, payload=_single_payload())
-    updated = update_question(db_session, question_id=q.id, actor_id=actor,
+    updated = update_question(db_session, question_id=q.id, actor_id=actor, org_id=org.id,
                               payload=QuestionUpdateIn(translations=[_trans(stem="What is 2+2?")]))
     assert updated.version == 2
     assert updated.available_languages == ["en"]
@@ -337,7 +337,7 @@ def test_update_options_revalidates(db_session):
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
     with pytest.raises(ValidationError):
-        update_question(db_session, question_id=q.id, actor_id=_actor(db_session),
+        update_question(db_session, question_id=q.id, actor_id=_actor(db_session), org_id=org.id,
                         payload=QuestionUpdateIn(options=[
                             OptionIn(order_index=0, is_correct=False),
                             OptionIn(order_index=1, is_correct=False),
@@ -351,7 +351,7 @@ def test_update_replaces_translations(db_session):
                         payload=_single_payload(translations=[_trans("en")]))
     assert q.available_languages == ["en"]
     # Replace en-only with zh-only (translations are replaced, not appended)
-    update_question(db_session, question_id=q.id, actor_id=actor,
+    update_question(db_session, question_id=q.id, actor_id=actor, org_id=org.id,
                     payload=QuestionUpdateIn(translations=[
                         _trans("zh", stem="中?", rationale="中r",
                                options=[TranslationOptionIn(order_index=0, content="甲"),
@@ -369,7 +369,7 @@ def test_update_adds_bilingual_translations(db_session):
     actor = _actor(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=actor,
                         payload=_single_payload(translations=[_trans("en")]))
-    update_question(db_session, question_id=q.id, actor_id=actor,
+    update_question(db_session, question_id=q.id, actor_id=actor, org_id=org.id,
                     payload=QuestionUpdateIn(translations=[
                         _trans("en", stem="en?"),
                         _trans("zh", stem="中?",
@@ -384,7 +384,7 @@ def test_update_adds_bilingual_translations(db_session):
 def test_update_noop_does_not_bump(db_session):
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
-    updated = update_question(db_session, question_id=q.id, actor_id=_actor(db_session),
+    updated = update_question(db_session, question_id=q.id, actor_id=_actor(db_session), org_id=org.id,
                               payload=QuestionUpdateIn())
     assert updated.version == 1
 
@@ -395,12 +395,12 @@ def test_update_noop_does_not_bump(db_session):
 def test_soft_delete_excludes_from_list(db_session):
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
-    delete_question(db_session, question_id=q.id, actor_id=_actor(db_session))
+    delete_question(db_session, question_id=q.id, actor_id=_actor(db_session), org_id=org.id)
     items, total = list_questions(db_session, org_id=org.id, page=1, size=20)
     assert total == 0
     assert items == []
     with pytest.raises(NotFound):
-        get_question(db_session, q.id)
+        get_question(db_session, q.id, org_id=org.id)
 
 
 # --- review state machine ----------------------------------------------------
@@ -410,22 +410,22 @@ def test_review_draft_to_published(db_session):
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
     q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
-                      action=ReviewAction.submit)
+                      action=ReviewAction.submit, org_id=org.id)
     assert q.status == QuestionStatus.pending_review
     q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
-                      action=ReviewAction.approve)
+                      action=ReviewAction.approve, org_id=org.id)
     assert q.status == QuestionStatus.published
 
 
 def test_review_request_changes(db_session):
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
-    submit_review(db_session, question_id=q.id, actor_id=_actor(db_session), action=ReviewAction.submit)
+    submit_review(db_session, question_id=q.id, actor_id=_actor(db_session), action=ReviewAction.submit, org_id=org.id)
     q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
-                      action=ReviewAction.request_changes)
+                      action=ReviewAction.request_changes, org_id=org.id)
     assert q.status == QuestionStatus.needs_revision
     q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
-                      action=ReviewAction.submit)
+                      action=ReviewAction.submit, org_id=org.id)
     assert q.status == QuestionStatus.pending_review
 
 
@@ -433,10 +433,10 @@ def test_review_archive_and_restore(db_session):
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
     q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
-                      action=ReviewAction.archive)
+                      action=ReviewAction.archive, org_id=org.id)
     assert q.status == QuestionStatus.archived
     q = submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
-                      action=ReviewAction.restore)
+                      action=ReviewAction.restore, org_id=org.id)
     assert q.status == QuestionStatus.draft
 
 
@@ -445,7 +445,7 @@ def test_review_illegal_transition(db_session):
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
     with pytest.raises(IllegalTransition):
         submit_review(db_session, question_id=q.id, actor_id=_actor(db_session),
-                      action=ReviewAction.approve)
+                      action=ReviewAction.approve, org_id=org.id)
 
 
 # --- publish validation (FR-LANG-09) ----------------------------------------
@@ -463,14 +463,14 @@ def test_publish_requires_complete_translations(db_session):
                                    options=[TranslationOptionIn(order_index=0, content="甲"),
                                             TranslationOptionIn(order_index=1, content="乙")]),
                         ]))
-    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit)
+    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit, org_id=org.id)
     # Make zh incomplete: blank the rationale.
     zh = db_session.query(QuestionTranslation).filter_by(
         question_id=q.id, language="zh").one()
     zh.correct_answer_rationale = ""
     db_session.flush()
     with pytest.raises(ValidationError):
-        submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve)
+        submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve, org_id=org.id)
 
 
 def test_publish_blocks_when_no_complete_translation(db_session):
@@ -479,14 +479,14 @@ def test_publish_blocks_when_no_complete_translation(db_session):
     actor = _actor(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=actor,
                         payload=_single_payload(translations=[_trans("en")]))
-    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit)
+    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit, org_id=org.id)
     # Blank the only translation's rationale -> no complete translation.
     en = db_session.query(QuestionTranslation).filter_by(
         question_id=q.id, language="en").one()
     en.correct_answer_rationale = ""
     db_session.flush()
     with pytest.raises(ValidationError):
-        submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve)
+        submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve, org_id=org.id)
 
 
 def test_publish_allows_bilingual_when_both_complete(db_session):
@@ -499,8 +499,8 @@ def test_publish_allows_bilingual_when_both_complete(db_session):
                                    options=[TranslationOptionIn(order_index=0, content="甲"),
                                             TranslationOptionIn(order_index=1, content="乙")]),
                         ]))
-    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit)
-    q = submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve)
+    submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.submit, org_id=org.id)
+    q = submit_review(db_session, question_id=q.id, actor_id=actor, action=ReviewAction.approve, org_id=org.id)
     assert q.status == QuestionStatus.published
 
 
@@ -527,7 +527,66 @@ def test_create_feedback_on_deleted_question_raises(db_session):
 
     org = _org(db_session)
     q = create_question(db_session, org_id=org.id, actor_id=_actor(db_session), payload=_single_payload())
-    delete_question(db_session, question_id=q.id, actor_id=_actor(db_session))
+    delete_question(db_session, question_id=q.id, actor_id=_actor(db_session), org_id=org.id)
     with pytest.raises(NotFound):
         create_feedback(db_session, org_id=org.id, question_id=q.id, reporter_id=_actor(db_session),
+                        payload=FeedbackIn(feedback_type=QuestionFeedbackType.other))
+
+
+# --- P0 #3: cross-tenant IDOR (org-gate) -------------------------------------
+
+def test_get_question_cross_org_raises(db_session):
+    org_a, org_b = _org(db_session), _org(db_session)
+    q = create_question(db_session, org_id=org_a.id, actor_id=_actor(db_session),
+                        payload=_single_payload())
+    with pytest.raises(NotFound):
+        get_question(db_session, q.id, org_id=org_b.id)
+    # same org still resolves
+    assert get_question(db_session, q.id, org_id=org_a.id).id == q.id
+
+
+def test_get_question_missing_with_org_raises(db_session):
+    with pytest.raises(NotFound):
+        get_question(db_session, uuid.uuid4(), org_id=uuid.uuid4())
+
+
+def test_update_question_cross_org_raises(db_session):
+    org_a, org_b = _org(db_session), _org(db_session)
+    actor = _actor(db_session)
+    q = create_question(db_session, org_id=org_a.id, actor_id=actor, payload=_single_payload())
+    with pytest.raises(NotFound):
+        update_question(db_session, question_id=q.id, actor_id=actor,
+                        org_id=org_b.id, payload=QuestionUpdateIn())
+
+
+def test_delete_question_cross_org_raises(db_session):
+    org_a, org_b = _org(db_session), _org(db_session)
+    q = create_question(db_session, org_id=org_a.id, actor_id=_actor(db_session),
+                        payload=_single_payload())
+    with pytest.raises(NotFound):
+        delete_question(db_session, question_id=q.id, actor_id=_actor(db_session),
+                        org_id=org_b.id)
+    # still present (not deleted)
+    assert get_question(db_session, q.id, org_id=org_a.id).id == q.id
+
+
+def test_submit_review_cross_org_raises(db_session):
+    org_a, org_b = _org(db_session), _org(db_session)
+    actor = _actor(db_session)
+    q = create_question(db_session, org_id=org_a.id, actor_id=actor, payload=_single_payload())
+    with pytest.raises(NotFound):
+        submit_review(db_session, question_id=q.id, actor_id=actor,
+                      action=ReviewAction.submit, org_id=org_b.id)
+
+
+def test_create_feedback_cross_org_raises(db_session):
+    from app.models.enums import QuestionFeedbackType
+    from app.schemas.question import FeedbackIn
+
+    org_a, org_b = _org(db_session), _org(db_session)
+    q = create_question(db_session, org_id=org_a.id, actor_id=_actor(db_session),
+                        payload=_single_payload())
+    with pytest.raises(NotFound):
+        create_feedback(db_session, org_id=org_b.id, question_id=q.id,
+                        reporter_id=_actor(db_session),
                         payload=FeedbackIn(feedback_type=QuestionFeedbackType.other))
