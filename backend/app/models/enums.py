@@ -134,6 +134,8 @@ class AuditAction(str, enum.Enum):
     archive = "archive"
     permission_change = "permission_change"
     config_change = "config_change"
+    password_reset = "password_reset"
+    password_change = "password_change"
 
 
 LanguageCode = Literal["en", "zh"]
