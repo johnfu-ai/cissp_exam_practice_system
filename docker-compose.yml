@@ -35,7 +35,10 @@ services:
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: "60"
       SEED_ADMIN_EMAIL: admin@example.com
-      SEED_ADMIN_PASSWORD: admin
+      # SEED_ADMIN_PASSWORD intentionally unset: in dev (APP_ENV=dev) the seed
+      # defaults the admin password to "admin" (dev convenience); in production
+      # a random password is generated and printed once. Never commit a real
+      # admin password here.
       CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
     ports:
       - "8000:8000"

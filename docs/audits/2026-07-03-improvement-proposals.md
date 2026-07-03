@@ -22,6 +22,8 @@ Severities below are calibrated to *a real deployment* — many items are accept
 ## P0 — Critical (fix before any non-local deployment)
 
 > **Status:** P0 #1 ✅ **DONE (2026-07-03)** — see `docs/superpowers/specs/2026-07-03-secure-password-reset-design.md` + `docs/superpowers/plans/2026-07-03-secure-password-reset.md`. Old unauth `POST /api/auth/reset-password` removed; replaced with `PUT /api/auth/password` (authenticated, current-password), `POST /api/auth/reset-password/{request,confirm}` (single-use Redis token, 15-min TTL, no enumeration), and admin `POST /api/admin/users/{id}/reset-password`. New `AuditAction.password_reset`/`password_change` (migration `e7a1b2c3d4e5`). 460 backend + 90 frontend tests, zero drift. Items #2–#6 below remain open.
+>
+> **P0 #2 ✅ DONE (2026-07-03)** — see `docs/superpowers/specs/2026-07-03-strong-jwt-secret-dev-only-admin-reset-design.md` + `docs/superpowers/plans/2026-07-03-strong-jwt-secret-dev-only-admin-reset.md`. `Settings` validator rejects default/short `jwt_secret` outside dev/test; `seed.py` gates admin password reset behind dev mode (dev defaults to `admin`; prod never resets + generates random); `docker-compose.yml` no longer hardcodes `SEED_ADMIN_PASSWORD`. 472 backend tests, zero drift. Items #3–#6 remain open.
 
 | # | Proposal | Where | Why it's critical |
 |---|----------|-------|-------------------|
