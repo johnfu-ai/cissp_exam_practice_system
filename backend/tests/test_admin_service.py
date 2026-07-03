@@ -763,3 +763,57 @@ def test_report_summary_system_admin_global(session_with_roles):
     out_o1 = svc.report_summary(db, current=cur, org_id=o1.id, window_days=30)
     assert out_o1.scope == f"org:{o1.id}"
     assert out_o1.published_question_count == 1
+
+
+# ---- P0 #1: admin-assisted password reset ----
+
+def test_admin_reset_password_known_pw_audited(session_with_roles):
+    from app.core.security import verify_password
+    db = session_with_roles
+    o1 = _org(db, "reset-o1")
+    target = _user(db, "reset-t@x.com", o1)
+    cur = _current(db, o1)
+    out = svc.admin_reset_password(db, current=cur, user_id=target.id,
+                                   new_password="newpw123")
+    db.flush()
+    assert out == {"ok": True}
+    assert verify_password("newpw123", target.password_hash)
+    logs = db.query(AuditLog).filter_by(
+        action="password_reset", entity_id=str(target.id)).all()
+    assert len(logs) == 1
+    assert logs[0].details == {"by": "admin"}
+    assert logs[0].actor_id == cur.user.id
+
+
+def test_admin_reset_password_generates_random_when_omitted(session_with_roles):
+    from app.core.security import verify_password
+    db = session_with_roles
+    o1 = _org(db, "reset-o2")
+    target = _user(db, "reset-t2@x.com", o1)
+    cur = _current(db, o1)
+    out = svc.admin_reset_password(db, current=cur, user_id=target.id,
+                                   new_password=None)
+    db.flush()
+    assert out.get("ok") is True
+    assert out.get("password")  # generated
+    assert verify_password(out["password"], target.password_hash)
+
+
+def test_admin_reset_password_cross_org_not_found(session_with_roles):
+    db = session_with_roles
+    o1, o2 = _org(db, "reset-o3"), _org(db, "reset-o4")
+    target = _user(db, "reset-x@x.com", o2)
+    cur = _current(db, o1)  # org_admin of o1
+    with pytest.raises(svc.NotFound):
+        svc.admin_reset_password(db, current=cur, user_id=target.id,
+                                 new_password="newpw123")
+
+
+def test_admin_reset_password_unknown_user_not_found(session_with_roles):
+    import uuid as _uuid
+    db = session_with_roles
+    o1 = _org(db, "reset-o5")
+    cur = _current(db, o1)
+    with pytest.raises(svc.NotFound):
+        svc.admin_reset_password(db, current=cur, user_id=_uuid.uuid4(),
+                                 new_password="newpw123")

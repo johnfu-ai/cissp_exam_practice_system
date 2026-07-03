@@ -13,12 +13,14 @@ quality, audit, and reports functions to this same file.
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Integer, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.security import hash_password
 from app.db.queries import not_deleted
 from app.dependencies import CurrentUser
 from app.models.admin import AuditLog, CatParamsVersion
@@ -204,6 +206,25 @@ def set_user_roles(session, *, current, user_id, role_names: list[RoleName]):
               organization_id=org_id, entity_type="user", entity_id=str(user_id),
               details={"roles": [n.value for n in role_names]})
     return _user_out(session, user, org_id)
+
+
+def admin_reset_password(session, *, current, user_id, new_password: str | None):
+    """Admin-assisted password reset (the forgotten-password path for
+    self-hosted deployments without email). Permission-gated + org-scoped via
+    ``get_user`` (cross-org -> NotFound). If ``new_password`` is None a random
+    one is generated and returned so the admin can relay it out-of-band.
+    Audited as ``password_reset`` with actor = the admin."""
+    user = session.get(User, user_id)
+    if user is None:
+        raise NotFound("user not found")
+    get_user(session, current=current, user_id=user_id)  # scope check -> NotFound
+    pw = new_password or secrets.token_urlsafe(12)
+    user.password_hash = hash_password(pw)
+    session.flush()
+    log_audit(session, action=AuditAction.password_reset, actor_id=current.user.id,
+              organization_id=current.org_id, entity_type="user",
+              entity_id=str(user_id), details={"by": "admin"})
+    return {"ok": True, "password": pw} if new_password is None else {"ok": True}
 
 
 # ---- FR-ADMIN-03: classes ----

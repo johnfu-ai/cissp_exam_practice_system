@@ -515,3 +515,59 @@ def test_language_coverage_org_scoped(client):
     assert data["en_only"] == 1
     assert data["both"] == 1
     assert data["total"] == 2
+
+
+# ---- P0 #1: admin-assisted password reset ----
+
+def test_admin_reset_password_generates_and_logs_in(client):
+    c, store, db = client
+    h_admin, _ = _headers(db, store, email="reset-admin@x.com",
+                          role=RoleName.system_admin)
+    _, target = _headers(db, store, email="reset-target@x.com",
+                         role=RoleName.individual_learner, perms=LEARNER_PERMS)
+    r = c.post(f"/api/admin/users/{target.id}/reset-password",
+               headers=h_admin, json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get("password")  # generated
+    # the generated password logs the target in
+    login = c.post("/api/auth/login", json={"email": "reset-target@x.com",
+                                            "password": body["password"]})
+    assert login.status_code == 200
+
+
+def test_admin_reset_password_known_pw(client):
+    c, store, db = client
+    h_admin, _ = _headers(db, store, email="reset-admin2@x.com",
+                          role=RoleName.system_admin)
+    _, target = _headers(db, store, email="reset-target2@x.com",
+                         role=RoleName.individual_learner, perms=LEARNER_PERMS)
+    r = c.post(f"/api/admin/users/{target.id}/reset-password",
+               headers=h_admin, json={"new_password": "newpw123"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True}
+    assert c.post("/api/auth/login", json={"email": "reset-target2@x.com",
+                  "password": "newpw123"}).status_code == 200
+
+
+def test_admin_reset_password_403_without_perm(client):
+    c, store, db = client
+    h_learner, _ = _headers(db, store, email="reset-lrn@x.com",
+                            role=RoleName.individual_learner, perms=LEARNER_PERMS)
+    _, target = _headers(db, store, email="reset-target3@x.com",
+                         role=RoleName.individual_learner, perms=LEARNER_PERMS)
+    r = c.post(f"/api/admin/users/{target.id}/reset-password",
+               headers=h_learner, json={})
+    assert r.status_code == 403
+
+
+def test_admin_reset_password_404_cross_org(client):
+    c, store, db = client
+    # org_admin of their own personal org; target in a different personal org
+    h_orgadmin, _ = _headers(db, store, email="reset-oa@x.com",
+                             role=RoleName.org_admin, perms=ORG_ADMIN_PERMS)
+    _, target = _headers(db, store, email="reset-target4@x.com",
+                         role=RoleName.individual_learner, perms=LEARNER_PERMS)
+    r = c.post(f"/api/admin/users/{target.id}/reset-password",
+               headers=h_orgadmin, json={})
+    assert r.status_code == 404

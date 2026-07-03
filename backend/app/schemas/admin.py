@@ -25,6 +25,12 @@ class UserRolesIn(BaseModel):
     role_names: list[RoleName]
 
 
+class AdminResetPasswordIn(BaseModel):
+    """Admin-assisted password reset. If new_password is omitted, the service
+    generates a random one and returns it (the admin relays it out-of-band)."""
+    new_password: str | None = Field(default=None, min_length=8, max_length=128)
+
+
 class ClassOut(BaseModel):
     id: uuid.UUID
     name: str

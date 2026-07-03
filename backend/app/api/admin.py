@@ -27,6 +27,7 @@ from app.dependencies import CurrentUser, require_permission
 from app.db.session import get_session
 from app.models.enums import AuditAction, QuestionFeedbackType
 from app.schemas.admin import (
+    AdminResetPasswordIn,
     CatParamsIn,
     CatParamsVersionOut,
     ClassIn,
@@ -131,6 +132,25 @@ def set_user_roles(
     except svc.AdminError as e:
         session.rollback()
         raise _exc(e)
+
+
+@router.post("/users/{user_id}/reset-password")
+def admin_reset_user_password(
+    user_id: uuid.UUID, payload: AdminResetPasswordIn,
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("admin:manage_users")),
+):
+    """Admin-assisted password reset (forgotten-password path for self-hosted
+    deployments without email). Audited as ``password_reset``."""
+    try:
+        out = svc.admin_reset_password(
+            session, current=current, user_id=user_id, new_password=payload.new_password
+        )
+    except svc.AdminError as e:
+        session.rollback()
+        raise _exc(e)
+    session.commit()
+    return out
 
 
 # ---- FR-ADMIN-03: classes ----
