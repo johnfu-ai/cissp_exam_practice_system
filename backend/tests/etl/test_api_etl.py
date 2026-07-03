@@ -157,3 +157,31 @@ def test_runs_forbidden_without_perm(client_and_store, db_session):
     resp = c.post("/api/etl/runs", json={"dataset_slug": "mini"},
                   headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+# --- P0 #3: cross-tenant IDOR on ETL runs ------------------------------------
+
+def test_cross_org_run_access_returns_404(client_and_store, db_session):
+    """A user cannot get/commit/rollback another org's ETL run."""
+    import uuid as _uuid
+
+    c, store = client_and_store
+    _seed(db_session)
+    h_a = _admin_headers(db_session, store, email="etl-a@x.com")
+    h_b = _admin_headers(db_session, store, email="etl-b@x.com")
+    # A creates a preview run (in A's personal org)
+    resp = c.post("/api/etl/runs", json={"dataset_slug": "mini"}, headers=h_a)
+    assert resp.status_code == 200, resp.text
+    run_id = resp.json()["run_id"]
+
+    # B (different org) is denied on every {run_id} route
+    assert c.get(f"/api/etl/runs/{run_id}", headers=h_b).status_code == 404
+    assert c.post(f"/api/etl/runs/{run_id}/commit", headers=h_b).status_code == 404
+    assert c.post(f"/api/etl/runs/{run_id}/rollback", headers=h_b).status_code == 404
+
+    # A still owns the run; a missing run is 404 (not 409)
+    assert c.get(f"/api/etl/runs/{run_id}", headers=h_a).status_code == 200
+    missing = _uuid.uuid4()
+    assert c.get(f"/api/etl/runs/{missing}", headers=h_b).status_code == 404
+    assert c.post(f"/api/etl/runs/{missing}/commit", headers=h_b).status_code == 404
+    assert c.post(f"/api/etl/runs/{missing}/rollback", headers=h_b).status_code == 404

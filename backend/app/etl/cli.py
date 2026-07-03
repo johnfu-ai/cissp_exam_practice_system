@@ -82,7 +82,7 @@ def cmd_commit(args):
 def cmd_rollback(args):
     session = _session()
     try:
-        run = run_rollback(session, uuid.UUID(args.run_id))
+        run = run_rollback(session, uuid.UUID(args.run_id), org_id=_org_id(session))
         session.commit()
         print(f"rolled back run {run.id}, phase={run.phase.value}")
     except Exception:

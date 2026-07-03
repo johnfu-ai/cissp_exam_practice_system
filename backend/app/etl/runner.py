@@ -89,7 +89,9 @@ def run_preview(session: Session, org_id: uuid.UUID, dataset: EtlDataset, initia
 
 def run_commit(session: Session, org_id: uuid.UUID, run_id: uuid.UUID) -> EtlRun:
     run = session.get(EtlRun, run_id)
-    if run is None or run.phase != EtlRunPhase.preview:
+    if run is None or run.organization_id != org_id:
+        raise LookupError(f"run {run_id} not found")
+    if run.phase != EtlRunPhase.preview:
         raise ValueError(f"run {run_id} not in preview phase")
     dataset = session.get(EtlDataset, run.dataset_id)
 
@@ -125,9 +127,11 @@ def run_commit(session: Session, org_id: uuid.UUID, run_id: uuid.UUID) -> EtlRun
     return run
 
 
-def run_rollback(session: Session, run_id: uuid.UUID) -> EtlRun:
+def run_rollback(session: Session, run_id: uuid.UUID, *, org_id: uuid.UUID) -> EtlRun:
     run = session.get(EtlRun, run_id)
-    if run is None or run.phase != EtlRunPhase.preview:
+    if run is None or run.organization_id != org_id:
+        raise LookupError(f"run {run_id} not found")
+    if run.phase != EtlRunPhase.preview:
         raise ValueError(f"run {run_id} not in preview phase")
     run.phase = EtlRunPhase.rolled_back
     job = session.get(ImportJob, run.import_job_id)

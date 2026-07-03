@@ -59,9 +59,9 @@ def create_run(body: CreateRunIn, session: Session = Depends(get_session),
 
 @router.get("/runs/{run_id}")
 def get_run(run_id: uuid.UUID, session: Session = Depends(get_session),
-            _: CurrentUser = Depends(require_permission("question:import"))):
+            current: CurrentUser = Depends(require_permission("question:import"))):
     run = session.get(EtlRun, run_id)
-    if run is None:
+    if run is None or run.organization_id != current.org_id:
         raise HTTPException(status_code=404, detail="run not found")
     return {"run_id": str(run.id), "phase": run.phase.value,
             "preview_summary": run.preview_summary, "committed_at": run.committed_at}
@@ -72,6 +72,8 @@ def commit_run(run_id: uuid.UUID, session: Session = Depends(get_session),
                current: CurrentUser = Depends(require_permission("question:import"))):
     try:
         run = run_commit(session, current.org_id, run_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="run not found")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     session.commit()
@@ -80,9 +82,11 @@ def commit_run(run_id: uuid.UUID, session: Session = Depends(get_session),
 
 @router.post("/runs/{run_id}/rollback")
 def rollback_run(run_id: uuid.UUID, session: Session = Depends(get_session),
-                 _: CurrentUser = Depends(require_permission("question:import"))):
+                 current: CurrentUser = Depends(require_permission("question:import"))):
     try:
-        run = run_rollback(session, run_id)
+        run = run_rollback(session, run_id, org_id=current.org_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="run not found")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     session.commit()

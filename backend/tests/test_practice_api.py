@@ -93,8 +93,8 @@ def _seed_bilingual_question(db_session, user):
     q = create_question(
         db_session, org_id=user.default_organization_id, actor_id=user.id, payload=payload,
     )
-    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.submit)
-    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.approve)
+    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.submit, org_id=user.default_organization_id)
+    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.approve, org_id=user.default_organization_id)
     db_session.flush()
     return q
 

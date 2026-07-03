@@ -116,8 +116,8 @@ def _seed_bilingual_question(db_session, user, domain, *, difficulty=3):
     from app.models.question import QuestionMapping
 
     db_session.add(QuestionMapping(question_id=q.id, domain_id=domain.id))
-    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.submit)
-    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.approve)
+    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.submit, org_id=user.default_organization_id)
+    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.approve, org_id=user.default_organization_id)
     db_session.flush()
     return q
 
@@ -148,8 +148,8 @@ def _seed_en_only_question(db_session, user, domain, *, difficulty=3):
     from app.models.question import QuestionMapping
 
     db_session.add(QuestionMapping(question_id=q.id, domain_id=domain.id))
-    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.submit)
-    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.approve)
+    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.submit, org_id=user.default_organization_id)
+    submit_review(db_session, question_id=q.id, actor_id=user.id, action=ReviewAction.approve, org_id=user.default_organization_id)
     db_session.flush()
     return q
 

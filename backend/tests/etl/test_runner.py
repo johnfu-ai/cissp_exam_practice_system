@@ -117,7 +117,7 @@ def test_commit_update_detects_changed_stem(db_session):
 def test_rollback_flips_status_and_writes_nothing(db_session):
     org_id, ds = _seed(db_session)
     run = run_preview(db_session, org_id, ds)
-    rolled = run_rollback(db_session, run.id)
+    rolled = run_rollback(db_session, run.id, org_id=org_id)
     assert rolled.phase.value == "rolled_back"
     assert db_session.execute(select(Question)).scalars().all() == []
     job = db_session.get(ImportJob, rolled.import_job_id)
