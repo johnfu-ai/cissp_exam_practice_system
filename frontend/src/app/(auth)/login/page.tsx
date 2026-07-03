@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Mail, Lock, ShieldCheck } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
@@ -92,6 +93,14 @@ function LoginForm() {
               required
             />
           </Field>
+          <div className="flex justify-end">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-muted-foreground hover:underline"
+            >
+              {t("auth.forgotPassword")}
+            </Link>
+          </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" size="pill" className="w-full" disabled={busy}>
             {busy ? t("auth.loggingIn") : t("auth.login")}
@@ -110,9 +119,9 @@ function LoginForm() {
         </Button>
         <p className="mt-6 text-center text-sm text-muted-foreground">
           {t("auth.noAccount")}{" "}
-          <a href="/register" className="font-medium text-primary hover:underline">
+          <Link href="/register" className="font-medium text-primary hover:underline">
             {t("auth.register")}
-          </a>
+          </Link>
         </p>
       </Card>
     </div>
