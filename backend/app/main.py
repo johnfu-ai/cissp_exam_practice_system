@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.requests import Request
 
 from app.api.admin import router as admin_router
@@ -40,6 +41,37 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+_health_redis = None
+
+
+def _get_health_redis():
+    """A single shared Redis client for health probes (avoids opening a new
+    connection on every /ready check — audit M-11)."""
+    global _health_redis
+    if _health_redis is None:
+        import redis
+
+        _health_redis = redis.from_url(settings.redis_url, socket_connect_timeout=2)
+    return _health_redis
+
+
+def _check_deps() -> tuple[str, str]:
+    """Return (db_status, redis_status) — each 'ok' or 'error'. Never raises."""
+    db_status = "ok"
+    redis_status = "ok"
+    try:
+        engine = get_engine()
+        with Session(engine) as session:
+            session.execute(text("SELECT 1"))
+    except Exception:
+        db_status = "error"
+    try:
+        _get_health_redis().ping()
+    except Exception:
+        redis_status = "error"
+    return db_status, redis_status
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="CISSP Exam Practice System", version="0.2.0")
 
@@ -53,25 +85,32 @@ def create_app() -> FastAPI:
     # Added last -> outermost, so security headers land on every response
     # (including CORS preflight).
     app.add_middleware(SecurityHeadersMiddleware)
+    # In non-dev environments, force HTTPS (audit C-3). Dev keeps plain HTTP.
+    if settings.app_env.lower() not in {"development", "dev", "test"}:
+        app.add_middleware(HTTPSRedirectMiddleware)
+
+    @app.get("/live")
+    def live() -> dict:
+        # Liveness: process is up. No dependency checks (so a dep blip doesn't
+        # get the pod killed by a liveness probe).
+        return {"status": "ok"}
+
+    def _ready_body(response: Response) -> dict:
+        db_status, redis_status = _check_deps()
+        ok = db_status == "ok" and redis_status == "ok"
+        response.status_code = 200 if ok else 503
+        return {"status": "ok" if ok else "degraded", "db": db_status, "redis": redis_status}
+
+    @app.get("/ready")
+    def ready(response: Response) -> dict:
+        # Readiness: 503 when a dependency is down (audit C-2 fix).
+        return _ready_body(response)
 
     @app.get("/health")
-    def health() -> dict:
-        db_status = "ok"
-        redis_status = "ok"
-        try:
-            engine = get_engine()
-            with Session(engine) as session:
-                session.execute(text("SELECT 1"))
-        except Exception:
-            db_status = "error"
-        try:
-            import redis
-
-            r = redis.from_url(settings.redis_url, socket_connect_timeout=2)
-            r.ping()
-        except Exception:
-            redis_status = "error"
-        return {"status": "ok", "db": db_status, "redis": redis_status}
+    def health(response: Response) -> dict:
+        # Backward-compat alias of /ready (frontend status badge + existing
+        # tests). Now returns 503 when degraded instead of always 200.
+        return _ready_body(response)
 
     app.include_router(analytics_router)
     app.include_router(auth_router)
