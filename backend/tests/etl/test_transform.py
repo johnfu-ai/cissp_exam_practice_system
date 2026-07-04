@@ -46,6 +46,25 @@ def test_transform_marks_en_only_when_zh_missing():
     assert "missing_zh" in c.issues
 
 
+def test_transform_marks_partial_zh_options_as_needs_revision():
+    # PRD §10.2 rule 8 / FR-LANG-08: zh stem present but one zh option missing
+    # -> partial, not blocking, but flagged needs_revision.
+    raw = _raw(stem_en="en", stem_zh="中", opt_zh=("甲", ""))
+    c = transform(raw, set())
+    assert c.available_languages == ["en", "zh"]  # bilingual intended
+    assert c.needs_revision is True
+    assert "partial_zh" in c.issues
+
+
+def test_transform_marks_partial_zh_options_only_as_needs_revision():
+    # zh stem missing but a zh option present -> still partial
+    raw = _raw(stem_en="en", stem_zh="", opt_zh=("甲", ""))
+    c = transform(raw, set())
+    assert c.available_languages == ["en", "zh"]
+    assert c.needs_revision is True
+    assert "partial_zh" in c.issues
+
+
 def test_transform_options_carry_both_languages_and_correctness():
     raw = _raw(type_="multiple_choice", correct_keys=("A", "B"))
     c = transform(raw, set())

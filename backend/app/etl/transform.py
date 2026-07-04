@@ -73,10 +73,18 @@ def transform(raw: RawQuestion, pending_translation_ids: set[str] | None = None)
     if raw.id in pending_translation_ids:
         issues.append("translation_pending")
 
-    has_zh = bool(raw.stem.zh and raw.stem.zh.strip())
-    needs_revision = not has_zh
+    has_zh_stem = bool(raw.stem.zh and raw.stem.zh.strip())
+    zh_option_count = sum(1 for o in raw.options if o.text.zh and o.text.zh.strip())
+    has_any_zh_option = zh_option_count > 0
+    has_zh = has_zh_stem or has_any_zh_option  # any *_zh field -> bilingual intended
+    # PRD §10.2 rule 8 / FR-LANG-08: if any zh field is provided, the zh options
+    # must be complete + 1:1 with en. Incomplete -> needs_revision (NOT blocking).
+    zh_complete = has_zh_stem and zh_option_count == len(raw.options)
+    needs_revision = not zh_complete
     if not has_zh:
         issues.append("missing_zh")
+    elif not zh_complete:
+        issues.append("partial_zh")
     available = ["en", "zh"] if has_zh else ["en"]
 
     prompt_items = None
