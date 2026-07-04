@@ -26,6 +26,8 @@ Severities below are calibrated to *a real deployment* — many items are accept
 > **P0 #2 ✅ DONE (2026-07-03)** — see `docs/superpowers/specs/2026-07-03-strong-jwt-secret-dev-only-admin-reset-design.md` + `docs/superpowers/plans/2026-07-03-strong-jwt-secret-dev-only-admin-reset.md`. `Settings` validator rejects default/short `jwt_secret` outside dev/test; `seed.py` gates admin password reset behind dev mode (dev defaults to `admin`; prod never resets + generates random); `docker-compose.yml` no longer hardcodes `SEED_ADMIN_PASSWORD`. 472 backend tests, zero drift. Items #3–#6 remain open.
 >
 > **P0 #3 ✅ DONE (2026-07-03)** — see `docs/superpowers/specs/2026-07-03-cross-tenant-idor-question-etl-design.md` + `docs/superpowers/plans/2026-07-03-cross-tenant-idor-question-etl.md`. `get_question()` requires `org_id` (NotFound on cross-org); all `{question_id}` routes thread `current.org_id` (added the missing gate on `GET /{id}/feedback`); `run_commit`/`run_rollback`/`get_run` verify `run.organization_id` (cross-org → 404). 480 backend tests, zero drift. Items #4–#6 remain open.
+>
+> **P0 #4 ✅ DONE (2026-07-04)** — see `docs/superpowers/specs/2026-07-04-xss-sanitization-csp-design.md` + `docs/superpowers/plans/2026-07-04-xss-sanitization-csp.md`. `nh3`-based `sanitize_rich_text` applied on all API + ETL rich-text writes (Pydantic validators on `TranslationIn`/`TranslationOptionIn`/`FeedbackIn`; ETL `_translation_payload`); `SecurityHeadersMiddleware` adds strict CSP + `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy` (HSTS over TLS only). NFR-SEC-07. 490 backend tests, zero drift. Items #5–#6 remain open.
 
 | # | Proposal | Where | Why it's critical |
 |---|----------|-------|-------------------|
