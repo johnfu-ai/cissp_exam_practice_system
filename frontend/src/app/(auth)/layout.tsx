@@ -1,3 +1,5 @@
+import { LegalFooter } from "@/components/legal-footer";
+
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <main
@@ -7,7 +9,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           "linear-gradient(180deg, hsl(var(--hero-from)) 0%, hsl(var(--hero-to)) 100%)",
       }}
     >
-      <div className="w-full max-w-md">{children}</div>
+      <div className="w-full max-w-md">
+        {children}
+        <LegalFooter />
+      </div>
     </main>
   );
 }

@@ -91,6 +91,11 @@ export const en = {
     resetFailed: "Reset failed. The token may be invalid or expired.",
     backToLogin: "Back to log in",
   },
+  legal: {
+    trademark: "CISSP® and ISC2® are registered trademarks of ISC2, Inc.",
+    notOfficial:
+      "This product is an independent study tool and is not an official ISC2 exam platform, nor is it affiliated with or endorsed by ISC2.",
+  },
   dashboard: {
     eyebrow: "Overview",
     title: "Dashboard",

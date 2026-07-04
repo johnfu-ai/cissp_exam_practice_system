@@ -92,6 +92,10 @@ export const zh: typeof en = {
     resetFailed: "重置失败，令牌可能无效或已过期。",
     backToLogin: "返回登录",
   },
+  legal: {
+    trademark: "CISSP® 与 ISC2® 是 ISC2, Inc. 的注册商标。",
+    notOfficial: "本产品为独立学习工具，并非 ISC2 官方考试平台，亦未获 ISC2 认可或背书。",
+  },
   dashboard: {
     eyebrow: "概览",
     title: "仪表盘",
