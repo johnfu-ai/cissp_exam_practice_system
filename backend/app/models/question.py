@@ -114,6 +114,9 @@ class Question(
 
 class QuestionOption(UUIDPrimaryKey, TimestampMixin, Base):
     __tablename__ = "question_options"
+    __table_args__ = (
+        Index("ix_question_options_question_id", "question_id"),
+    )
 
     question_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
@@ -146,6 +149,10 @@ class QuestionTranslation(UUIDPrimaryKey, TimestampMixin, Base):
 
 class QuestionMapping(UUIDPrimaryKey, Base):
     __tablename__ = "question_mappings"
+    __table_args__ = (
+        Index("ix_question_mappings_question_id", "question_id"),
+        Index("ix_question_mappings_domain_id", "domain_id"),
+    )
 
     question_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
@@ -166,6 +173,9 @@ class QuestionMapping(UUIDPrimaryKey, Base):
 
 class QuestionRevision(UUIDPrimaryKey, TimestampMixin, Base):
     __tablename__ = "question_revisions"
+    __table_args__ = (
+        Index("ix_question_revisions_question_id", "question_id"),
+    )
 
     question_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
@@ -186,6 +196,9 @@ class QuestionFeedback(
     Base,
 ):
     __tablename__ = "question_feedback"
+    __table_args__ = (
+        Index("ix_question_feedback_question_id", "question_id"),
+    )
 
     question_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"), nullable=False

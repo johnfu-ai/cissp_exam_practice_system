@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, text
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,6 +11,9 @@ from app.models.enums import ExamSessionKind, ExamSessionStatus
 
 class ExamSession(UUIDPrimaryKey, TenantScopedMixin, TimestampMixin, Base):
     __tablename__ = "exam_sessions"
+    __table_args__ = (
+        Index("ix_exam_sessions_user_status", "user_id", "status"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     blueprint_id: Mapped[uuid.UUID] = mapped_column(
@@ -35,6 +38,9 @@ class ExamSession(UUIDPrimaryKey, TenantScopedMixin, TimestampMixin, Base):
 
 class ExamAnswer(UUIDPrimaryKey, TimestampMixin, Base):
     __tablename__ = "exam_answers"
+    __table_args__ = (
+        Index("ix_exam_answers_session_id", "session_id"),
+    )
 
     session_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("exam_sessions.id", ondelete="CASCADE"), nullable=False
