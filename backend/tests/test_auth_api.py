@@ -4,11 +4,13 @@ from sqlalchemy import select
 
 from app.core.security import (
     InMemoryPasswordResetTokenStore,
+    InMemoryRateLimiter,
     InMemoryRefreshTokenStore,
     InMemoryRevokedTokenStore,
 )
 from app.dependencies import (
     get_lockout_store,
+    get_rate_limiter,
     get_refresh_store,
     get_reset_token_store,
     get_revoked_store,
@@ -27,11 +29,13 @@ def client(db_session, session_with_roles):
     lockout = InMemoryLockoutStore(threshold=5)
     rst = InMemoryPasswordResetTokenStore()
     revoked = InMemoryRevokedTokenStore()
+    rate_limiter = InMemoryRateLimiter()
     app.dependency_overrides[get_session] = lambda: (yield db_session)
     app.dependency_overrides[get_refresh_store] = lambda: refresh_store
     app.dependency_overrides[get_lockout_store] = lambda: lockout
     app.dependency_overrides[get_reset_token_store] = lambda: rst
     app.dependency_overrides[get_revoked_store] = lambda: revoked
+    app.dependency_overrides[get_rate_limiter] = lambda: rate_limiter
     return TestClient(app), refresh_store, lockout, rst
 
 
@@ -224,3 +228,21 @@ def test_disabled_user_token_rejected(client, db_session):
     db_session.flush()
     # the same token is now rejected
     assert c.get("/api/auth/me", headers=h).status_code == 401
+
+
+def test_login_rate_limited_per_ip(client, monkeypatch):
+    """#10: per-IP rate limiting on login — after the limit, further logins from
+    the same IP get 429 (caps credential-stuffing)."""
+    from app.core.config import settings as _settings
+
+    c, _, _, _ = client
+    monkeypatch.setattr(_settings, "login_rate_limit", 2)
+    monkeypatch.setattr(_settings, "login_rate_window_seconds", 60)
+    rl = InMemoryRateLimiter()  # one shared instance so the counter accumulates
+    c.app.dependency_overrides[get_rate_limiter] = lambda: rl
+    c.post("/api/auth/register", json={"email": "rl@example.com", "password": "pw123456"})
+    assert c.post("/api/auth/login", json={"email": "rl@example.com", "password": "pw123456"}).status_code == 200
+    # second login (wrong password) is still allowed by the rate limiter (401 from auth)
+    assert c.post("/api/auth/login", json={"email": "rl@example.com", "password": "wrong"}).status_code == 401
+    # third login is rate-limited
+    assert c.post("/api/auth/login", json={"email": "rl@example.com", "password": "pw123456"}).status_code == 429

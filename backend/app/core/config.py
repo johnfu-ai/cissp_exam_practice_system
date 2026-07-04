@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     bcrypt_rounds: int = 12
     login_lockout_threshold: int = 5
     login_lockout_window_minutes: int = 15
+    # #10: per-IP rate limit on unauthenticated auth endpoints (login/register/
+    # reset-password) — caps credential-stuffing from a single IP. Per-email
+    # lockout alone never trips for password-spray against many accounts.
+    login_rate_limit: int = 30
+    login_rate_window_seconds: int = 60
     cors_origins: str = "http://localhost:3000"
     seed_admin_email: str = "admin@example.com"
     seed_admin_password: str = ""

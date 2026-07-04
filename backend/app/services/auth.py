@@ -32,6 +32,12 @@ from app.models.enums import AuditAction, OrgKind, RoleName, UserStatus
 from app.services.audit import log_audit
 
 
+# #10: a real bcrypt hash used to keep the missing-user login path constant-time
+# with the existing-user path (computed once at import; verify time depends on
+# the cost factor, not the hash content).
+_DUMMY_HASH = hash_password("constant-time-dummy")
+
+
 @dataclass
 class AuthTokens:
     access_token: str
@@ -180,7 +186,15 @@ def authenticate(session: Session, *, email: str, password: str,
         raise AuthError("too many failed attempts; try later", status_code=429)
 
     user = session.execute(select(User).filter_by(email=email)).scalar_one_or_none()
-    if user is None or not user.password_hash or not verify_password(password, user.password_hash):
+    if user is None:
+        # #10: do a dummy bcrypt verify so the missing-user path takes the same
+        # time as the existing-user path (closes the login timing/enumeration
+        # oracle). Result is always False; the real check is below.
+        verify_password(password, _DUMMY_HASH)
+        valid = False
+    else:
+        valid = bool(user.password_hash) and verify_password(password, user.password_hash)
+    if not valid:
         count = lockout_store.record_failure(email)
         threshold = getattr(lockout_store, "threshold", None) or settings.login_lockout_threshold
         if count >= threshold:

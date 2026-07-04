@@ -13,9 +13,11 @@ from app.core.config import settings
 from app.core.security import (
     InMemoryRefreshTokenStore,
     InMemoryRevokedTokenStore,
+    RateLimiter,
     RedisRefreshTokenStore,
     RedisPasswordResetTokenStore,
     RedisRevokedTokenStore,
+    RedisRateLimiter,
     RefreshTokenStore,
     RevokedTokenStore,
     decode_access_token,
@@ -37,6 +39,7 @@ _store: RefreshTokenStore | None = None
 _lockout: LockoutStore | None = None
 _reset_store: "RedisPasswordResetTokenStore | None" = None
 _revoked_store: RevokedTokenStore | None = None
+_rate_limiter: RateLimiter | None = None
 
 
 def get_refresh_store() -> RefreshTokenStore:
@@ -65,6 +68,13 @@ def get_revoked_store() -> RevokedTokenStore:
     if _revoked_store is None:
         _revoked_store = RedisRevokedTokenStore(settings.redis_url)
     return _revoked_store
+
+
+def get_rate_limiter() -> RateLimiter:
+    global _rate_limiter
+    if _rate_limiter is None:
+        _rate_limiter = RedisRateLimiter(settings.redis_url)
+    return _rate_limiter
 
 
 @dataclass

@@ -277,3 +277,39 @@ class RedisRevokedTokenStore:
 
     def is_revoked(self, jti):
         return bool(self._redis.exists(self._key(jti)))
+
+
+class RateLimiter(Protocol):
+    """Fixed-window per-key counter (e.g., per-IP login attempts, #10). `allow`
+    returns True if the request is under the limit, False if it should be rejected."""
+
+    def allow(self, key: str, *, limit: int, window_seconds: int) -> bool: ...
+
+
+class InMemoryRateLimiter:
+    def __init__(self) -> None:
+        self._data: dict[str, list] = {}  # key -> [count, window_start_epoch]
+
+    def allow(self, key, *, limit, window_seconds):
+        now = time.time()
+        entry = self._data.get(key)
+        if entry is None or now - entry[1] >= window_seconds:
+            self._data[key] = [1, now]
+            return True
+        entry[0] += 1
+        return entry[0] <= limit
+
+
+class RedisRateLimiter:
+    def __init__(self, redis_url: str, prefix: str = "rl:") -> None:
+        import redis
+
+        self._redis = redis.from_url(redis_url, socket_connect_timeout=2)
+        self._prefix = prefix
+
+    def allow(self, key, *, limit, window_seconds):
+        k = f"{self._prefix}{key}"
+        count = self._redis.incr(k)
+        if count == 1:
+            self._redis.expire(k, window_seconds)  # TTL only on first hit (fixed window)
+        return count <= limit

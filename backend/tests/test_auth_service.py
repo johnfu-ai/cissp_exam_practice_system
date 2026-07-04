@@ -260,3 +260,27 @@ def test_confirm_reset_bogus_token_raises(session_with_roles):
         confirm_password_reset(session, token="bogus", new_password="newpw123",
                                reset_store=rst)
     assert exc.value.status_code == 401
+
+
+def test_authenticate_missing_user_still_runs_bcrypt(monkeypatch, session_with_roles):
+    """#10: a missing user still triggers a bcrypt verify against a dummy hash, so
+    the missing-user and existing-user login paths take the same time (closes the
+    login timing/enumeration oracle)."""
+    import app.services.auth as auth_mod
+
+    session = session_with_roles
+    store = InMemoryRefreshTokenStore()
+    lockout = InMemoryLockoutStore(threshold=5)
+    calls = {"n": 0}
+    real = auth_mod.verify_password
+
+    def spy(plain, hashed):
+        calls["n"] += 1
+        return real(plain, hashed)
+
+    monkeypatch.setattr(auth_mod, "verify_password", spy)
+    with pytest.raises(AuthError):
+        authenticate(session, email="nobody@example.com", password="pw123456",
+                     refresh_store=store, lockout_store=lockout)
+    # bcrypt ran once against the dummy hash even though no user matched the email
+    assert calls["n"] == 1

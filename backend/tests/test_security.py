@@ -5,6 +5,7 @@ import pytest
 
 from app.core.security import (
     InMemoryPasswordResetTokenStore,
+    InMemoryRateLimiter,
     InMemoryRefreshTokenStore,
     create_access_token,
     decode_access_token,
@@ -144,3 +145,14 @@ def test_reset_token_store_tokens_are_unique():
     t1 = store.issue(uid, ttl_seconds=60)
     t2 = store.issue(uid, ttl_seconds=60)
     assert t1 != t2  # each issue mints a fresh token
+
+
+def test_rate_limiter_allows_under_limit_then_blocks():
+    """#10: fixed-window per-key counter — under limit allows, over blocks, and
+    independent keys have independent budgets."""
+    rl = InMemoryRateLimiter()
+    assert rl.allow("k", limit=3, window_seconds=60) is True
+    assert rl.allow("k", limit=3, window_seconds=60) is True
+    assert rl.allow("k", limit=3, window_seconds=60) is True
+    assert rl.allow("k", limit=3, window_seconds=60) is False  # over limit
+    assert rl.allow("other", limit=3, window_seconds=60) is True  # independent key
