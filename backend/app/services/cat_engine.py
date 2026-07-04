@@ -55,9 +55,17 @@ def default_difficulty(d) -> int:
 
 
 def update_ability(ability: float, difficulty, correct: bool, answered: int, params: dict) -> float:
-    """PRD §11.1.3: ability rises on correct, falls on wrong; step shrinks with items answered."""
+    """PRD §11.1.3: ability rises on correct, falls on wrong; step shrinks with
+    items answered. The step is weighted by the question's difficulty (1PL-style
+    Fisher-information weighting): a correct answer on a HARD question (low
+    p_correct) moves ability up MORE than on an easy one, and a wrong answer on
+    an EASY question (high p_correct) moves it down more. This makes
+    ability-matched selection meaningful (audit P1 #16 H7 — previously
+    ``difficulty`` was a dead parameter)."""
+    d = default_difficulty(difficulty)
     k_n = params["k0"] / (1.0 + params["decay"] * max(0, answered))
-    step = k_n
+    p = 1.0 / (1.0 + math.exp(-(ability - d)))
+    step = k_n * (1.0 - p) if correct else k_n * p
     new = ability + (step if correct else -step)
     return clamp(new, ABILITY_MIN, ABILITY_MAX)
 

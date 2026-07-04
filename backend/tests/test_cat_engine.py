@@ -29,11 +29,27 @@ def test_update_ability_direction_and_shrinkage_and_clamp():
     step0 = up - 3.0
     step_later = ce.update_ability(3.0, 3, True, 20, p) - 3.0
     assert step_later < step0
-    # clamps to [1, 5]
-    hi = ce.update_ability(4.9, 3, True, 0, p)
+    # clamps to [1, 5] — use a difficulty that yields a large step at the
+    # boundary (difficulty-weighted update_ability moves less when ability is
+    # already far from the question difficulty).
+    hi = ce.update_ability(4.9, 5, True, 0, p)
     assert hi == 5.0
-    lo = ce.update_ability(1.1, 3, False, 0, p)
+    lo = ce.update_ability(1.1, 1, False, 0, p)
     assert lo == 1.0
+
+
+def test_update_ability_weights_by_difficulty():
+    p = ce.DEFAULT_PARAMS
+    # correct on a HARD question (d=5, ability=3 -> low p) moves ability up
+    # MORE than correct on an easy one (d=1 -> high p).
+    up_hard = ce.update_ability(3.0, 5, True, 0, p)
+    up_easy = ce.update_ability(3.0, 1, True, 0, p)
+    assert up_hard > up_easy
+    # wrong on an EASY question (high p) moves ability down MORE than wrong on
+    # a hard one (low p).
+    down_easy = ce.update_ability(3.0, 1, False, 0, p)
+    down_hard = ce.update_ability(3.0, 5, False, 0, p)
+    assert down_easy < down_hard
 
 
 def test_sem_decreases_and_floored():
