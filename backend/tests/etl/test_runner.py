@@ -132,3 +132,61 @@ def test_drift_check_raises(db_session):
     db_session.flush()
     with pytest.raises(EtlDriftError):
         run_commit(db_session, org_id, run.id)
+
+
+def test_duplicate_stem_surfaces_through_preview_commit_and_audit(tmp_path, db_session):
+    """FR-ETL-08 / PRD §10.4 rule 6 end-to-end: a record imported under a NEW
+    external_id whose stem collides with another record in the same batch is
+    flagged through every layer — preview_summary (duplicates + conflicts), the
+    committed ImportJob's error_report.conflicts, and the audit-log details."""
+    import json
+
+    from app.models.admin import AuditLog
+
+    # minimal two-record dataset: q2 reuses q1's stem under a new external_id
+    fixture = tmp_path / "dup"
+    fixture.mkdir()
+    (fixture / "manifest.json").write_text(json.dumps({
+        "source": "test/dup", "total_questions": 2, "chapters": 1,
+        "type_counts": {"single_choice": 2},
+    }))
+    shared_stem = {"en": "Shared stem?", "zh": "共享题干？"}
+    record = {
+        "type": "single_choice", "stem": shared_stem,
+        "options": [{"key": "A", "text": {"en": "Yes", "zh": "是"}},
+                    {"key": "B", "text": {"en": "No", "zh": "否"}}],
+        "correct_keys": ["A"],
+        "explanation": {"en": "Yes is right.", "zh": "对的。"},
+        "meta": {"choose_all": False, "matching": False, "issues": [],
+                 "zh_source": "v9", "zh_issues": []},
+    }
+    q1 = dict(record, id="dup-ch01-q01",
+              source={"book": "Mini", "edition": 1, "section": "review",
+                      "chapter": 1, "chapter_title": "Chapter One", "number": 1})
+    q2 = dict(record, id="dup-ch01-q02",
+              source={"book": "Mini", "edition": 1, "section": "review",
+                      "chapter": 1, "chapter_title": "Chapter One", "number": 2})
+    (fixture / "questions.jsonl").write_text(json.dumps(q1) + "\n" + json.dumps(q2))
+
+    org_id, ds = _seed(db_session)
+    ds.source_path = str(fixture)
+    db_session.flush()
+
+    run = run_preview(db_session, org_id, ds)
+    summary = run.preview_summary
+    assert summary["would_create"] == 1
+    assert summary["duplicates"] == 1
+    assert [c["external_id"] for c in summary["conflicts"]] == ["dup-ch01-q02"]
+    assert [c["reason"] for c in summary["conflicts"]] == ["duplicate_stem"]
+
+    committed = run_commit(db_session, org_id, run.id)
+    # only the first record becomes a Question; the duplicate is skipped
+    assert _count(db_session, Question) == 1
+    job = db_session.get(ImportJob, committed.import_job_id)
+    assert job.success_count == 1
+    assert [c["external_id"] for c in job.error_report["conflicts"]] == ["dup-ch01-q02"]
+
+    log = db_session.query(AuditLog).filter_by(
+        entity_type="etl_run", entity_id=str(run.id)).one()
+    assert log.details["duplicates"] == 1
+    assert log.details["created"] == 1

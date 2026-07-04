@@ -100,6 +100,11 @@ class Question(
         server_default=QuestionStatus.draft.value,
     )
     source: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Three-level dedup (PRD §10.4 rule 6 / FR-ETL-08): a question imported
+    # under a NEW external_id but with a duplicate stem or option set is skipped.
+    # Indexed for a fast org-scoped lookup at import time.
+    stem_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    option_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     license_status: Mapped[LicenseStatus] = mapped_column(
         Enum(LicenseStatus, name="license_status", create_type=True),
         nullable=False,

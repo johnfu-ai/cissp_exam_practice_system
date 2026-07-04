@@ -5,6 +5,7 @@ part of the lookup (matches the unique constraint on QuestionExternalKey).
 Savepoint-per-record for error isolation. Caller controls commit.
 """
 
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 
@@ -12,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.sanitize import sanitize_rich_text
+from app.db.queries import not_deleted
 from app.models.enums import LicenseStatus, QuestionStatus, TextFormat
 from app.models.etl import ChapterDomainMapping, QuestionExternalKey
 from app.models.question import (
@@ -31,7 +33,12 @@ class LoadResult:
     created: int = 0
     updated: int = 0
     unchanged: int = 0
+    duplicates: int = 0
     errors: list[dict] = field(default_factory=list)
+    # PRD §10.4 rule 6 / FR-ETL-08: records skipped as duplicates (stem-hash
+    # collision under a NEW external_id) are surfaced here for manual review —
+    # {"external_id": ..., "reason": "duplicate_stem"}.
+    conflicts: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -39,7 +46,9 @@ class DryRunSummary:
     would_create: int = 0
     would_update: int = 0
     unchanged: int = 0
+    duplicates: int = 0
     errors: list[dict] = field(default_factory=list)
+    conflicts: list[dict] = field(default_factory=list)
     by_type: dict = field(default_factory=dict)
     by_language: dict = field(default_factory=dict)
 
@@ -221,18 +230,56 @@ def _differs(q: Question, options: list[QuestionOption],
     return False
 
 
+def _dedup_hashes(cleaned) -> tuple[str, str]:
+    """Three-level dedup (PRD §10.4 rule 6 / FR-ETL-08): stem hash + option-set
+    fingerprint, both sha256. Computed from the en text (canonical)."""
+    stem_hash = hashlib.sha256((cleaned.stem_en or "").strip().encode("utf-8")).hexdigest()
+    opt_texts = sorted((o.text_en or "").strip() for o in cleaned.options)
+    option_fingerprint = hashlib.sha256("|".join(opt_texts).encode("utf-8")).hexdigest()
+    return stem_hash, option_fingerprint
+
+
+def _find_duplicate(session, org_id, stem_hash):
+    """Return a matching Question.id (same org, non-deleted) whose stem hash
+    collides, else None. Used by both load and dry-run so the two paths agree on
+    what counts as a duplicate.
+
+    The skip decision is stem-hash-based per PRD §10.4 rule 6 ("题干 hash 命中不同
+    外部 ID → 标记冲突"). The option_set fingerprint is NOT used as a skip trigger:
+    distinct questions routinely share generic option sets (e.g. several PKI
+    scenarios all offering {Richard's/Sue's private/public key}), so an
+    option-only match is a false positive. The fingerprint is still computed and
+    indexed on the Question to support future P1 work (FR-IMP-06 option-order /
+    similar-stem detection).
+    """
+    return session.execute(
+        select(Question.id).where(
+            Question.organization_id == org_id,
+            not_deleted(Question),
+            Question.stem_hash == stem_hash,
+        ).limit(1)
+    ).first()
+
+
 def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
-    """Apply one cleaned record. Returns 'created' | 'updated' | 'unchanged'."""
+    """Apply one cleaned record. Returns 'created' | 'updated' | 'unchanged' | 'duplicate'."""
     existing = _existing_key(session, dataset_slug, cleaned.external_id)
     status = QuestionStatus.needs_revision if cleaned.needs_revision else QuestionStatus.draft
+    stem_hash, option_fingerprint = _dedup_hashes(cleaned)
 
     if existing is None:
+        # Three-level dedup: a question imported under a NEW external_id but with
+        # a duplicate stem (same org) is skipped, not re-created.
+        if _find_duplicate(session, resolvers.org_id, stem_hash) is not None:
+            return "duplicate"
         q = Question(
             organization_id=resolvers.org_id,
             question_type=cleaned.question_type,
             difficulty=cleaned.difficulty,
             status=status,
             source=cleaned.external_id,
+            stem_hash=stem_hash,
+            option_fingerprint=option_fingerprint,
             license_status=LicenseStatus.unconfirmed,
             import_job_id=import_job_id,
             prompt_items=cleaned.prompt_items,
@@ -274,6 +321,8 @@ def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
     q.difficulty = cleaned.difficulty
     q.status = status
     q.prompt_items = cleaned.prompt_items
+    q.stem_hash = stem_hash
+    q.option_fingerprint = option_fingerprint
     q.version = (q.version or 1) + 1
     # replace canonical options
     for o in options:
@@ -303,6 +352,12 @@ def apply_load(session, org_id, dataset_slug, import_job_id, cleaned_list) -> Lo
                 result.created += 1
             elif outcome == "updated":
                 result.updated += 1
+            elif outcome == "duplicate":
+                result.duplicates += 1
+                result.conflicts.append({
+                    "external_id": cleaned.external_id,
+                    "reason": "duplicate_stem",
+                })
             else:
                 result.unchanged += 1
         except Exception as exc:
@@ -322,6 +377,12 @@ def apply_load(session, org_id, dataset_slug, import_job_id, cleaned_list) -> Lo
 
 def apply_dry_run(session, org_id, dataset_slug, cleaned_list) -> DryRunSummary:
     summary = DryRunSummary()
+    # Track stem hashes that would land in the DB during this batch so a later
+    # record colliding with an earlier one (same batch, different external_id) is
+    # flagged the same way apply_load flags it via the just-written row. Mirrors
+    # load: a record's stem hash is "visible" to later records for
+    # create/update/unchanged, but NOT for a skipped duplicate (never written).
+    seen_stems: set[str] = set()
     for cleaned in cleaned_list:
         summary.by_type[cleaned.question_type.value] = (
             summary.by_type.get(cleaned.question_type.value, 0) + 1
@@ -329,15 +390,29 @@ def apply_dry_run(session, org_id, dataset_slug, cleaned_list) -> DryRunSummary:
         # each cleaned record contributes one count per available language
         for lang in cleaned.available_languages:
             summary.by_language[lang] = summary.by_language.get(lang, 0) + 1
+        stem_hash, _ = _dedup_hashes(cleaned)
         existing = _existing_key(session, dataset_slug, cleaned.external_id)
         if existing is None:
+            # Stem-hash dedup (PRD §10.4 rule 6): collision in the DB or earlier in
+            # this same batch -> flag conflict, skip.
+            if (
+                _find_duplicate(session, org_id, stem_hash) is not None
+                or stem_hash in seen_stems
+            ):
+                summary.duplicates += 1
+                summary.conflicts.append({
+                    "external_id": cleaned.external_id,
+                    "reason": "duplicate_stem",
+                })
+                continue
             summary.would_create += 1
-            continue
-        q = session.get(Question, existing.question_id)
-        options = _current_options(session, q.id)
-        translations = _current_translations(session, q.id)
-        if _differs(q, options, translations, cleaned):
-            summary.would_update += 1
         else:
-            summary.unchanged += 1
+            q = session.get(Question, existing.question_id)
+            options = _current_options(session, q.id)
+            translations = _current_translations(session, q.id)
+            if _differs(q, options, translations, cleaned):
+                summary.would_update += 1
+            else:
+                summary.unchanged += 1
+        seen_stems.add(stem_hash)
     return summary

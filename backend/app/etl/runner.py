@@ -75,9 +75,11 @@ def run_preview(session: Session, org_id: uuid.UUID, dataset: EtlDataset, initia
         "would_create": summary.would_create,
         "would_update": summary.would_update,
         "unchanged": summary.unchanged,
+        "duplicates": summary.duplicates,
         "by_type": summary.by_type,
         "by_language": summary.by_language,
         "errors": all_errors,
+        "conflicts": summary.conflicts,
         "content_hash": content_hash,
     }
     run.preview_summary = preview_summary
@@ -111,7 +113,10 @@ def run_commit(session: Session, org_id: uuid.UUID, run_id: uuid.UUID) -> EtlRun
     job.total_rows = len(cleaned)
     job.success_count = load_result.created
     job.error_count = len(load_result.errors) + len(transform_errors)
-    job.error_report = {"errors": load_result.errors + transform_errors}
+    job.error_report = {
+        "errors": load_result.errors + transform_errors,
+        "conflicts": load_result.conflicts,
+    }
 
     log_audit(
         session,
@@ -121,7 +126,8 @@ def run_commit(session: Session, org_id: uuid.UUID, run_id: uuid.UUID) -> EtlRun
         entity_type="etl_run",
         entity_id=str(run.id),
         details={"dataset": dataset.slug, "created": load_result.created,
-                 "updated": load_result.updated, "unchanged": load_result.unchanged},
+                 "updated": load_result.updated, "unchanged": load_result.unchanged,
+                 "duplicates": load_result.duplicates},
     )
     session.flush()
     return run

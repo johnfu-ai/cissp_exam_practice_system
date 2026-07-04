@@ -385,4 +385,144 @@ def test_load_idempotent_on_partial_zh_with_fallback(db_session):
 def test_load_result_dataclass_defaults():
     r = LoadResult()
     assert r.created == 0 and r.updated == 0 and r.unchanged == 0
+    assert r.duplicates == 0
     assert r.errors == []
+    assert r.conflicts == []
+
+
+# --- Three-level dedup (FR-ETL-08 / PRD §10.4 rule 6) ---------------------
+# A record imported under a NEW external_id whose stem hash OR option-set
+# fingerprint matches an existing question is skipped as a duplicate and
+# surfaced as a conflict for manual review (not re-created).
+
+
+def _seed_two_orgs(session):
+    """Two orgs sharing the GLOBAL taxonomy (blueprint/domains/chapter mappings)."""
+    from app.models.auth import Organization
+    from app.models.enums import OrgKind
+    orgs = []
+    for slug in ("t-org-a", "t-org-b"):
+        org = Organization(slug=slug, name=slug.upper(), kind=OrgKind.personal)
+        session.add(org)
+        session.flush()
+        orgs.append(org.id)
+    bp = ExamBlueprint(version_label="t", effective_date=date(2024, 4, 15),
+                       min_items=1, max_items=2, duration_minutes=60,
+                       passing_score=700, max_score=1000, is_current=True)
+    session.add(bp)
+    session.flush()
+    dom = ExamDomain(blueprint_id=bp.id, number=1, name="Dom1", weight_pct=10)
+    session.add(dom)
+    session.flush()
+    session.add(ChapterDomainMapping(dataset_slug="osg10", chapter_number=1,
+                                     domain_id=dom.id, chapter_title="Chapter One"))
+    session.flush()
+    return orgs[0], orgs[1]
+
+
+def test_load_skips_duplicate_stem_under_new_external_id(db_session):
+    org_id = _seed_org_and_domain(db_session)
+    # c2 reuses c1's stem ("Stem") under a new external_id -> duplicate
+    result = apply_load(db_session, org_id, "osg10", None,
+                        [_cleaned_bilingual(),
+                         _cleaned_bilingual(external_id="c2", stem_en="Stem")])
+    assert result.created == 1
+    assert result.duplicates == 1
+    assert len(result.conflicts) == 1
+    assert result.conflicts[0]["external_id"] == "c2"
+    assert result.conflicts[0]["reason"] == "duplicate_stem"
+    assert _count(db_session, Question) == 1
+
+
+def test_load_does_not_flag_distinct_questions_sharing_options(db_session):
+    """Two questions with the SAME option set but DIFFERENT stems are distinct
+    questions, not duplicates — generic option sets ({Yes, No}, {A, B, C, D}, …)
+    are routinely shared across unrelated questions (several osg10 PKI scenarios
+    all offer {Richard's/Sue's private/public key}). Only a stem-hash collision
+    triggers a skip (PRD §10.4 rule 6); the option_set fingerprint is stored but
+    not used as a skip trigger in the MVP."""
+    org_id = _seed_org_and_domain(db_session)
+    result = apply_load(db_session, org_id, "osg10", None, [
+        _cleaned_bilingual(external_id="c1", stem_en="Original stem"),
+        _cleaned_bilingual(external_id="c2", stem_en="Different stem"),  # same options A/B
+    ])
+    assert result.created == 2
+    assert result.duplicates == 0
+    assert result.conflicts == []
+    assert _count(db_session, Question) == 2
+
+
+def test_load_dedup_is_org_scoped(db_session):
+    """A duplicate stem in a DIFFERENT org is not a duplicate — the stem-hash
+    lookup is bounded by organization_id (tenant scoping)."""
+    org_a, org_b = _seed_two_orgs(db_session)
+    apply_load(db_session, org_a, "osg10", None, [_cleaned_bilingual(external_id="c1")])
+    result = apply_load(db_session, org_b, "osg10", None, [_cleaned_bilingual(external_id="c2")])
+    assert result.created == 1
+    assert result.duplicates == 0
+    assert _count(db_session, Question) == 2
+
+
+def test_load_dedup_cross_batch_flags_earlier_import(db_session):
+    """Re-importing the same stem under a new external_id in a LATER batch still
+    flags the duplicate — the earlier question's hash is persisted in the DB."""
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual(external_id="c1")])
+    result = apply_load(db_session, org_id, "osg10", None,
+                        [_cleaned_bilingual(external_id="c2", stem_en="Stem")])
+    assert result.created == 0
+    assert result.duplicates == 1
+
+
+def test_load_dedup_does_not_flag_same_external_id(db_session):
+    """Same external_id goes through the update/unchanged path, NOT the duplicate
+    path — dedup only applies to NEW external_ids."""
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual(external_id="c1")])
+    result = apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual(external_id="c1")])
+    assert result.unchanged == 1
+    assert result.duplicates == 0
+    assert result.conflicts == []
+
+
+def test_dry_run_detects_within_batch_duplicates(db_session):
+    """Preview must agree with commit: a within-batch duplicate is counted as
+    `duplicates` (not `would_create`) so the preview doesn't over-promise."""
+    org_id = _seed_org_and_domain(db_session)
+    summary = apply_dry_run(db_session, org_id, "osg10", [
+        _cleaned_bilingual(external_id="c1"),
+        _cleaned_bilingual(external_id="c2", stem_en="Stem"),  # dup stem
+    ])
+    assert summary.would_create == 1
+    assert summary.duplicates == 1
+    assert summary.conflicts[0]["external_id"] == "c2"
+    assert _count(db_session, Question) == 0  # dry-run writes nothing
+
+
+def test_dry_run_detects_existing_db_duplicate(db_session):
+    """Preview of a new dataset whose stem collides with an already-imported
+    question flags it as a duplicate."""
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual(external_id="c1")])
+    summary = apply_dry_run(db_session, org_id, "osg10", [
+        _cleaned_bilingual(external_id="c2", stem_en="Stem"),
+    ])
+    assert summary.would_create == 0
+    assert summary.duplicates == 1
+
+
+def test_dry_run_and_load_agree_on_duplicate_counts(db_session):
+    """Consistency property: for any batch, dry-run and load classify duplicates
+    identically (the preview never over- or under-counts vs. the actual commit)."""
+    org_id = _seed_org_and_domain(db_session)
+    batch = [
+        _cleaned_bilingual(external_id="c1", stem_en="Stem A"),
+        _cleaned_bilingual(external_id="c2", stem_en="Stem A"),  # dup stem
+        _cleaned_bilingual(external_id="c3", stem_en="Stem B"),  # unique stem
+    ]
+    summary = apply_dry_run(db_session, org_id, "osg10", batch)
+    result = apply_load(db_session, org_id, "osg10", None, batch)
+    assert summary.would_create == result.created == 2
+    assert summary.duplicates == result.duplicates == 1
+    assert [c["external_id"] for c in summary.conflicts] == ["c2"]
+    assert [c["external_id"] for c in result.conflicts] == ["c2"]
