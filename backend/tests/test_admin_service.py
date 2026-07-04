@@ -351,7 +351,10 @@ def test_quality_dashboard_counts(session_with_roles):
     # low-acc: 5 answers, 1 correct (acc 0.2 < 0.6)
     q_low = _question(db, o1, actor, stem="low")
     for i in range(5):
-        _practice_answer(db, session=ps, actor=actor, question=q_low,
+        # one answer per session — production rejects a duplicate
+        # (session_id, question_id) answer (uq_practice_answers_session_question).
+        psi = _practice_session(db, o1, actor)
+        _practice_answer(db, session=psi, actor=actor, question=q_low,
                          is_correct=(i == 0))
     # missing-rationale: published question with NO QuestionTranslation whose
     # correct_answer_rationale is non-empty (translations-model equivalent of
@@ -416,17 +419,22 @@ def test_low_accuracy_threshold_and_order(session_with_roles):
     # q_below: 4 answers -> below the answered>=5 threshold (excluded)
     q_below = _question(db, o1, actor, stem="below")
     for _ in range(4):
-        _practice_answer(db, session=ps, actor=actor, question=q_below,
+        psi = _practice_session(db, o1, actor)
+        _practice_answer(db, session=psi, actor=actor, question=q_below,
                          is_correct=False)
     # q_low: 5 answers, 1 correct -> acc 0.2 (low)
     q_low = _question(db, o1, actor, stem="low")
     for i in range(5):
-        _practice_answer(db, session=ps, actor=actor, question=q_low,
+        # one answer per session — production rejects a duplicate
+        # (session_id, question_id) answer (uq_practice_answers_session_question).
+        psi = _practice_session(db, o1, actor)
+        _practice_answer(db, session=psi, actor=actor, question=q_low,
                          is_correct=(i == 0))
     # q_zero: 5 answers, 0 correct -> acc 0.0 (lowest)
     q_zero = _question(db, o1, actor, stem="zero")
     for _ in range(5):
-        _practice_answer(db, session=ps, actor=actor, question=q_zero,
+        psi = _practice_session(db, o1, actor)
+        _practice_answer(db, session=psi, actor=actor, question=q_zero,
                          is_correct=False)
     rows = svc.list_low_accuracy_questions(db, current=cur, limit=10)
     assert all(r.accuracy < 0.6 and r.answered >= 5 for r in rows)
@@ -681,7 +689,15 @@ def test_report_summary_computed_values(session_with_roles):
     )
     db.add(ps); db.flush()
     _practice_answer(db, session=ps, actor=a, question=q1, is_correct=True)
-    _practice_answer(db, session=ps, actor=b, question=q1, is_correct=False)
+    # b answers q1 in b's OWN session (a session has one user; the
+    # (session_id, question_id) unique constraint forbids a second row in ps).
+    ps_b = PracticeSession(
+        user_id=b.id, organization_id=o1.id,
+        status=PracticeSessionStatus.completed, total_questions=1,
+        started_at=now, config={"question_ids": [str(q1.id)]},
+    )
+    db.add(ps_b); db.flush()
+    _practice_answer(db, session=ps_b, actor=b, question=q1, is_correct=False)
 
     # exam session by A, config references q1 + q2
     from app.models.taxonomy import ExamBlueprint
@@ -710,7 +726,7 @@ def test_report_summary_computed_values(session_with_roles):
     assert out.correct_answers == 2             # A practice + A exam
     assert out.accuracy == round(2 / 3, 4)
     assert 0.0 <= out.accuracy <= 1.0
-    assert out.practice_session_count == 1
+    assert out.practice_session_count == 2      # A's + B's (one session per user)
     assert out.exam_session_count == 1
     assert out.published_question_count == 2
     assert out.used_question_count == 2         # q1 + q2 both used & in-scope

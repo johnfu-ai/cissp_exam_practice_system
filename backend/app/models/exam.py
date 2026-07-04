@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, text
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -40,6 +49,9 @@ class ExamAnswer(UUIDPrimaryKey, TimestampMixin, Base):
     __tablename__ = "exam_answers"
     __table_args__ = (
         Index("ix_exam_answers_session_id", "session_id"),
+        UniqueConstraint(
+            "session_id", "question_id", name="uq_exam_answers_session_question"
+        ),
     )
 
     session_id: Mapped[uuid.UUID] = mapped_column(

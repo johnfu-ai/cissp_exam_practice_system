@@ -616,6 +616,10 @@ def recommendation_duplicate_wrong_setup(db_session, learner, current_bp):
         blueprint_id=current_bp.id, number=1
     ).one()
     ps = _practice_session(db_session, org, learner)
+    # A second session for q1's second wrong attempt — production rejects a
+    # duplicate (session_id, question_id) answer, so "answered wrong twice"
+    # means two distinct sessions (uq_practice_answers_session_question).
+    ps2 = _practice_session(db_session, org, learner)
     q1 = _question(db_session, org, learner, stem="dedup-q1")
     q2 = _question(db_session, org, learner, stem="dedup-q2")
     q3 = _question(db_session, org, learner, stem="dedup-q3")
@@ -625,7 +629,7 @@ def recommendation_duplicate_wrong_setup(db_session, learner, current_bp):
     now = datetime.now(timezone.utc)
     _practice_answer(db_session, session=ps, actor=learner, question=q1,
                      is_correct=False, answered_at=now - timedelta(minutes=30))
-    _practice_answer(db_session, session=ps, actor=learner, question=q1,
+    _practice_answer(db_session, session=ps2, actor=learner, question=q1,
                      is_correct=False, answered_at=now - timedelta(minutes=20))
     _practice_answer(db_session, session=ps, actor=learner, question=q2,
                      is_correct=False, answered_at=now - timedelta(minutes=10))

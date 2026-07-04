@@ -213,8 +213,10 @@ def create_session(
     return ps
 
 
-def _load_session(session: Session, session_id, user_id) -> PracticeSession:
-    ps = session.get(PracticeSession, session_id)
+def _load_session(session: Session, session_id, user_id, *, for_update: bool = False) -> PracticeSession:
+    # `for_update` takes a row-level lock (SELECT ... FOR UPDATE) so concurrent
+    # answer submits for the same session serialize (audit P1 #15).
+    ps = session.get(PracticeSession, session_id, with_for_update=for_update)
     if ps is None or ps.user_id != user_id:
         raise NotFound(f"practice session {session_id} not found")
     return ps
@@ -320,7 +322,7 @@ def _history_out(
 def submit_answer(
     session: Session, *, session_id, user_id, payload: AnswerIn
 ) -> AnswerResultOut:
-    ps = _load_session(session, session_id, user_id)
+    ps = _load_session(session, session_id, user_id, for_update=True)
     if ps.status != PracticeSessionStatus.in_progress:
         raise ConflictError("session is not in progress")
     if ps.paused_at is not None:

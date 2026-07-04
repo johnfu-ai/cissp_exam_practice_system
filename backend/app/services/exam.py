@@ -386,8 +386,10 @@ def get_next_question(session: Session, *, session_id, user_id) -> dict:
     }
 
 
-def _load_session(session: Session, session_id, user_id) -> ExamSession:
-    es = session.get(ExamSession, session_id)
+def _load_session(session: Session, session_id, user_id, *, for_update: bool = False) -> ExamSession:
+    # `for_update` takes a row-level lock so concurrent answer submits for the
+    # same exam session serialize (audit P1 #15).
+    es = session.get(ExamSession, session_id, with_for_update=for_update)
     if es is None or es.user_id != user_id:
         raise NotFound(f"exam session {session_id} not found")
     return es
@@ -478,7 +480,7 @@ def get_question_at(session: Session, *, session_id, position: int, user_id) -> 
 
 def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnswerAck:
     body = payload if isinstance(payload, ExamAnswerIn) else ExamAnswerIn(**payload)
-    es = _load_session(session, session_id, user_id)
+    es = _load_session(session, session_id, user_id, for_update=True)
     if es.session_kind == ExamSessionKind.cat:
         return _submit_cat_answer(session, es=es, user_id=user_id, payload=body)
     if _auto_submit_if_expired(session, es) or es.status != ExamSessionStatus.in_progress:

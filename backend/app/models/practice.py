@@ -34,6 +34,9 @@ class PracticeAnswer(UUIDPrimaryKey, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_practice_answers_session_id", "session_id"),
         Index("ix_practice_answers_user_question", "user_id", "question_id"),
+        UniqueConstraint(
+            "session_id", "question_id", name="uq_practice_answers_session_question"
+        ),
     )
 
     session_id: Mapped[uuid.UUID] = mapped_column(
