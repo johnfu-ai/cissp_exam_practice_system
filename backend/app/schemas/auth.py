@@ -20,6 +20,10 @@ class RefreshIn(BaseModel):
 
 class LogoutIn(BaseModel):
     refresh_token: str
+    # #8: the access token to revoke on logout. Optional for backward compat with
+    # clients that only send the refresh token (those logouts won't kill the
+    # access token early, but it still expires naturally).
+    access_token: str | None = None
 
 
 class ResetPasswordRequestIn(BaseModel):

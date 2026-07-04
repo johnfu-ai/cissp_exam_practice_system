@@ -2,6 +2,7 @@
 
 import json
 import secrets
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
@@ -173,3 +174,46 @@ class RedisPasswordResetTokenStore:
 
     def delete(self, token):
         self._redis.delete(self._key(token))
+
+
+class RevokedTokenStore(Protocol):
+    """Access-token revocation list for logout (#8). Each entry is a `jti` with a
+    TTL equal to the token's remaining lifetime, so the list self-prunes as
+    tokens pass their natural expiry — it can't grow unbounded."""
+
+    def revoke(self, jti: str, ttl_seconds: int) -> None: ...
+    def is_revoked(self, jti: str) -> bool: ...
+
+
+class InMemoryRevokedTokenStore:
+    def __init__(self) -> None:
+        self._data: dict[str, float] = {}  # jti -> expiry epoch
+
+    def revoke(self, jti, ttl_seconds):
+        self._data[jti] = time.time() + ttl_seconds
+
+    def is_revoked(self, jti):
+        exp = self._data.get(jti)
+        if exp is None:
+            return False
+        if time.time() >= exp:
+            self._data.pop(jti, None)  # lazy prune
+            return False
+        return True
+
+
+class RedisRevokedTokenStore:
+    def __init__(self, redis_url: str, prefix: str = "revoked:") -> None:
+        import redis
+
+        self._redis = redis.from_url(redis_url, socket_connect_timeout=2)
+        self._prefix = prefix
+
+    def _key(self, jti: str) -> str:
+        return f"{self._prefix}{jti}"
+
+    def revoke(self, jti, ttl_seconds):
+        self._redis.setex(self._key(jti), ttl_seconds, "1")
+
+    def is_revoked(self, jti):
+        return bool(self._redis.exists(self._key(jti)))

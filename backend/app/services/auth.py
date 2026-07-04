@@ -3,7 +3,9 @@
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
+import time
 
+import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,7 +13,9 @@ from app.core.config import settings
 from app.core.security import (
     PasswordResetTokenStore,
     RefreshTokenStore,
+    RevokedTokenStore,
     create_access_token,
+    decode_access_token,
     generate_refresh_token,
     hash_password,
     verify_password,
@@ -216,8 +220,25 @@ def refresh_tokens(session: Session, refresh_store: RefreshTokenStore,
     return AuthTokens(access_token=access, refresh_token=new_refresh)
 
 
-def logout(refresh_store: RefreshTokenStore, refresh_token: str) -> None:
+def logout(refresh_store: RefreshTokenStore, revoked_store: RevokedTokenStore,
+           refresh_token: str, access_token: str | None) -> None:
+    """Invalidate the refresh token AND the access token (#8). The access token's
+    jti is added to the revocation list with a TTL equal to its remaining lifetime,
+    so it's rejected on the next request but the list self-prunes at natural expiry."""
     refresh_store.delete(refresh_token)
+    if not access_token:
+        return
+    try:
+        claims = decode_access_token(access_token)
+    except jwt.PyJWTError:
+        return  # already expired/invalid — nothing to revoke
+    jti = claims.get("jti")
+    exp = claims.get("exp")
+    if not jti or not exp:
+        return
+    ttl = max(0, int(exp) - int(time.time()))
+    if ttl > 0:
+        revoked_store.revoke(jti, ttl)
 
 
 # ---- P0 #1: secure password change + reset ----

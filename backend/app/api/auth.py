@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.security import (
     PasswordResetTokenStore,
     RefreshTokenStore,
+    RevokedTokenStore,
     decode_access_token,
 )
 from app.db.session import get_session
@@ -18,6 +19,7 @@ from app.dependencies import (
     get_lockout_store,
     get_refresh_store,
     get_reset_token_store,
+    get_revoked_store,
 )
 from app.models.auth import User
 from app.schemas.auth import (
@@ -108,8 +110,9 @@ def refresh(body: RefreshIn, session: Session = Depends(get_session),
 
 @router.post("/logout")
 def logout_route(body: LogoutIn,
-                 refresh_store: RefreshTokenStore = Depends(get_refresh_store)):
-    logout(refresh_store, body.refresh_token)
+                 refresh_store: RefreshTokenStore = Depends(get_refresh_store),
+                 revoked_store: RevokedTokenStore = Depends(get_revoked_store)):
+    logout(refresh_store, revoked_store, body.refresh_token, body.access_token)
     return {"ok": True}
 
 

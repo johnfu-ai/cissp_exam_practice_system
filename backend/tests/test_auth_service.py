@@ -3,6 +3,8 @@ import pytest
 from app.core.security import (
     InMemoryPasswordResetTokenStore,
     InMemoryRefreshTokenStore,
+    InMemoryRevokedTokenStore,
+    decode_access_token,
     verify_password,
 )
 from app.models.auth import Organization, OrganizationMembership, Role
@@ -89,10 +91,40 @@ def test_refresh_rotates_and_old_invalid(session_with_roles):
 def test_logout_invalidates_refresh(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
+    revoked = InMemoryRevokedTokenStore()
     user, tokens = register_user(session, email="eve@example.com", password="pw123456",
                                  display_name="Eve", refresh_store=store)
     session.flush()
-    logout(store, tokens.refresh_token)
+    logout(store, revoked, tokens.refresh_token, tokens.access_token)
+    with pytest.raises(AuthError):
+        refresh_tokens(session, store, tokens.refresh_token)
+
+
+def test_logout_revokes_access_token_jti(session_with_roles):
+    """#8: logout adds the access token's jti to the revocation list (TTL = remaining
+    lifetime) so it's rejected on the next request before its natural expiry."""
+    session = session_with_roles
+    store = InMemoryRefreshTokenStore()
+    revoked = InMemoryRevokedTokenStore()
+    user, tokens = register_user(session, email="rev@example.com", password="pw123456",
+                                 display_name="Rev", refresh_store=store)
+    session.flush()
+    jti = decode_access_token(tokens.access_token)["jti"]
+    assert revoked.is_revoked(jti) is False
+    logout(store, revoked, tokens.refresh_token, tokens.access_token)
+    assert revoked.is_revoked(jti) is True
+
+
+def test_logout_without_access_token_is_best_effort(session_with_roles):
+    """A client that only sends the refresh token still logs out (refresh deleted);
+    the access token simply isn't revoked early — backward compat."""
+    session = session_with_roles
+    store = InMemoryRefreshTokenStore()
+    revoked = InMemoryRevokedTokenStore()
+    user, tokens = register_user(session, email="be@example.com", password="pw123456",
+                                 display_name="BE", refresh_store=store)
+    session.flush()
+    logout(store, revoked, tokens.refresh_token, None)
     with pytest.raises(AuthError):
         refresh_tokens(session, store, tokens.refresh_token)
 
