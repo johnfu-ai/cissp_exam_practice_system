@@ -30,6 +30,10 @@ Severities below are calibrated to *a real deployment* — many items are accept
 > **P0 #4 ✅ DONE (2026-07-04)** — see `docs/superpowers/specs/2026-07-04-xss-sanitization-csp-design.md` + `docs/superpowers/plans/2026-07-04-xss-sanitization-csp.md`. `nh3`-based `sanitize_rich_text` applied on all API + ETL rich-text writes (Pydantic validators on `TranslationIn`/`TranslationOptionIn`/`FeedbackIn`; ETL `_translation_payload`); `SecurityHeadersMiddleware` adds strict CSP + `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy` (HSTS over TLS only). NFR-SEC-07. 490 backend tests, zero drift. Items #5–#6 remain open.
 >
 > **P0 #5 ✅ DONE (2026-07-04)** — `<LegalFooter>` (role=contentinfo) in both the `(app)` and `(auth)` layouts renders the trademark attribution + "not an official ISC2 platform" disclaimer on every page (locale keys en/zh). NFR-COMP-03/04. 93 frontend tests, lint 0, build green. Item #6 remains open.
+>
+> **P0 #6 ✅ DONE (2026-07-04)** — see `docs/superpowers/specs/2026-07-04-health-tls-migrations-design.md` + `docs/superpowers/plans/2026-07-04-health-tls-migrations.md`. `/live` (liveness, 200) + `/ready`/`/health` (503 when DB/Redis down — fixes always-200); shared Redis probe client; `HTTPSRedirectMiddleware` in non-dev; one-shot `migrate` compose service (backend `depends_on: service_completed_successfully`) + backend `/live` healthcheck. E2e stack-verified (migrate exit 0, backend healthy, login + reset + CSP all green). Also caught+fixed a P0 #1 bug: reset `request` now returns the token for any dev env (`dev`/`development`/`test`). 496 backend tests, zero drift.
+>
+> **All P0 items (#1–#6) are DONE.** Branch `fix/p0-security-hardening` pushed to `origin`.
 
 | # | Proposal | Where | Why it's critical |
 |---|----------|-------|-------------------|
