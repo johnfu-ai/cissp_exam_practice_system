@@ -300,14 +300,16 @@ def _mapping_out(session: Session, question_id) -> dict:
 
 
 def _history_out(
-    session: Session, *, user_id, question_id, exclude_session_id
+    session: Session, *, user_id, question_id, exclude_session_id, limit: int = 20
 ) -> list[dict]:
+    # Capped to the most recent N attempts (audit P1 #14 — previously returned
+    # ALL past answers inline in every practice answer response).
     rows = session.execute(
         select(PracticeAnswer).where(
             PracticeAnswer.user_id == user_id,
             PracticeAnswer.question_id == question_id,
             PracticeAnswer.session_id != exclude_session_id,
-        ).order_by(PracticeAnswer.answered_at.desc())
+        ).order_by(PracticeAnswer.answered_at.desc()).limit(limit)
     ).scalars().all()
     return [
         {

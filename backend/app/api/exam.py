@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
@@ -185,7 +185,9 @@ def get_exam_review(
 
 @router.get("/history")
 def list_exam_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
     current: CurrentUser = Depends(require_permission("exam:read")),
 ):
-    return svc.list_history(session, user_id=current.user.id)
+    return svc.list_history(session, user_id=current.user.id, limit=limit, offset=offset)

@@ -985,7 +985,7 @@ def _scaled(es: ExamSession) -> tuple[int, bool, float, int, int]:
     return scaled, passed, accuracy, total, correct
 
 
-def list_history(session: Session, *, user_id) -> list:
+def list_history(session: Session, *, user_id, limit: int = 50, offset: int = 0) -> list:
     rows = list(
         session.execute(
             select(ExamSession).where(
@@ -995,6 +995,7 @@ def list_history(session: Session, *, user_id) -> list:
                     ExamSessionStatus.auto_submitted,
                 ]),
             ).order_by(ExamSession.started_at.asc())
+            .limit(limit).offset(offset)
         ).scalars().all()
     )
     out: list = []
