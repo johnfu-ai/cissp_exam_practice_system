@@ -119,6 +119,27 @@ def test_reset_request_returns_token_in_dev(client):
     assert r.json().get("token")
 
 
+def test_reset_request_returns_token_in_dev_env_variant(client, monkeypatch):
+    # APP_ENV=dev (the value used in docker-compose) must also surface the token
+    from app.api import auth as auth_api
+    monkeypatch.setattr(auth_api.settings, "app_env", "dev")
+    c, _, _, _ = client
+    c.post("/api/auth/register", json={"email": "devvar@example.com", "password": "pw123456"})
+    r = c.post("/api/auth/reset-password/request", json={"email": "devvar@example.com"})
+    assert r.status_code == 200
+    assert r.json().get("token")
+
+
+def test_reset_request_no_token_in_production(client, monkeypatch):
+    from app.api import auth as auth_api
+    monkeypatch.setattr(auth_api.settings, "app_env", "production")
+    c, _, _, _ = client
+    c.post("/api/auth/register", json={"email": "prodvar@example.com", "password": "pw123456"})
+    r = c.post("/api/auth/reset-password/request", json={"email": "prodvar@example.com"})
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}  # no token leaked in production
+
+
 def test_reset_request_unknown_email_still_200_no_token(client):
     c, _, _, _ = client
     r = c.post("/api/auth/reset-password/request", json={"email": "nope@example.com"})

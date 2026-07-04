@@ -152,11 +152,11 @@ def reset_password_request(
     except AuthError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))
     session.commit()
-    # Always 200 (no email enumeration). The token is returned ONLY in
-    # development so the flow is testable end-to-end without email infra;
-    # a real deployment emails the link (future work).
+    # Always 200 (no email enumeration). The token is returned ONLY in a
+    # development/dev/test environment so the flow is testable end-to-end
+    # without email infra; a real deployment emails the link (future work).
     resp = {"ok": True}
-    if token is not None and settings.app_env == "development":
+    if token is not None and settings.app_env.lower() in {"development", "dev", "test"}:
         resp["token"] = token
     return resp
 
