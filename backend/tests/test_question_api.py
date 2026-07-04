@@ -255,3 +255,26 @@ def test_cross_org_question_access_returns_404(client):
 
     # the question is unchanged + still visible to B (A's attempts did nothing)
     assert c.get(f"/api/questions/{qid}", headers=h_b).status_code == 200
+
+
+# --- P0 #4: XSS sanitization on rich-text writes -----------------------------
+
+def test_create_sanitizes_rich_text(client):
+    c, store, db = client
+    h = _headers(db, store, email="xss@x.com")
+    body = _single_body()
+    body["translations"][0]["stem"] = "<script>alert(1)</script>What is 1+1?"
+    body["translations"][0]["correct_answer_rationale"] = "<b>safe</b> <script>x</script>"
+    body["translations"][0]["options"][0]["content"] = "<img src=x onerror=alert(1)>2"
+    resp = c.post("/api/questions", headers=h, json=body)
+    assert resp.status_code == 200, resp.text
+    qid = resp.json()["id"]
+    got = c.get(f"/api/questions/{qid}", headers=h).json()
+    t = got["translations"][0]
+    assert "<script" not in t["stem"].lower()
+    assert "What is 1+1?" in t["stem"]
+    assert "<script" not in t["correct_answer_rationale"].lower()
+    assert "<b>safe</b>" in t["correct_answer_rationale"]  # safe tag kept
+    opt = t["options"][0]["content"]
+    assert "onerror" not in opt.lower()
+    assert "2" in opt

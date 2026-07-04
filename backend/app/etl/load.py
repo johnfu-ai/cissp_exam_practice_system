@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.sanitize import sanitize_rich_text
 from app.models.enums import LicenseStatus, QuestionStatus, TextFormat
 from app.models.etl import ChapterDomainMapping, QuestionExternalKey
 from app.models.question import (
@@ -120,6 +121,11 @@ def _translation_payload(cleaned, language):
         stem = cleaned.stem_zh if cleaned.stem_zh else cleaned.stem_en
         rationale = cleaned.explanation_zh if cleaned.explanation_zh else cleaned.explanation_en
         opts = [(o.text_zh if o.text_zh else o.text_en) for o in cleaned.options]
+    # NFR-SEC-07: sanitize imported rich text so no <script>/on*/javascript:
+    # is ever persisted via the import pipeline.
+    stem = sanitize_rich_text(stem, TextFormat.markdown)
+    rationale = sanitize_rich_text(rationale, TextFormat.markdown)
+    opts = [sanitize_rich_text(o, TextFormat.markdown) for o in opts]
     return stem, rationale, opts
 
 

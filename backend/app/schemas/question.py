@@ -10,8 +10,9 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from app.core.sanitize import sanitize_rich_text
 from app.models.enums import (
     LicenseStatus,
     QuestionFeedbackStatus,
@@ -31,6 +32,14 @@ class TranslationOptionIn(BaseModel):
     content_format: TextFormat = TextFormat.markdown
     explanation: str | None = None
 
+    @model_validator(mode="after")
+    def _sanitize_rich_text(self):
+        # NFR-SEC-07: strip <script>/on*/javascript: from rich text on write.
+        self.content = sanitize_rich_text(self.content, self.content_format)
+        if self.explanation is not None:
+            self.explanation = sanitize_rich_text(self.explanation, self.content_format)
+        return self
+
 
 class TranslationIn(BaseModel):
     language: str  # 'en' | 'zh'
@@ -40,6 +49,18 @@ class TranslationIn(BaseModel):
     key_point_summary: str | None = None
     further_reading: str | None = None
     options: list[TranslationOptionIn]
+
+    @model_validator(mode="after")
+    def _sanitize_rich_text(self):
+        self.stem = sanitize_rich_text(self.stem, self.stem_format)
+        self.correct_answer_rationale = sanitize_rich_text(
+            self.correct_answer_rationale, self.stem_format
+        )
+        if self.key_point_summary is not None:
+            self.key_point_summary = sanitize_rich_text(self.key_point_summary, self.stem_format)
+        if self.further_reading is not None:
+            self.further_reading = sanitize_rich_text(self.further_reading, self.stem_format)
+        return self
 
 
 class TranslationOptionOut(BaseModel):
@@ -160,6 +181,13 @@ class ReviewActionIn(BaseModel):
 class FeedbackIn(BaseModel):
     feedback_type: QuestionFeedbackType
     comment: str | None = None
+
+    @model_validator(mode="after")
+    def _sanitize_comment(self):
+        if self.comment is not None:
+            # feedback comments are plain text — strip all HTML
+            self.comment = sanitize_rich_text(self.comment, TextFormat.plain)
+        return self
 
 
 class FeedbackOut(BaseModel):
