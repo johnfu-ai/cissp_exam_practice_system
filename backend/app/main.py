@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from app.api.admin import router as admin_router
 from app.api.analytics import router as analytics_router
@@ -15,6 +17,28 @@ from app.api.users import router as users_router
 from app.core.config import settings
 from app.db.session import get_engine
 
+_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Defense-in-depth response headers (NFR-SEC-07): a strict CSP blocks
+    script injection even if sanitized content slipped through; nosniff /
+    frame-options / referrer-policy harden the browser side. HSTS is sent only
+    when the request is over TLS (directly or via a trusted X-Forwarded-Proto)."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = _CSP
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title="CISSP Exam Practice System", version="0.2.0")
@@ -26,6 +50,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added last -> outermost, so security headers land on every response
+    # (including CORS preflight).
+    app.add_middleware(SecurityHeadersMiddleware)
 
     @app.get("/health")
     def health() -> dict:
