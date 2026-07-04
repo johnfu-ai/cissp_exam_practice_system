@@ -21,6 +21,29 @@ def test_password_hash_roundtrips():
     assert verify_password("wrong", h) is False
 
 
+def test_hash_uses_bcrypt_2b_prefix():
+    """Direct bcrypt (no passlib) produces a $2b$ hash — and existing passlib
+    hashes are also $2b$, so the swap is backward-compatible with stored hashes."""
+    assert hash_password("s3cret!").startswith("$2b$")
+
+
+def test_verify_password_malformed_hash_returns_false():
+    """A malformed/legacy hash must return False, never raise (login path)."""
+    assert verify_password("anything", "not-a-real-hash") is False
+    assert verify_password("anything", "") is False
+
+
+def test_password_truncated_at_72_bytes():
+    """bcrypt's 72-byte limit is handled by truncation (matching passlib) so a
+    >72-byte password (schema allows up to 128) hashes + verifies without raising."""
+    long_pw = "x" * 100
+    h = hash_password(long_pw)
+    assert verify_password(long_pw, h) is True
+    # the first 72 bytes are what's actually used; a password differing only past
+    # byte 72 collides (documented bcrypt behavior, not a regression)
+    assert verify_password("x" * 72 + "y" * 28, h) is True
+
+
 def test_access_token_roundtrips_claims():
     uid = uuid.uuid4()
     oid = uuid.uuid4()

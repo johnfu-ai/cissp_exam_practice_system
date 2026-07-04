@@ -6,22 +6,32 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
-_pwd_context = CryptContext(
-    schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=settings.bcrypt_rounds
-)
+# bcrypt operates on a 72-byte password limit; passlib truncated silently, so we
+# match that to avoid a behavior change for the schema's max_length=128 inputs
+# (bcrypt 4.x raises ValueError past 72 bytes).
+_BCRYPT_MAX_BYTES = 72
 
 
 def hash_password(plain: str) -> str:
-    return _pwd_context.hash(plain)
+    return bcrypt.hashpw(
+        plain.encode("utf-8")[:_BCRYPT_MAX_BYTES],
+        bcrypt.gensalt(rounds=settings.bcrypt_rounds),
+    ).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd_context.verify(plain, hashed)
+    # checkpw is constant-time. Malformed/legacy hashes return False, never raise.
+    try:
+        return bcrypt.checkpw(
+            plain.encode("utf-8")[:_BCRYPT_MAX_BYTES], hashed.encode("utf-8")
+        )
+    except (ValueError, TypeError):
+        return False
 
 
 def create_access_token(
