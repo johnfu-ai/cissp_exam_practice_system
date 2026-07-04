@@ -205,6 +205,18 @@ def refresh_tokens(session: Session, refresh_store: RefreshTokenStore,
     data = refresh_store.load(refresh_token)
     if data is None:
         raise AuthError("invalid or expired refresh token", status_code=401)
+    # #7: reuse detection — a token that was already rotated is being replayed
+    # (likely stolen). Revoke the entire family so every descendant of the
+    # original login dies, forcing re-auth everywhere.
+    if data.get("rotated"):
+        refresh_store.revoke_family(data["family_id"])
+        log_audit(
+            session, action=AuditAction.logout, actor_id=uuid.UUID(data["user_id"]),
+            organization_id=uuid.UUID(data["org_id"]),
+            entity_type="refresh_token", entity_id=data["family_id"],
+            details={"reason": "refresh_token_reuse"},
+        )
+        raise AuthError("refresh token reuse detected", status_code=401)
     user_id = uuid.UUID(data["user_id"])
     org_id = uuid.UUID(data["org_id"])
     user = session.get(User, user_id)

@@ -129,6 +129,31 @@ def test_logout_without_access_token_is_best_effort(session_with_roles):
         refresh_tokens(session, store, tokens.refresh_token)
 
 
+def test_refresh_reuse_revokes_entire_family(session_with_roles):
+    """#7: replaying an already-rotated refresh token is detected as reuse and
+    revokes the whole family — the active descendant dies too, so a stolen token
+    can't keep the session alive."""
+    session = session_with_roles
+    store = InMemoryRefreshTokenStore()
+    user, tokens = register_user(session, email="reuse@example.com", password="pw123456",
+                                 display_name="Reuse", refresh_store=store)
+    session.flush()
+    rt1 = tokens.refresh_token
+    # legitimate rotation: rt1 -> rt2
+    rt2 = refresh_tokens(session, store, rt1).refresh_token
+    # rt2 still works (the active descendant)
+    rt3 = refresh_tokens(session, store, rt2).refresh_token
+    # replaying the already-rotated rt1 -> reuse detected -> family revoked
+    with pytest.raises(AuthError):
+        refresh_tokens(session, store, rt1)
+    # the family is dead: rt3 (the latest active token) no longer refreshes
+    with pytest.raises(AuthError):
+        refresh_tokens(session, store, rt3)
+    # and rt2 is gone too
+    with pytest.raises(AuthError):
+        refresh_tokens(session, store, rt2)
+
+
 def test_load_user_perms_returns_role_perms(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
