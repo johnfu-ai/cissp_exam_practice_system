@@ -18,5 +18,7 @@ COPY . .
 
 EXPOSE 8000
 
-# Run migrations, then seed (idempotent), then start the API.
-CMD ["sh", "-c", "alembic upgrade head && python -m app.db.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# The API only. Migrations + seed run once via the `migrate` compose service
+# (depends_on: service_completed_successfully) so N replicas don't race on
+# `alembic upgrade head` (audit P0 #6 C-4).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
