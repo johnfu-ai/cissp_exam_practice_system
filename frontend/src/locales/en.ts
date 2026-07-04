@@ -91,6 +91,11 @@ export const en = {
     resetFailed: "Reset failed. The token may be invalid or expired.",
     backToLogin: "Back to log in",
   },
+  error: {
+    title: "Something went wrong",
+    description: "An unexpected error occurred. Try again, or reload the page.",
+    retry: "Retry",
+  },
   legal: {
     trademark: "CISSP® and ISC2® are registered trademarks of ISC2, Inc.",
     notOfficial:

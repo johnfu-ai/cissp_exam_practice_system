@@ -51,4 +51,44 @@ describe("apiJson silent refresh", () => {
     });
     await expect(apiJson("/api/practice/sessions")).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("concurrent 401s share a single refresh (no refresh storm)", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("401a", { status: 401 }))
+      .mockResolvedValueOnce(new Response("401b", { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ user, access_token: "fresh", refresh_token: "r2" }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } })
+      );
+
+    const [a, b] = await Promise.all([
+      apiJson<{ ok: boolean }>("/api/practice/sessions/a"),
+      apiJson<{ ok: boolean }>("/api/practice/sessions/b"),
+    ]);
+    expect(a).toEqual({ ok: true });
+    expect(b).toEqual({ ok: true });
+    const refreshCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("/api/auth/refresh")
+    );
+    expect(refreshCalls).toHaveLength(1);
+  });
+
+  it("refresh failure clears the store (no second refresh attempt)", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("401", { status: 401 }))
+      .mockResolvedValueOnce(new Response("invalid", { status: 401 })); // refresh fails
+    await expect(apiJson<{ ok: boolean }>("/api/practice/sessions/c")).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(useAuthStore.getState().accessToken).toBeNull();
+  });
 });
