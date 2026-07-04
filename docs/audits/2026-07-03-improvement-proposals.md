@@ -28,6 +28,8 @@ Severities below are calibrated to *a real deployment* — many items are accept
 > **P0 #3 ✅ DONE (2026-07-03)** — see `docs/superpowers/specs/2026-07-03-cross-tenant-idor-question-etl-design.md` + `docs/superpowers/plans/2026-07-03-cross-tenant-idor-question-etl.md`. `get_question()` requires `org_id` (NotFound on cross-org); all `{question_id}` routes thread `current.org_id` (added the missing gate on `GET /{id}/feedback`); `run_commit`/`run_rollback`/`get_run` verify `run.organization_id` (cross-org → 404). 480 backend tests, zero drift. Items #4–#6 remain open.
 >
 > **P0 #4 ✅ DONE (2026-07-04)** — see `docs/superpowers/specs/2026-07-04-xss-sanitization-csp-design.md` + `docs/superpowers/plans/2026-07-04-xss-sanitization-csp.md`. `nh3`-based `sanitize_rich_text` applied on all API + ETL rich-text writes (Pydantic validators on `TranslationIn`/`TranslationOptionIn`/`FeedbackIn`; ETL `_translation_payload`); `SecurityHeadersMiddleware` adds strict CSP + `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy` (HSTS over TLS only). NFR-SEC-07. 490 backend tests, zero drift. Items #5–#6 remain open.
+>
+> **P0 #5 ✅ DONE (2026-07-04)** — `<LegalFooter>` (role=contentinfo) in both the `(app)` and `(auth)` layouts renders the trademark attribution + "not an official ISC2 platform" disclaimer on every page (locale keys en/zh). NFR-COMP-03/04. 93 frontend tests, lint 0, build green. Item #6 remains open.
 
 | # | Proposal | Where | Why it's critical |
 |---|----------|-------|-------------------|
