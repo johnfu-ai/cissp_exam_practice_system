@@ -140,6 +140,19 @@ def list_questions(
     items, total = svc.list_questions(
         session, org_id=current.org_id, page=page, size=size, filters=filters
     )
+    # #13: batch the per-question domain lookup into ONE query (was one
+    # select per question on the page -> N+1, 101 queries on a 100-item page).
+    # Mirrors _mappings_out's "first non-null domain_id" semantics.
+    page_qids = [q.id for q in items]
+    domain_by_q: dict = {}
+    if page_qids:
+        for qid, did in session.execute(
+            select(QuestionMapping.question_id, QuestionMapping.domain_id)
+            .where(QuestionMapping.question_id.in_(page_qids))
+            .order_by(QuestionMapping.question_id)
+        ).all():
+            if did is not None and qid not in domain_by_q:
+                domain_by_q[qid] = did
     return {
         "items": [
             QuestionListItem(
@@ -148,7 +161,7 @@ def list_questions(
                 status=q.status,
                 difficulty=q.difficulty,
                 available_languages=list(q.available_languages or []),
-                domain_id=_mappings_out(session, q.id)["domain_id"],
+                domain_id=domain_by_q.get(q.id),
                 created_at=q.created_at,
             )
             for q in items

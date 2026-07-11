@@ -35,7 +35,7 @@ from app.models.enums import (
     QuestionStatus,
 )
 from app.models.exam import ExamAnswer, ExamSession
-from app.models.question import Question, QuestionMapping, QuestionOption
+from app.models.question import Question, QuestionMapping, QuestionOption, QuestionTranslation
 from app.models.taxonomy import ExamBlueprint, ExamDomain
 from app.schemas.exam import (
     DomainPerformance,
@@ -867,16 +867,49 @@ def get_review(session: Session, *, session_id, user_id) -> list:
     if es.status == ExamSessionStatus.in_progress:
         raise ConflictError("exam session is not finished")
     qids = es.config.get("question_ids", [])
-    items: list = []
-    for position, qid_str in enumerate(qids):
-        question_id = uuid.UUID(qid_str)
-        question = session.get(Question, question_id)
-        ans = session.execute(
+    question_ids = [uuid.UUID(s) for s in qids]
+    # #13: batch-load answers (and, for items without a frozen snapshot, the
+    # live question/translations/options) instead of one query per item -
+    # was 300+ queries for a 150-item exam.
+    ans_by_q: dict = {}
+    if question_ids:
+        for a in session.execute(
             select(ExamAnswer).where(
                 ExamAnswer.session_id == es.id,
-                ExamAnswer.question_id == question_id,
+                ExamAnswer.question_id.in_(question_ids),
             )
-        ).scalars().first()
+        ).scalars().all():
+            ans_by_q[a.question_id] = a
+    # Live data is only needed for items with no frozen snapshot.
+    live_qids = [
+        qid for qid in question_ids
+        if not (ans_by_q.get(qid) and ans_by_q[qid].options_snapshot)
+    ]
+    q_by_id: dict = {}
+    trans_by_q: dict = {}
+    opts_by_q: dict = {}
+    if live_qids:
+        for q in session.execute(
+            select(Question).where(Question.id.in_(live_qids))
+        ).scalars().all():
+            q_by_id[q.id] = q
+        for t in session.execute(
+            select(QuestionTranslation).where(
+                QuestionTranslation.question_id.in_(live_qids)
+            )
+        ).scalars().all():
+            trans_by_q.setdefault(t.question_id, []).append(t)
+        for o in session.execute(
+            select(QuestionOption)
+            .where(QuestionOption.question_id.in_(live_qids))
+            .order_by(QuestionOption.question_id, QuestionOption.order_index)
+        ).scalars().all():
+            opts_by_q.setdefault(o.question_id, []).append(o)
+
+    items: list = []
+    for position, question_id in enumerate(question_ids):
+        ans = ans_by_q.get(question_id)
+        question = q_by_id.get(question_id)
         # Answered items render from the frozen snapshot (NFR-DATA-01): later
         # edits to live options/translations never change the review.
         if ans is not None and ans.options_snapshot:
@@ -899,8 +932,8 @@ def get_review(session: Session, *, session_id, user_id) -> list:
         else:
             # Never answered (lazy auto-submit / manual finish mid-exam):
             # build Localized view from live translations.
-            translations = translations_for(session, question_id) if question else []
-            live_opts = _options_for(session, question_id) if question else []
+            translations = trans_by_q.get(question_id, []) if question else []
+            live_opts = opts_by_q.get(question_id, []) if question else []
             opts = [
                 {
                     "order_index": o.order_index,

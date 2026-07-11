@@ -114,13 +114,35 @@ def _answer_rows(session: Session, user_id, since=None):
     return rows
 
 
-def _answer_buckets(session: Session, user_id, since=None):
+def _filter_since(rows, since):
+    """In-memory equivalent of ``_answer_rows(since=...)`` for a precomputed
+    row list - lets personal_report fetch answers once and reuse them (#13)."""
+    if since is None:
+        return rows
+    out = []
+    for r in rows:
+        at = r[3]
+        if at is None:
+            continue
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        if at >= since:
+            out.append(r)
+    return out
+
+
+def _answer_buckets(session: Session, user_id, since=None, rows=None):
     """Return ``dict[domain_id] -> {answered, correct, time_ms}`` merged across
     practice + exam answers.
 
     Answers whose question has no QuestionMapping (no domain) are skipped.
+    ``rows`` may pass a precomputed answer-row list to avoid re-fetching; it is
+    filtered by ``since`` in memory.
     """
-    rows = _answer_rows(session, user_id, since=since)
+    if rows is None:
+        rows = _answer_rows(session, user_id, since=since)
+    else:
+        rows = _filter_since(rows, since)
     qids = {r[0] for r in rows}
     if not qids:
         return {}
@@ -144,12 +166,13 @@ def _answer_buckets(session: Session, user_id, since=None):
     return buckets
 
 
-def dashboard(session: Session, *, user_id) -> DashboardOut:
+def dashboard(session: Session, *, user_id, rows=None) -> DashboardOut:
     """Aggregate personal stats for ``user_id`` across practice + exam answers.
 
     Empty user -> all-zero / None response (never raises).
+    ``rows`` may pass a precomputed answer-row list to avoid re-fetching (#13).
     """
-    rows = _answer_rows(session, user_id)
+    rows = rows if rows is not None else _answer_rows(session, user_id)
     total = len(rows)
     correct = sum(1 for r in rows if r[1])
     study = sum((r[2] or 0) for r in rows)
@@ -167,7 +190,7 @@ def dashboard(session: Session, *, user_id) -> DashboardOut:
 
 
 def domain_mastery(
-    session: Session, *, user_id, blueprint
+    session: Session, *, user_id, blueprint, rows=None
 ) -> list[DomainMasteryOut]:
     """Per-domain mastery breakdown for ``user_id`` within ``blueprint``'s domains.
 
@@ -186,7 +209,7 @@ def domain_mastery(
         .scalars()
         .all()
     )
-    buckets = _answer_buckets(session, user_id)
+    buckets = _answer_buckets(session, user_id, rows=rows)
     out: list[DomainMasteryOut] = []
     for d in domains:
         b = buckets.get(d.id, {"answered": 0, "correct": 0, "time_ms": 0})
@@ -209,17 +232,18 @@ def domain_mastery(
     return out
 
 
-def trend(session: Session, *, user_id, window_days: int) -> TrendOut:
+def trend(session: Session, *, user_id, window_days: int, rows=None) -> TrendOut:
     """Daily accuracy trend over the last ``window_days`` days.
 
     ``window_days`` must be 30 or 90; anything else raises ``ValueError``.
     Returns one TrendPoint per active UTC day, sorted ascending by date.
     Empty user -> ``points=[]``.
+    ``rows`` may pass a precomputed answer-row list to avoid re-fetching (#13).
     """
     if window_days not in _TREND_WINDOWS:
         raise ValueError(f"window_days must be one of {_TREND_WINDOWS}")
     since = datetime.now(timezone.utc) - timedelta(days=window_days)
-    rows = _answer_rows(session, user_id, since=since)
+    rows = _filter_since(rows, since) if rows is not None else _answer_rows(session, user_id, since=since)
     by_day: dict[date, dict] = defaultdict(
         lambda: {"answered": 0, "correct": 0}
     )
@@ -242,14 +266,16 @@ def trend(session: Session, *, user_id, window_days: int) -> TrendOut:
     return TrendOut(window_days=window_days, points=points)
 
 
-def weak_areas(session: Session, *, user_id) -> WeakAreasOut:
+def weak_areas(session: Session, *, user_id, rows=None) -> WeakAreasOut:
     """Weak domains and knowledge points for ``user_id``.
 
     A domain/KP is "weak" when ``answered >= 3`` AND ``accuracy < 0.6``.
     Both lists are sorted by accuracy ascending and capped (8 domains,
     10 knowledge points).
+    ``rows`` may pass a precomputed answer-row list to avoid re-fetching (#13).
     """
-    buckets = _answer_buckets(session, user_id)
+    rows = rows if rows is not None else _answer_rows(session, user_id)
+    buckets = _answer_buckets(session, user_id, rows=rows)
     # Resolve domain id -> name for labels (only when there is data).
     dom_rows = (
         session.execute(select(ExamDomain.id, ExamDomain.name)).all()
@@ -277,7 +303,6 @@ def weak_areas(session: Session, *, user_id) -> WeakAreasOut:
     weak_d.sort(key=lambda w: w.accuracy)
 
     # Knowledge points: bucket the merged answer rows by their KP mapping.
-    rows = _answer_rows(session, user_id)
     qids = {r[0] for r in rows}
     kp_map = (
         dict(
@@ -340,7 +365,7 @@ def weak_areas(session: Session, *, user_id) -> WeakAreasOut:
     )
 
 
-def error_type_breakdown(session: Session, *, user_id) -> ErrorTypeOut:
+def error_type_breakdown(session: Session, *, user_id, rows=None) -> ErrorTypeOut:
     """Distribution of error types across the user's wrong answers.
 
     Wrong answers = answer rows with ``is_correct is False``. Each wrong
@@ -349,7 +374,7 @@ def error_type_breakdown(session: Session, *, user_id) -> ErrorTypeOut:
     error_type. The distribution covers the 5 enum types that occur plus
     an "unclassified" (None) bucket (always present).
     """
-    rows = _answer_rows(session, user_id)
+    rows = rows if rows is not None else _answer_rows(session, user_id)
     wrong_qids = {r[0] for r in rows if r[1] is False}
     et_map = (
         dict(
@@ -383,7 +408,7 @@ def error_type_breakdown(session: Session, *, user_id) -> ErrorTypeOut:
 
 
 def recommendation(
-    session: Session, *, user_id, blueprint
+    session: Session, *, user_id, blueprint, rows=None
 ) -> ReviewRecommendationOut:
     """Review recommendation for ``user_id`` given the current ``blueprint``.
 
@@ -402,9 +427,9 @@ def recommendation(
             next_practice_question_ids=[],
             rationale="No current exam blueprint configured.",
         )
-    wa = weak_areas(session, user_id=user_id)
+    rows = rows if rows is not None else _answer_rows(session, user_id)
+    wa = weak_areas(session, user_id=user_id, rows=rows)
     focus = wa.weak_domains[0] if wa.weak_domains else None
-    rows = _answer_rows(session, user_id)
     wrong_qids = [r[0] for r in rows if r[1] is False]
     states = (
         session.execute(
@@ -428,21 +453,29 @@ def recommendation(
     # so the join stays in one place (no separate helper needed).
     weak_dom_ids = {w.domain_id for w in wa.weak_domains}
     weak_kp_ids = {w.knowledge_point_id for w in wa.weak_knowledge_points}
-    qid_dom = dict(
-        session.execute(
-            select(QuestionMapping.question_id, QuestionMapping.domain_id)
-        ).all()
-    )
-    qid_kp = dict(
-        session.execute(
-            select(
-                QuestionMapping.question_id, QuestionMapping.knowledge_point_id
-            )
-        ).all()
-    )
+    # #13: bound the mapping lookups to the user's answered questions (was a
+    # full-table scan of question_mappings per request).
+    answered_qids = list({r[0] for r in rows})
+    if answered_qids:
+        qid_dom = dict(
+            session.execute(
+                select(QuestionMapping.question_id, QuestionMapping.domain_id)
+                .where(QuestionMapping.question_id.in_(answered_qids))
+            ).all()
+        )
+        qid_kp = dict(
+            session.execute(
+                select(
+                    QuestionMapping.question_id, QuestionMapping.knowledge_point_id
+                ).where(QuestionMapping.question_id.in_(answered_qids))
+            ).all()
+        )
+    else:
+        qid_dom = {}
+        qid_kp = {}
     weak_qids = {
         qid
-        for qid in {r[0] for r in rows}
+        for qid in answered_qids
         if qid_dom.get(qid) in weak_dom_ids or qid_kp.get(qid) in weak_kp_ids
     }
     # mastered_qids must span ALL weak-area questions (correct + wrong), not
@@ -508,15 +541,18 @@ def personal_report(session: Session, *, user_id, blueprint) -> PersonalReportOu
     weak areas + error-type breakdown + recommendation.
 
     ``generated_at`` is ``datetime.now(timezone.utc)`` at call time.
+    Fetches the user's merged answer rows ONCE and threads them through every
+    sub-aggregation (#13 - was ~7 fetches of the same rows).
     """
+    rows = _answer_rows(session, user_id)
     return PersonalReportOut(
         generated_at=datetime.now(timezone.utc),
-        dashboard=dashboard(session, user_id=user_id),
-        domains=domain_mastery(session, user_id=user_id, blueprint=blueprint),
-        trend_30d=trend(session, user_id=user_id, window_days=30),
-        weak_areas=weak_areas(session, user_id=user_id),
-        error_types=error_type_breakdown(session, user_id=user_id),
+        dashboard=dashboard(session, user_id=user_id, rows=rows),
+        domains=domain_mastery(session, user_id=user_id, blueprint=blueprint, rows=rows),
+        trend_30d=trend(session, user_id=user_id, window_days=30, rows=rows),
+        weak_areas=weak_areas(session, user_id=user_id, rows=rows),
+        error_types=error_type_breakdown(session, user_id=user_id, rows=rows),
         recommendation=recommendation(
-            session, user_id=user_id, blueprint=blueprint
+            session, user_id=user_id, blueprint=blueprint, rows=rows
         ),
     )
