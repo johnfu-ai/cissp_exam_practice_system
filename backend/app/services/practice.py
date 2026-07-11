@@ -455,19 +455,34 @@ def _build_summary(session: Session, ps: PracticeSession) -> SessionSummaryOut:
     total_time = sum((a.time_spent_ms or 0) for a in answers)
 
     domain_ids: dict = {}
+    # #13: batch the per-answer domain lookup + per-domain name lookup (was one
+    # query per answer + one per unique domain -> N+1).
+    answer_qids = [a.question_id for a in answers]
+    dom_by_q: dict = {}
+    if answer_qids:
+        for qid, did in session.execute(
+            select(QuestionMapping.question_id, QuestionMapping.domain_id)
+            .where(QuestionMapping.question_id.in_(answer_qids))
+            .order_by(QuestionMapping.question_id)
+        ).all():
+            if did is not None and qid not in dom_by_q:
+                dom_by_q[qid] = did
+    unique_dids = {d for d in dom_by_q.values() if d is not None}
+    name_by_did: dict = {}
+    if unique_dids:
+        for d in session.execute(
+            select(ExamDomain).where(ExamDomain.id.in_(unique_dids))
+        ).scalars().all():
+            name_by_did[d.id] = d.name
     for a in answers:
-        m = session.execute(
-            select(QuestionMapping).where(QuestionMapping.question_id == a.question_id)
-        ).scalars().first()
-        did = str(m.domain_id) if (m and m.domain_id) else None
-        entry = domain_ids.setdefault(did, {"answered": 0, "correct": 0, "name": None})
+        did = dom_by_q.get(a.question_id)  # uuid or None
+        key = str(did) if did else None
+        entry = domain_ids.setdefault(key, {"answered": 0, "correct": 0, "name": None})
         entry["answered"] += 1
         if a.is_correct:
             entry["correct"] += 1
-    for did, entry in domain_ids.items():
         if did is not None:
-            d = session.get(ExamDomain, uuid.UUID(did))
-            entry["name"] = d.name if d else None
+            entry["name"] = name_by_did.get(did)
 
     wrong = []
     for a in answers:
