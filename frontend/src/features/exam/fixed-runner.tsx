@@ -8,6 +8,7 @@ import {
   useFinishExam,
 } from "@/lib/api/exam";
 import { OptionList } from "@/features/practice/option-list";
+import { useSubmitShortcut } from "@/features/shared/use-submit-shortcut";
 import { untrackExam } from "./exam-tracker";
 import { fmtCountdown, isTimeCritical } from "./format";
 import { ApiError } from "@/lib/api";
@@ -177,6 +178,13 @@ export function FixedExamRunner({
     if (p < 0 || p >= total) return;
     save(() => setPosition(p));
   }
+
+  // #34 / NFR-UX-04: Enter saves the current answer and moves forward (or, on
+  // the last question, just saves). Matches the footer's primary button.
+  useSubmitShortcut({
+    onSubmit: position + 1 < total ? () => goTo(position + 1) : () => save(),
+    canSubmit: !!delivery && !submit.isPending,
+  });
 
   if (question.isError) {
     const stale = question.error instanceof ApiError && question.error.status === 409;
