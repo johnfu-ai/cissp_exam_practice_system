@@ -49,12 +49,12 @@ export function AppSidebar() {
   const showManage = manageLinks.length > 0 || isAdmin;
 
   async function logout() {
-    const { refreshToken, clear } = useAuthStore.getState();
+    const { accessToken, refreshToken, clear } = useAuthStore.getState();
     if (refreshToken) {
       await fetch(`${BACKEND}/api/auth/logout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        body: JSON.stringify({ refresh_token: refreshToken, access_token: accessToken }),
       }).catch(() => {});
     }
     clear();

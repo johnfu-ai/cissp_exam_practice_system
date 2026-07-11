@@ -3,6 +3,8 @@ import pytest
 from app.core.security import (
     InMemoryPasswordResetTokenStore,
     InMemoryRefreshTokenStore,
+    InMemoryRevokedTokenStore,
+    decode_access_token,
     verify_password,
 )
 from app.models.auth import Organization, OrganizationMembership, Role
@@ -89,12 +91,67 @@ def test_refresh_rotates_and_old_invalid(session_with_roles):
 def test_logout_invalidates_refresh(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
+    revoked = InMemoryRevokedTokenStore()
     user, tokens = register_user(session, email="eve@example.com", password="pw123456",
                                  display_name="Eve", refresh_store=store)
     session.flush()
-    logout(store, tokens.refresh_token)
+    logout(store, revoked, tokens.refresh_token, tokens.access_token)
     with pytest.raises(AuthError):
         refresh_tokens(session, store, tokens.refresh_token)
+
+
+def test_logout_revokes_access_token_jti(session_with_roles):
+    """#8: logout adds the access token's jti to the revocation list (TTL = remaining
+    lifetime) so it's rejected on the next request before its natural expiry."""
+    session = session_with_roles
+    store = InMemoryRefreshTokenStore()
+    revoked = InMemoryRevokedTokenStore()
+    user, tokens = register_user(session, email="rev@example.com", password="pw123456",
+                                 display_name="Rev", refresh_store=store)
+    session.flush()
+    jti = decode_access_token(tokens.access_token)["jti"]
+    assert revoked.is_revoked(jti) is False
+    logout(store, revoked, tokens.refresh_token, tokens.access_token)
+    assert revoked.is_revoked(jti) is True
+
+
+def test_logout_without_access_token_is_best_effort(session_with_roles):
+    """A client that only sends the refresh token still logs out (refresh deleted);
+    the access token simply isn't revoked early — backward compat."""
+    session = session_with_roles
+    store = InMemoryRefreshTokenStore()
+    revoked = InMemoryRevokedTokenStore()
+    user, tokens = register_user(session, email="be@example.com", password="pw123456",
+                                 display_name="BE", refresh_store=store)
+    session.flush()
+    logout(store, revoked, tokens.refresh_token, None)
+    with pytest.raises(AuthError):
+        refresh_tokens(session, store, tokens.refresh_token)
+
+
+def test_refresh_reuse_revokes_entire_family(session_with_roles):
+    """#7: replaying an already-rotated refresh token is detected as reuse and
+    revokes the whole family — the active descendant dies too, so a stolen token
+    can't keep the session alive."""
+    session = session_with_roles
+    store = InMemoryRefreshTokenStore()
+    user, tokens = register_user(session, email="reuse@example.com", password="pw123456",
+                                 display_name="Reuse", refresh_store=store)
+    session.flush()
+    rt1 = tokens.refresh_token
+    # legitimate rotation: rt1 -> rt2
+    rt2 = refresh_tokens(session, store, rt1).refresh_token
+    # rt2 still works (the active descendant)
+    rt3 = refresh_tokens(session, store, rt2).refresh_token
+    # replaying the already-rotated rt1 -> reuse detected -> family revoked
+    with pytest.raises(AuthError):
+        refresh_tokens(session, store, rt1)
+    # the family is dead: rt3 (the latest active token) no longer refreshes
+    with pytest.raises(AuthError):
+        refresh_tokens(session, store, rt3)
+    # and rt2 is gone too
+    with pytest.raises(AuthError):
+        refresh_tokens(session, store, rt2)
 
 
 def test_load_user_perms_returns_role_perms(session_with_roles):
@@ -203,3 +260,27 @@ def test_confirm_reset_bogus_token_raises(session_with_roles):
         confirm_password_reset(session, token="bogus", new_password="newpw123",
                                reset_store=rst)
     assert exc.value.status_code == 401
+
+
+def test_authenticate_missing_user_still_runs_bcrypt(monkeypatch, session_with_roles):
+    """#10: a missing user still triggers a bcrypt verify against a dummy hash, so
+    the missing-user and existing-user login paths take the same time (closes the
+    login timing/enumeration oracle)."""
+    import app.services.auth as auth_mod
+
+    session = session_with_roles
+    store = InMemoryRefreshTokenStore()
+    lockout = InMemoryLockoutStore(threshold=5)
+    calls = {"n": 0}
+    real = auth_mod.verify_password
+
+    def spy(plain, hashed):
+        calls["n"] += 1
+        return real(plain, hashed)
+
+    monkeypatch.setattr(auth_mod, "verify_password", spy)
+    with pytest.raises(AuthError):
+        authenticate(session, email="nobody@example.com", password="pw123456",
+                     refresh_store=store, lockout_store=lockout)
+    # bcrypt ran once against the dummy hash even though no user matched the email
+    assert calls["n"] == 1

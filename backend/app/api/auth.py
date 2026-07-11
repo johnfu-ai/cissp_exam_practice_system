@@ -2,13 +2,15 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import (
     PasswordResetTokenStore,
+    RateLimiter,
     RefreshTokenStore,
+    RevokedTokenStore,
     decode_access_token,
 )
 from app.db.session import get_session
@@ -16,8 +18,10 @@ from app.dependencies import (
     CurrentUser,
     get_current_user,
     get_lockout_store,
+    get_rate_limiter,
     get_refresh_store,
     get_reset_token_store,
+    get_revoked_store,
 )
 from app.models.auth import User
 from app.schemas.auth import (
@@ -48,6 +52,23 @@ from app.services.auth import (
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def auth_rate_limit(scope: str):
+    """#10: per-IP fixed-window rate limit on unauthenticated auth endpoints.
+    Caps credential-stuffing from a single IP (per-email lockout alone never
+    trips for password-spray against many accounts)."""
+    def _dep(request: Request,
+             rate_limiter: RateLimiter = Depends(get_rate_limiter)) -> bool:
+        ip = request.client.host if request.client else "unknown"
+        if not rate_limiter.allow(
+            f"{scope}:{ip}",
+            limit=settings.login_rate_limit,
+            window_seconds=settings.login_rate_window_seconds,
+        ):
+            raise HTTPException(status_code=429, detail="too many requests from this IP")
+        return True
+    return _dep
+
+
 def _user_out(session, user, org_id) -> UserOut:
     return UserOut(
         id=str(user.id), email=user.email, display_name=user.display_name,
@@ -68,7 +89,8 @@ def _extract_org_id(access_token: str) -> uuid.UUID:
 
 @router.post("/register", response_model=TokenOut)
 def register(body: RegisterIn, session: Session = Depends(get_session),
-             refresh_store: RefreshTokenStore = Depends(get_refresh_store)):
+             refresh_store: RefreshTokenStore = Depends(get_refresh_store),
+             _: bool = Depends(auth_rate_limit("register"))):
     try:
         user, tokens = register_user(session, email=body.email, password=body.password,
                                      display_name=body.display_name, refresh_store=refresh_store)
@@ -82,7 +104,8 @@ def register(body: RegisterIn, session: Session = Depends(get_session),
 @router.post("/login", response_model=TokenOut)
 def login(body: LoginIn, session: Session = Depends(get_session),
           refresh_store: RefreshTokenStore = Depends(get_refresh_store),
-          lockout_store: LockoutStore = Depends(get_lockout_store)):
+          lockout_store: LockoutStore = Depends(get_lockout_store),
+          _: bool = Depends(auth_rate_limit("login"))):
     try:
         user, tokens = authenticate(session, email=body.email, password=body.password,
                                     refresh_store=refresh_store, lockout_store=lockout_store)
@@ -108,8 +131,9 @@ def refresh(body: RefreshIn, session: Session = Depends(get_session),
 
 @router.post("/logout")
 def logout_route(body: LogoutIn,
-                 refresh_store: RefreshTokenStore = Depends(get_refresh_store)):
-    logout(refresh_store, body.refresh_token)
+                 refresh_store: RefreshTokenStore = Depends(get_refresh_store),
+                 revoked_store: RevokedTokenStore = Depends(get_revoked_store)):
+    logout(refresh_store, revoked_store, body.refresh_token, body.access_token)
     return {"ok": True}
 
 
@@ -143,6 +167,7 @@ def reset_password_request(
     session: Session = Depends(get_session),
     reset_store: PasswordResetTokenStore = Depends(get_reset_token_store),
     lockout_store: LockoutStore = Depends(get_lockout_store),
+    _: bool = Depends(auth_rate_limit("reset")),
 ):
     try:
         token = request_password_reset(

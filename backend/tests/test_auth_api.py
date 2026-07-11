@@ -1,10 +1,24 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
-from app.core.security import InMemoryPasswordResetTokenStore, InMemoryRefreshTokenStore
-from app.dependencies import get_lockout_store, get_refresh_store, get_reset_token_store
+from app.core.security import (
+    InMemoryPasswordResetTokenStore,
+    InMemoryRateLimiter,
+    InMemoryRefreshTokenStore,
+    InMemoryRevokedTokenStore,
+)
+from app.dependencies import (
+    get_lockout_store,
+    get_rate_limiter,
+    get_refresh_store,
+    get_reset_token_store,
+    get_revoked_store,
+)
 from app.db.session import get_session
 from app.main import create_app
+from app.models.auth import User
+from app.models.enums import UserStatus
 from app.services.auth import InMemoryLockoutStore
 
 
@@ -14,10 +28,14 @@ def client(db_session, session_with_roles):
     refresh_store = InMemoryRefreshTokenStore()
     lockout = InMemoryLockoutStore(threshold=5)
     rst = InMemoryPasswordResetTokenStore()
+    revoked = InMemoryRevokedTokenStore()
+    rate_limiter = InMemoryRateLimiter()
     app.dependency_overrides[get_session] = lambda: (yield db_session)
     app.dependency_overrides[get_refresh_store] = lambda: refresh_store
     app.dependency_overrides[get_lockout_store] = lambda: lockout
     app.dependency_overrides[get_reset_token_store] = lambda: rst
+    app.dependency_overrides[get_revoked_store] = lambda: revoked
+    app.dependency_overrides[get_rate_limiter] = lambda: rate_limiter
     return TestClient(app), refresh_store, lockout, rst
 
 
@@ -176,3 +194,55 @@ def test_old_reset_endpoint_removed(client):
     r = c.post("/api/auth/reset-password",
                json={"email": "x@example.com", "new_password": "newpw123"})
     assert r.status_code == 404
+
+
+def test_revoked_access_token_rejected_after_logout(client):
+    """#8: logout with the access token revokes its jti, so the token is rejected
+    on the next request even though it hasn't reached its natural expiry."""
+    c, _, _, _ = client
+    reg = c.post("/api/auth/register",
+                 json={"email": "rev@example.com", "password": "pw123456"}).json()
+    token, refresh = reg["access_token"], reg["refresh_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    # before logout, the token works
+    assert c.get("/api/auth/me", headers=h).status_code == 200
+    # logout WITH the access token -> revokes its jti
+    out = c.post("/api/auth/logout", json={"refresh_token": refresh, "access_token": token})
+    assert out.status_code == 200
+    # the same access token is now rejected (revoked, not expired)
+    assert c.get("/api/auth/me", headers=h).status_code == 401
+
+
+def test_disabled_user_token_rejected(client, db_session):
+    """#8: a disabled user's existing access token is rejected on the next request
+    (status change takes effect immediately, no need to revoke individual tokens)."""
+    c, _, _, _ = client
+    reg = c.post("/api/auth/register",
+                 json={"email": "dis@example.com", "password": "pw123456"}).json()
+    token = reg["access_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    assert c.get("/api/auth/me", headers=h).status_code == 200
+    # disable the user directly in the DB (same effect as the admin endpoint)
+    user = db_session.execute(select(User).filter_by(email="dis@example.com")).scalar_one()
+    user.status = UserStatus.disabled
+    db_session.flush()
+    # the same token is now rejected
+    assert c.get("/api/auth/me", headers=h).status_code == 401
+
+
+def test_login_rate_limited_per_ip(client, monkeypatch):
+    """#10: per-IP rate limiting on login — after the limit, further logins from
+    the same IP get 429 (caps credential-stuffing)."""
+    from app.core.config import settings as _settings
+
+    c, _, _, _ = client
+    monkeypatch.setattr(_settings, "login_rate_limit", 2)
+    monkeypatch.setattr(_settings, "login_rate_window_seconds", 60)
+    rl = InMemoryRateLimiter()  # one shared instance so the counter accumulates
+    c.app.dependency_overrides[get_rate_limiter] = lambda: rl
+    c.post("/api/auth/register", json={"email": "rl@example.com", "password": "pw123456"})
+    assert c.post("/api/auth/login", json={"email": "rl@example.com", "password": "pw123456"}).status_code == 200
+    # second login (wrong password) is still allowed by the rate limiter (401 from auth)
+    assert c.post("/api/auth/login", json={"email": "rl@example.com", "password": "wrong"}).status_code == 401
+    # third login is rate-limited
+    assert c.post("/api/auth/login", json={"email": "rl@example.com", "password": "pw123456"}).status_code == 429

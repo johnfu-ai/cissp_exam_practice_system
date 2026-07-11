@@ -3,7 +3,9 @@
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
+import time
 
+import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,7 +13,9 @@ from app.core.config import settings
 from app.core.security import (
     PasswordResetTokenStore,
     RefreshTokenStore,
+    RevokedTokenStore,
     create_access_token,
+    decode_access_token,
     generate_refresh_token,
     hash_password,
     verify_password,
@@ -26,6 +30,12 @@ from app.models.auth import (
 )
 from app.models.enums import AuditAction, OrgKind, RoleName, UserStatus
 from app.services.audit import log_audit
+
+
+# #10: a real bcrypt hash used to keep the missing-user login path constant-time
+# with the existing-user path (computed once at import; verify time depends on
+# the cost factor, not the hash content).
+_DUMMY_HASH = hash_password("constant-time-dummy")
 
 
 @dataclass
@@ -176,7 +186,15 @@ def authenticate(session: Session, *, email: str, password: str,
         raise AuthError("too many failed attempts; try later", status_code=429)
 
     user = session.execute(select(User).filter_by(email=email)).scalar_one_or_none()
-    if user is None or not user.password_hash or not verify_password(password, user.password_hash):
+    if user is None:
+        # #10: do a dummy bcrypt verify so the missing-user path takes the same
+        # time as the existing-user path (closes the login timing/enumeration
+        # oracle). Result is always False; the real check is below.
+        verify_password(password, _DUMMY_HASH)
+        valid = False
+    else:
+        valid = bool(user.password_hash) and verify_password(password, user.password_hash)
+    if not valid:
         count = lockout_store.record_failure(email)
         threshold = getattr(lockout_store, "threshold", None) or settings.login_lockout_threshold
         if count >= threshold:
@@ -201,6 +219,18 @@ def refresh_tokens(session: Session, refresh_store: RefreshTokenStore,
     data = refresh_store.load(refresh_token)
     if data is None:
         raise AuthError("invalid or expired refresh token", status_code=401)
+    # #7: reuse detection — a token that was already rotated is being replayed
+    # (likely stolen). Revoke the entire family so every descendant of the
+    # original login dies, forcing re-auth everywhere.
+    if data.get("rotated"):
+        refresh_store.revoke_family(data["family_id"])
+        log_audit(
+            session, action=AuditAction.logout, actor_id=uuid.UUID(data["user_id"]),
+            organization_id=uuid.UUID(data["org_id"]),
+            entity_type="refresh_token", entity_id=data["family_id"],
+            details={"reason": "refresh_token_reuse"},
+        )
+        raise AuthError("refresh token reuse detected", status_code=401)
     user_id = uuid.UUID(data["user_id"])
     org_id = uuid.UUID(data["org_id"])
     user = session.get(User, user_id)
@@ -216,8 +246,25 @@ def refresh_tokens(session: Session, refresh_store: RefreshTokenStore,
     return AuthTokens(access_token=access, refresh_token=new_refresh)
 
 
-def logout(refresh_store: RefreshTokenStore, refresh_token: str) -> None:
+def logout(refresh_store: RefreshTokenStore, revoked_store: RevokedTokenStore,
+           refresh_token: str, access_token: str | None) -> None:
+    """Invalidate the refresh token AND the access token (#8). The access token's
+    jti is added to the revocation list with a TTL equal to its remaining lifetime,
+    so it's rejected on the next request but the list self-prunes at natural expiry."""
     refresh_store.delete(refresh_token)
+    if not access_token:
+        return
+    try:
+        claims = decode_access_token(access_token)
+    except jwt.PyJWTError:
+        return  # already expired/invalid — nothing to revoke
+    jti = claims.get("jti")
+    exp = claims.get("exp")
+    if not jti or not exp:
+        return
+    ttl = max(0, int(exp) - int(time.time()))
+    if ttl > 0:
+        revoked_store.revoke(jti, ttl)
 
 
 # ---- P0 #1: secure password change + reset ----
