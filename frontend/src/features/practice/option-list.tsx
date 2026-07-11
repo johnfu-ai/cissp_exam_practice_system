@@ -4,7 +4,15 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BilingualText } from "@/components/bilingual-text";
 import { cn } from "@/lib/utils";
+import { CheckCircle2, XCircle } from "lucide-react";
+import type { ReactNode } from "react";
 import type { OptionDelivery, QuestionType, AnswerResult, LanguageMode } from "@/lib/api/types";
+
+// #34 / NFR-UX-04: highlight the whole option row when its inner control is
+// keyboard-focused, not just the 20px radio/checkbox dot.
+const FOCUS_RING =
+  "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring " +
+  "has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background";
 
 export function OptionList({
   questionType,
@@ -40,13 +48,27 @@ export function OptionList({
     return "border-border";
   }
 
+  // #34 / NFR-UX-05: a non-color cue (icon) for per-option correctness in
+  // result mode, so the green/red border isn't the only signal. Decorative
+  // (aria-hidden) - the overall result text/icons live in the runner's panel.
+  function resultIcon(orderIndex: number): ReactNode {
+    if (!result) return null;
+    if (correct.has(orderIndex)) {
+      return <CheckCircle2 className="ml-auto h-5 w-5 shrink-0 text-success" aria-hidden="true" />;
+    }
+    if (selected.includes(orderIndex)) {
+      return <XCircle className="ml-auto h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />;
+    }
+    return null;
+  }
+
   if (isMulti) {
     return (
       <div className="space-y-2">
         {options.map((o) => (
           <label
             key={o.order_index}
-            className={cn("flex cursor-pointer items-start gap-3 rounded-md border p-3", rowClass(o.order_index))}
+            className={cn("flex cursor-pointer items-start gap-3 rounded-md border p-3", FOCUS_RING, rowClass(o.order_index))}
           >
             <Checkbox
               checked={selected.includes(o.order_index)}
@@ -54,6 +76,7 @@ export function OptionList({
               onCheckedChange={() => onToggle(o.order_index)}
             />
             <BilingualText mode={mode} en={o.content.en} zh={o.content.zh} className="text-sm" />
+            {resultIcon(o.order_index)}
           </label>
         ))}
       </div>
@@ -70,10 +93,11 @@ export function OptionList({
       {options.map((o) => (
         <label
           key={o.order_index}
-          className={cn("flex cursor-pointer items-start gap-3 rounded-md border p-3", rowClass(o.order_index))}
+          className={cn("flex cursor-pointer items-start gap-3 rounded-md border p-3", FOCUS_RING, rowClass(o.order_index))}
         >
           <RadioGroupItem value={String(o.order_index)} />
           <BilingualText mode={mode} en={o.content.en} zh={o.content.zh} className="text-sm" />
+          {resultIcon(o.order_index)}
         </label>
       ))}
     </RadioGroup>

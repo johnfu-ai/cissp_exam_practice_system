@@ -19,6 +19,7 @@ import {
   type RunnerState,
 } from "./runner-machine";
 import { OptionList } from "./option-list";
+import { useSubmitShortcut } from "@/features/shared/use-submit-shortcut";
 import { untrackSession } from "./session-tracker";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
@@ -139,6 +140,21 @@ export function Runner({ sessionId }: { sessionId: string }) {
       }
     );
   }
+
+  // #34 / NFR-UX-04: Enter submits the current answer; once submitted, Enter
+  // advances to the next question (or finishes). Placed before the early-return
+  // guards so the hook order is stable across renders.
+  useSubmitShortcut({
+    onSubmit: submit,
+    onNext: next,
+    canSubmit:
+      !!delivery &&
+      runner.phase !== "submitted" &&
+      canSubmit(runner) &&
+      !paused &&
+      !submitAnswer.isPending,
+    canNext: runner.phase === "submitted" && !finish.isPending,
+  });
 
   if (session.isError) {
     const stale = session.error instanceof ApiError && session.error.status === 409;

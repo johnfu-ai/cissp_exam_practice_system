@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@/lib/i18n/provider";
@@ -145,5 +145,35 @@ describe("CatExamRunner language-mode toggle", () => {
     // No answer was submitted either (forward-only invariant untouched).
     expect(submitMutate).not.toHaveBeenCalled();
     expect(finishMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe("CatExamRunner keyboard submission (#34 NFR-UX-04)", () => {
+  it("Enter submits the current selection; does nothing with no selection", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider initialLocale="en">
+          <CatExamRunner sessionId="s1" session={session} />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+
+    // No selection yet -> Enter must not submit (forward-only: an empty submit
+    // would burn an item).
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    expect(submitMutate).not.toHaveBeenCalled();
+
+    // Select option 0, then Enter submits + advances.
+    await user.click(screen.getAllByRole("radio")[0]);
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    expect(submitMutate).toHaveBeenCalledTimes(1);
+    expect(submitMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ position: 0, selected: [0] }),
+      expect.anything(),
+    );
   });
 });

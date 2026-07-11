@@ -18,9 +18,13 @@
     --muted-foreground: 240 4% 46%;
     --accent: 240 20% 96%;
     --accent-foreground: 231 33% 10%;
-    --success: 142 71% 53%;
+    /* #34 / NFR-UX-06: darkened from Apple's #34C759 (2.22:1 on white) to #15803D
+       (5.02:1) so text-success and white-on-bg-success both pass WCAG AA. */
+    --success: 142 72% 29%;
     --success-foreground: 0 0% 100%;
-    --destructive: 0 100% 60%;
+    /* #34 / NFR-UX-06: darkened from #FF3B30 (3.55:1 on white, fails AA normal text)
+       to #DC2626 (4.83:1). */
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
     --border: 240 9% 90%;
     --input: 240 9% 90%;

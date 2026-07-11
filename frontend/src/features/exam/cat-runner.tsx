@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useExamNext, useSubmitExamAnswer, useFinishExam } from "@/lib/api/exam";
 import { qk } from "@/lib/api/keys";
 import { OptionList } from "@/features/practice/option-list";
+import { useSubmitShortcut } from "@/features/shared/use-submit-shortcut";
 import { untrackExam } from "./exam-tracker";
 import { fmtCountdown, isTimeCritical } from "./format";
 import { ApiError } from "@/lib/api";
@@ -146,6 +147,14 @@ export function CatExamRunner({
       }
     );
   }
+
+  // #34 / NFR-UX-04: Enter submits + advances (forward-only). No onNext - the
+  // only way forward is a real submit. The language-mode toggle is a <Select>
+  // (click-driven, no Enter), so this never advances via a language change.
+  useSubmitShortcut({
+    onSubmit: submitAndAdvance,
+    canSubmit: !!delivery && selected.length > 0 && !submit.isPending,
+  });
 
   if (next.isError) {
     const stale = next.error instanceof ApiError && next.error.status === 409;
