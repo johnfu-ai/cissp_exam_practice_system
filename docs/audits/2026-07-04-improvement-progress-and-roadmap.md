@@ -65,10 +65,10 @@ All four Tier 1 security items are done on branch `fix/p1-tier1-security` (#11 `
 
 | # | Proposal | Why it matters |
 |---|----------|----------------|
-| 30 | Handle errors in auth forms | Login `try/finally` with no `catch` (network errors = unhandled rejection); register sets raw backend JSON as error message, no busy state. |
-| 31 | Invalidate React Query caches on mutations | Create/update/delete/review don't invalidate the list cache (stale views); `useUpdateQuestionState` doesn't invalidate analytics/review. |
+| 30 | Handle errors in auth forms | ✅ DONE (`fix/p1-frontend-polish`) - login `try/catch` (network errors -> friendly `auth.networkError`, no more unhandled rejection); register gains busy state + `try/catch` + friendly non-409 error (`auth.registerFailed`) instead of the raw backend JSON body. New locale keys `auth.networkError`/`auth.registerFailed` (en+zh). |
+| 31 | Invalidate React Query caches on mutations | ✅ DONE (`fix/p1-frontend-polish`) - `useCreateQuestion`/`useUpdateQuestion`/`useDeleteQuestion`/`useReviewQuestion` invalidate the `questions.list` cache (delete also removes the detail); `useUpdateQuestionState` invalidates `analytics` + `practice.session` roots. New `questions.test.tsx` asserts invalidation. |
 | 32 | Generate API types from OpenAPI | 710 lines of hand-written types will silently drift. Use `openapi-typescript` against `/openapi.json` + a CI drift check. |
-| 33 | Fix i18n bypass + parity test | Two `labelize` functions Title-Case raw enum values, bypassing `t()` (zh users see English). Parity test is one-directional. |
+| 33 | Fix i18n bypass + parity test | ✅ DONE (`fix/p1-frontend-polish`) - the two `labelize` Title-Case helpers removed from `runner.tsx` + `create-session-form.tsx`; all enum labels now route through `enumLabel(t, scope, ...)` (qType/errorType + new `subset`/`orderMode` scopes, en+zh). i18n parity test strengthened: bidirectional key parity + non-empty zh leaves + zh is not a wholesale copy of en. |
 | 36 (rem) | Practice timer display / option shuffling / same-KP recommendation / notes CRUD | FR-ANS-07/08, FR-PRAC-09. Backend tracks `elapsed_ms` but runner never shows it. |
 
 ### PRD scope decision (confirm intent)

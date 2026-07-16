@@ -76,6 +76,8 @@ export const zh: typeof en = {
     tooManyAttempts: "尝试次数过多，请稍后再试。",
     invalidCredentials: "凭据无效。",
     emailExists: "该邮箱已注册。",
+    networkError: "无法连接到服务器，请检查网络后重试。",
+    registerFailed: "注册失败，请重试。",
     forgotPassword: "忘记密码？",
     forgotPasswordTitle: "重置密码",
     forgotPasswordDesc:
@@ -414,6 +416,18 @@ export const zh: typeof en = {
     ordering: "排序题",
     drag_drop: "拖拽题",
     hotspot: "热点题",
+  },
+  subset: {
+    all: "全部",
+    unpracticed: "未练习",
+    wrong: "错题",
+    bookmarked: "已收藏",
+    needs_review: "待复习",
+  },
+  orderMode: {
+    random: "随机",
+    sequential: "顺序",
+    easy_to_hard: "由易到难",
   },
   auditAction: {
     login: "登录",

@@ -19,24 +19,34 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const resp = await fetch(`${BACKEND}/api/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, display_name: displayName || null }),
-      credentials: "include",
-    });
-    if (!resp.ok) {
-      const body = await resp.text();
-      setError(resp.status === 409 ? t("auth.emailExists") : body);
-      return;
+    setBusy(true);
+    try {
+      const resp = await fetch(`${BACKEND}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, display_name: displayName || null }),
+        credentials: "include",
+      });
+      if (!resp.ok) {
+        // #30: don't surface the raw backend body (leaks impl detail / ugly JSON);
+        // show a friendly message, with a specific one for the duplicate-email case.
+        setError(resp.status === 409 ? t("auth.emailExists") : t("auth.registerFailed"));
+        return;
+      }
+      const data = await resp.json();
+      setAuth(data.user, data.access_token);
+      router.push("/");
+    } catch {
+      // #30: network failure / server unreachable -> fetch rejects.
+      setError(t("auth.networkError"));
+    } finally {
+      setBusy(false);
     }
-    const data = await resp.json();
-    setAuth(data.user, data.access_token);
-    router.push("/");
   }
 
   return (
@@ -88,7 +98,7 @@ export default function RegisterPage() {
             />
           </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" size="pill" className="w-full">
+          <Button type="submit" size="pill" className="w-full" disabled={busy}>
             {t("auth.register")}
           </Button>
         </form>

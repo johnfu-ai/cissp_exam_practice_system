@@ -47,6 +47,10 @@ function LoginForm() {
       setAuth(data.user, data.access_token);
       setHydrated(true);
       router.push(next);
+    } catch {
+      // #30: network failure / server unreachable -> fetch rejects; show a
+      // friendly message instead of an unhandled rejection with no feedback.
+      setError(t("auth.networkError"));
     } finally {
       setBusy(false);
     }
