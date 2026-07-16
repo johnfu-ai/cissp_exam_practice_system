@@ -7,6 +7,7 @@ import { useCreateSession } from "@/lib/api/practice";
 import { useAuthStore } from "@/lib/auth-store";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
+import { enumLabel } from "@/features/shared/enum-label";
 import {
   buildSessionPayload,
   defaultSessionFormState,
@@ -41,10 +42,6 @@ const TYPES: QuestionType[] = [
   "hotspot",
 ];
 const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
-
-function labelize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 export function CreateSessionForm() {
   const t = useT();
@@ -135,7 +132,7 @@ export function CreateSessionForm() {
                   <SelectContent>
                     {SUBSETS.map((s) => (
                       <SelectItem key={s} value={s}>
-                        {labelize(s)}
+                        {enumLabel(t, "subset", s)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -217,7 +214,7 @@ export function CreateSessionForm() {
                     <SelectItem value={ANY}>{t("practiceForm.anyType")}</SelectItem>
                     {TYPES.map((qt) => (
                       <SelectItem key={qt} value={qt}>
-                        {labelize(qt)}
+                        {enumLabel(t, "qType", qt)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -275,7 +272,7 @@ export function CreateSessionForm() {
                   <SelectContent>
                     {ORDERS.map((o) => (
                       <SelectItem key={o} value={o}>
-                        {labelize(o)}
+                        {enumLabel(t, "orderMode", o)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -314,8 +311,8 @@ export function CreateSessionForm() {
           <dl className="space-y-3 text-sm">
             <SummaryRow label={t("practiceForm.summaryQuestions")} value={String(form.count)} />
             <SummaryRow label={t("practiceForm.summaryDomain")} value={domainLabel} />
-            <SummaryRow label={t("practiceForm.summarySource")} value={labelize(form.subset)} />
-            <SummaryRow label={t("practiceForm.summaryOrder")} value={labelize(form.orderMode)} />
+            <SummaryRow label={t("practiceForm.summarySource")} value={enumLabel(t, "subset", form.subset)} />
+            <SummaryRow label={t("practiceForm.summaryOrder")} value={enumLabel(t, "orderMode", form.orderMode)} />
             <SummaryRow label={t("practiceForm.summaryLanguage")} value={langLabel(activeLanguage)} />
           </dl>
           <Button

@@ -92,11 +92,19 @@ export function useFinishSession(sessionId: string) {
 }
 
 export function useUpdateQuestionState() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ questionId, body }: { questionId: string; body: QuestionStateInput }) =>
       apiJson<QuestionState>(`/api/practice/questions/${questionId}/state`, {
         method: "PUT",
         body: JSON.stringify(body),
       }),
+    onSuccess: () => {
+      // #31: bookmark/flag/error-type/mastered changes affect analytics
+      // (weak areas, error-type distribution, recommendation) + the review
+      // launcher counts. Invalidate the analytics + session-summary roots.
+      qc.invalidateQueries({ queryKey: ["analytics"] });
+      qc.invalidateQueries({ queryKey: ["practice", "session"] });
+    },
   });
 }

@@ -23,6 +23,7 @@ import { useSubmitShortcut } from "@/features/shared/use-submit-shortcut";
 import { untrackSession } from "./session-tracker";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
+import { enumLabel } from "@/features/shared/enum-label";
 import { cn } from "@/lib/utils";
 import { BilingualText } from "@/components/bilingual-text";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,10 +64,6 @@ const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
 /** True when a Localized slot carries any translatable content. */
 function hasContent(loc: Localized | null | undefined): boolean {
   return !!loc && (loc.en != null || loc.zh != null);
-}
-
-function labelize(s: string): string {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function Runner({ sessionId }: { sessionId: string }) {
@@ -236,7 +233,7 @@ export function Runner({ sessionId }: { sessionId: string }) {
       <Card className="mt-6">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Badge variant="secondary">{labelize(delivery.question_type)}</Badge>
+            <Badge variant="secondary">{enumLabel(t, "qType", delivery.question_type)}</Badge>
           </div>
           <CardTitle className="mt-2 text-lg font-medium leading-relaxed">
             <BilingualText mode={mode} en={delivery.stem.en} zh={delivery.stem.zh} />
@@ -370,7 +367,7 @@ export function Runner({ sessionId }: { sessionId: string }) {
                   <SelectContent>
                     {ERROR_TYPES.map((et) => (
                       <SelectItem key={et} value={et}>
-                        {labelize(et)}
+                        {enumLabel(t, "errorType", et)}
                       </SelectItem>
                     ))}
                   </SelectContent>

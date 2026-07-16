@@ -74,6 +74,8 @@ export const en = {
     tooManyAttempts: "Too many attempts. Try later.",
     invalidCredentials: "Invalid credentials.",
     emailExists: "Email already registered.",
+    networkError: "Could not reach the server. Check your connection and try again.",
+    registerFailed: "Registration failed. Please try again.",
     forgotPassword: "Forgot password?",
     forgotPasswordTitle: "Reset password",
     forgotPasswordDesc:
@@ -420,6 +422,18 @@ export const en = {
     ordering: "Ordering",
     drag_drop: "Drag Drop",
     hotspot: "Hotspot",
+  },
+  subset: {
+    all: "All",
+    unpracticed: "Unpracticed",
+    wrong: "Wrong",
+    bookmarked: "Bookmarked",
+    needs_review: "Needs review",
+  },
+  orderMode: {
+    random: "Random",
+    sequential: "Sequential",
+    easy_to_hard: "Easy to hard",
   },
   auditAction: {
     login: "Login",

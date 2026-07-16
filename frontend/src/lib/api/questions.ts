@@ -40,9 +40,11 @@ export function useQuestionDetail(id: string | null) {
 }
 
 export function useCreateQuestion() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: QuestionCreateInput) =>
       apiJson<QuestionDetail>("/api/questions", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["questions", "list"] }),  // #31
   });
 }
 
@@ -51,14 +53,22 @@ export function useUpdateQuestion(id: string) {
   return useMutation({
     mutationFn: (body: QuestionUpdateInput) =>
       apiJson<QuestionDetail>(`/api/questions/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-    onSuccess: (q) => qc.setQueryData(qk.questions.detail(id), q),
+    onSuccess: (q) => {
+      qc.setQueryData(qk.questions.detail(id), q);
+      qc.invalidateQueries({ queryKey: ["questions", "list"] });  // #31: status/difficulty shown in list
+    },
   });
 }
 
 export function useDeleteQuestion() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       apiJson<{ deleted: string }>(`/api/questions/${id}`, { method: "DELETE" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["questions", "list"] });  // #31
+      qc.removeQueries({ queryKey: qk.questions.detail(id) });
+    },
   });
 }
 
@@ -70,7 +80,10 @@ export function useReviewQuestion(id: string) {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: (q) => qc.setQueryData(qk.questions.detail(id), q),
+    onSuccess: (q) => {
+      qc.setQueryData(qk.questions.detail(id), q);
+      qc.invalidateQueries({ queryKey: ["questions", "list"] });  // #31: status changes
+    },
   });
 }
 
