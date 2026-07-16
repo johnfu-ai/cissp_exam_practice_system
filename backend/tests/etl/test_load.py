@@ -358,6 +358,93 @@ def test_load_update_detects_zh_option_content_change(db_session):
     assert zh_t.options[0]["content"] == "甲甲"
 
 
+# --- #16 / #18: difficulty + per-option explanation + license from source ---
+
+def _cleaned_with_explanations(external_id="c1"):
+    return CleanedQuestion(
+        external_id=external_id,
+        question_type=QuestionType.single_choice,
+        stem_en="Stem", stem_zh="题干",
+        options=[CleanedOption(key="A", text_en="A", text_zh="甲", is_correct=True,
+                               explanation_en="A wrong", explanation_zh="A 错"),
+                 CleanedOption(key="B", text_en="B", text_zh="乙", is_correct=False,
+                               explanation_en="B right", explanation_zh="B 对")],
+        explanation_en="Exp", explanation_zh="解析",
+        prompt_items=None, source_chapter=1, source_chapter_title="Chapter One",
+        difficulty=3, issues=[], needs_revision=False,
+        available_languages=["en", "zh"],
+    )
+
+
+def test_load_writes_per_option_explanations(db_session):
+    """#18: per-option explanations flow into the translation option JSON."""
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [_cleaned_with_explanations()])
+    q = db_session.execute(select(Question).filter_by(deleted_at=None)).scalar_one()
+    en_t = db_session.execute(select(QuestionTranslation).filter_by(
+        language="en", question_id=q.id)).scalar_one()
+    zh_t = db_session.execute(select(QuestionTranslation).filter_by(
+        language="zh", question_id=q.id)).scalar_one()
+    assert en_t.options[0]["explanation"] == "A wrong"
+    assert en_t.options[1]["explanation"] == "B right"
+    assert zh_t.options[0]["explanation"] == "A 错"
+    assert zh_t.options[1]["explanation"] == "B 对"
+
+
+def test_load_empty_option_explanation_stored_as_none(db_session):
+    """Absence is stored as None (not '') so delivery stays backward-compatible."""
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual()])
+    q = db_session.execute(select(Question).filter_by(deleted_at=None)).scalar_one()
+    en_t = db_session.execute(select(QuestionTranslation).filter_by(
+        language="en", question_id=q.id)).scalar_one()
+    assert en_t.options[0]["explanation"] is None
+
+
+def test_load_update_detects_per_option_explanation_change(db_session):
+    """#18: an added/edited per-option explanation alone triggers an update."""
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual()])  # no explanations
+    result = apply_load(db_session, org_id, "osg10", None, [_cleaned_with_explanations()])
+    assert result.updated == 1
+    assert result.unchanged == 0
+    q = db_session.execute(select(Question).filter_by(deleted_at=None)).scalar_one()
+    en_t = db_session.execute(select(QuestionTranslation).filter_by(
+        language="en", question_id=q.id)).scalar_one()
+    assert en_t.options[0]["explanation"] == "A wrong"
+
+
+def test_load_update_detects_difficulty_change(db_session):
+    """#16: a difficulty change alone triggers an update (previously _differs
+    ignored difficulty, so enrichment never landed)."""
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual()])  # difficulty 3
+    edited = _cleaned_bilingual()
+    edited.difficulty = 5
+    result = apply_load(db_session, org_id, "osg10", None, [edited])
+    assert result.updated == 1
+    assert result.unchanged == 0
+    q = db_session.execute(select(Question).filter_by(deleted_at=None)).scalar_one()
+    assert q.difficulty == 5
+
+
+def test_load_honors_source_license_status(db_session):
+    """#18: a source-provided license_status is honored; default is unconfirmed."""
+    org_id = _seed_org_and_domain(db_session)
+    cleaned = _cleaned_bilingual()
+    cleaned.license_status = "third_party_licensed"
+    apply_load(db_session, org_id, "osg10", None, [cleaned])
+    q = db_session.execute(select(Question).filter_by(deleted_at=None)).scalar_one()
+    assert q.license_status.value == "third_party_licensed"
+
+
+def test_load_default_license_status_unconfirmed(db_session):
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [_cleaned_bilingual()])
+    q = db_session.execute(select(Question).filter_by(deleted_at=None)).scalar_one()
+    assert q.license_status.value == "unconfirmed"
+
+
 def test_load_idempotent_on_partial_zh_with_fallback(db_session):
     """A partial-zh record (zh stem present but zh options/rationale blank, so
     _write_translations falls back to en for those fields) must re-import as

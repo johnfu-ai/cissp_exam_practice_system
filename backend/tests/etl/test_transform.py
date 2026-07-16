@@ -8,7 +8,8 @@ from app.models.enums import QuestionType
 def _raw(*, stem_en="Stem", stem_zh="题干", opt_en=("A", "B"), opt_zh=("甲", "乙"),
          correct_keys=("A",), type_="single_choice", explanation_en="Exp",
          explanation_zh="解析", prompt_items=None, issues=None, zh_issues=None,
-         qid="t1", chapter=1, chapter_title="Title"):
+         qid="t1", chapter=1, chapter_title="Title", difficulty=None,
+         option_explanations=None, license_status=None):
     options = [
         RawOption(key="A", text=Bilingual(en=opt_en[0], zh=opt_zh[0])),
         RawOption(key="B", text=Bilingual(en=opt_en[1], zh=opt_zh[1])),
@@ -24,6 +25,9 @@ def _raw(*, stem_en="Stem", stem_zh="题干", opt_en=("A", "B"), opt_zh=("甲", 
         meta={"choose_all": False, "matching": type_ == "matching",
               "issues": issues or [], "zh_source": "v9", "zh_issues": zh_issues or []},
         prompt_items=prompt_items,
+        difficulty=difficulty,
+        option_explanations=option_explanations,
+        license_status=license_status,
     )
 
 
@@ -121,6 +125,75 @@ def test_transform_explanation_carried_bilingual():
     c = transform(raw, set())
     assert c.explanation_en == "why"
     assert c.explanation_zh == "原因"
+
+
+# --- #16: difficulty resolution (source wins, else coarse type-based prior) ---
+
+def test_transform_difficulty_source_int_wins():
+    raw = _raw(type_="single_choice", difficulty=5)
+    assert transform(raw, set()).difficulty == 5
+
+
+def test_transform_difficulty_default_single_choice_is_medium():
+    # single_choice has no source difficulty -> medium (3)
+    assert transform(_raw(type_="single_choice"), set()).difficulty == 3
+
+
+def test_transform_difficulty_default_multiple_choice_is_harder():
+    # multi-select is a coarser (harder) prior than single-select
+    assert transform(_raw(type_="multiple_choice", correct_keys=("A", "B")), set()).difficulty == 4
+
+
+def test_transform_difficulty_default_true_false_is_easier():
+    assert transform(_raw(type_="true_false"), set()).difficulty == 2
+
+
+def test_transform_difficulty_source_overrides_type_prior():
+    raw = _raw(type_="multiple_choice", correct_keys=("A", "B"), difficulty=1)
+    assert transform(raw, set()).difficulty == 1
+
+
+def test_transform_difficulty_matching_normalized_uses_single_prior():
+    raw = _raw(type_="matching", correct_keys=("B",),
+               prompt_items=[RawPromptItem(key="1", text=Bilingual(en="x", zh="x"))])
+    assert transform(raw, set()).difficulty == 3
+
+
+# --- #18: per-option explanations + license carried from source ---
+
+def test_transform_carries_per_option_explanations():
+    raw = _raw(option_explanations={
+        "A": Bilingual(en="A wrong", zh="A 错"),
+        "B": Bilingual(en="B right", zh="B 对"),
+    })
+    c = transform(raw, set())
+    assert c.options[0].explanation_en == "A wrong"
+    assert c.options[0].explanation_zh == "A 错"
+    assert c.options[1].explanation_en == "B right"
+    assert c.options[1].explanation_zh == "B 对"
+
+
+def test_transform_per_option_explanations_default_empty_when_absent():
+    c = transform(_raw(), set())
+    assert c.options[0].explanation_en == ""
+    assert c.options[0].explanation_zh == ""
+
+
+def test_transform_per_option_explanation_partial_key():
+    # only some options carry an explanation
+    raw = _raw(option_explanations={"B": Bilingual(en="B right", zh="B 对")})
+    c = transform(raw, set())
+    assert c.options[0].explanation_en == ""  # A missing
+    assert c.options[1].explanation_en == "B right"
+
+
+def test_transform_carries_license_status():
+    raw = _raw(license_status="third_party_licensed")
+    assert transform(raw, set()).license_status == "third_party_licensed"
+
+
+def test_transform_license_status_default_none():
+    assert transform(_raw(), set()).license_status is None
 
 
 def test_transform_no_pending_ids_default():
