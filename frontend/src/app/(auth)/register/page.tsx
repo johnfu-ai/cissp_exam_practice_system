@@ -27,6 +27,7 @@ export default function RegisterPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, display_name: displayName || null }),
+      credentials: "include",
     });
     if (!resp.ok) {
       const body = await resp.text();
@@ -34,7 +35,7 @@ export default function RegisterPage() {
       return;
     }
     const data = await resp.json();
-    setAuth(data.user, data.access_token, data.refresh_token);
+    setAuth(data.user, data.access_token);
     router.push("/");
   }
 

@@ -61,7 +61,6 @@ beforeEach(() => {
   useAuthStore.setState({
     user: null,
     accessToken: null,
-    refreshToken: null,
     hydrated: false,
   });
 });
@@ -71,7 +70,6 @@ describe("ExamStartForm", () => {
     useAuthStore.setState({
       user: userWith("en"),
       accessToken: "t",
-      refreshToken: "r",
       hydrated: true,
     });
     renderWithProviders(<ExamStartForm />);
@@ -91,7 +89,6 @@ describe("ExamStartForm", () => {
     useAuthStore.setState({
       user: userWith("zh"),
       accessToken: "t",
-      refreshToken: "r",
       hydrated: true,
     });
     renderWithProviders(<ExamStartForm />);

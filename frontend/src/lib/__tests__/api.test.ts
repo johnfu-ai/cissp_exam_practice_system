@@ -5,11 +5,11 @@ import { useAuthStore } from "@/lib/auth-store";
 const user = { id: "u1", email: "a@b.c", display_name: null, roles: [], perms: [], language_mode: "en" as const, interface_language: "en" as const };
 
 beforeEach(() => {
-  useAuthStore.setState({ user, accessToken: "stale", refreshToken: "r1" });
+  useAuthStore.setState({ user, accessToken: "stale" });
 });
 afterEach(() => {
   vi.restoreAllMocks();
-  useAuthStore.setState({ user: null, accessToken: null, refreshToken: null });
+  useAuthStore.setState({ user: null, accessToken: null });
 });
 
 describe("apiJson silent refresh", () => {
@@ -36,6 +36,8 @@ describe("apiJson silent refresh", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     // second call is the refresh
     expect(String(fetchMock.mock.calls[1][0])).toContain("/api/auth/refresh");
+    // #9: refresh is cookie-based - no refresh_token in the request body
+    expect((fetchMock.mock.calls[1][1] as RequestInit).body).toBe("{}");
     // third (retry) carries the fresh token
     const retryHeaders = new Headers((fetchMock.mock.calls[2][1] as RequestInit).headers);
     expect(retryHeaders.get("Authorization")).toBe("Bearer fresh");

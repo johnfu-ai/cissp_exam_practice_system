@@ -46,7 +46,10 @@ def test_register_and_me(client):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["user"]["email"] == "api@example.com"
-    assert body["access_token"] and body["refresh_token"]
+    assert body["access_token"]
+    # #9: refresh token is in an httpOnly cookie, NOT the response body
+    assert body["refresh_token"] is None
+    assert "refresh_token" in resp.cookies
     me = c.get("/api/auth/me", headers={"Authorization": f"Bearer {body['access_token']}"})
     assert me.status_code == 200
     assert me.json()["email"] == "api@example.com"
@@ -74,17 +77,61 @@ def test_login_wrong_password_then_lockout(client):
 
 def test_refresh_and_logout(client):
     c, store, _, _ = client
-    reg = c.post("/api/auth/register", json={"email": "r@example.com", "password": "pw123456"}).json()
-    rt = reg["refresh_token"]
+    reg = c.post("/api/auth/register", json={"email": "r@example.com", "password": "pw123456"})
+    # #9: refresh token comes from the httpOnly cookie (TestClient jar), not the body
+    rt = c.cookies.get("refresh_token")
+    assert rt
+    # refresh via cookie alone (empty body) - cookie is sent automatically
+    resp = c.post("/api/auth/refresh", json={})
+    assert resp.status_code == 200
+    new_rt = c.cookies.get("refresh_token")
+    assert new_rt != rt
+    # old refresh rotated away: clear cookies so ONLY the old token is presented
+    c.cookies.clear()
+    assert c.post("/api/auth/refresh", json={"refresh_token": rt}).status_code == 401
+    # restore the rotated cookie for logout
+    c.cookies.set("refresh_token", new_rt, domain="testserver")
+    out = c.post("/api/auth/logout", json={})
+    assert out.status_code == 200
+    # logout cleared the cookie + invalidated the refresh token
+    assert "refresh_token" not in out.cookies
+    c.cookies.clear()
+    assert c.post("/api/auth/refresh", json={"refresh_token": new_rt}).status_code == 401
+
+
+def test_refresh_cookie_is_httponly_and_scoped(client):
+    """#9: the refresh cookie is httpOnly (JS can't read it) + scoped to /api/auth."""
+    c, store, _, _ = client
+    resp = c.post("/api/auth/register", json={"email": "h@example.com", "password": "pw123456"})
+    set_cookie = resp.headers.get("set-cookie", "")
+    assert "refresh_token=" in set_cookie
+    assert "httponly" in set_cookie.lower()
+    assert "path=/api/auth" in set_cookie.lower()
+    assert "samesite=lax" in set_cookie.lower()
+
+
+def test_refresh_body_fallback_when_no_cookie(client):
+    """#9: a non-browser client without the cookie can still refresh via body."""
+    c, store, _, _ = client
+    c.post("/api/auth/register", json={"email": "b@example.com", "password": "pw123456"})
+    rt = c.cookies.get("refresh_token")
+    c.cookies.clear()  # simulate a client that never stored the cookie
     resp = c.post("/api/auth/refresh", json={"refresh_token": rt})
     assert resp.status_code == 200
-    new_rt = resp.json()["refresh_token"]
-    assert new_rt != rt
-    # old refresh rotated away
-    assert c.post("/api/auth/refresh", json={"refresh_token": rt}).status_code == 401
-    out = c.post("/api/auth/logout", json={"refresh_token": new_rt})
-    assert out.status_code == 200
-    assert c.post("/api/auth/refresh", json={"refresh_token": new_rt}).status_code == 401
+    assert resp.json()["refresh_token"] is None  # body never carries it
+
+
+def test_refresh_without_cookie_or_body_is_401(client):
+    c, store, _, _ = client
+    c.post("/api/auth/register", json={"email": "n@example.com", "password": "pw123456"})
+    c.cookies.clear()
+    assert c.post("/api/auth/refresh", json={}).status_code == 401
+
+
+def test_logout_without_cookie_or_body_is_200(client):
+    """#9: logout is idempotent - no cookie + no body just clears (no-op)."""
+    c, store, _, _ = client
+    assert c.post("/api/auth/logout", json={}).status_code == 200
 
 
 def test_me_without_token_401(client):
@@ -202,12 +249,12 @@ def test_revoked_access_token_rejected_after_logout(client):
     c, _, _, _ = client
     reg = c.post("/api/auth/register",
                  json={"email": "rev@example.com", "password": "pw123456"}).json()
-    token, refresh = reg["access_token"], reg["refresh_token"]
+    token = reg["access_token"]
     h = {"Authorization": f"Bearer {token}"}
     # before logout, the token works
     assert c.get("/api/auth/me", headers=h).status_code == 200
-    # logout WITH the access token -> revokes its jti
-    out = c.post("/api/auth/logout", json={"refresh_token": refresh, "access_token": token})
+    # logout WITH the access token -> revokes its jti (refresh token via cookie)
+    out = c.post("/api/auth/logout", json={"access_token": token})
     assert out.status_code == 200
     # the same access token is now rejected (revoked, not expired)
     assert c.get("/api/auth/me", headers=h).status_code == 401

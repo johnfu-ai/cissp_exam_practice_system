@@ -35,6 +35,7 @@ function LoginForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(creds),
+        credentials: "include",
       });
       if (!resp.ok) {
         setError(
@@ -43,7 +44,7 @@ function LoginForm() {
         return;
       }
       const data = await resp.json();
-      setAuth(data.user, data.access_token, data.refresh_token);
+      setAuth(data.user, data.access_token);
       setHydrated(true);
       router.push(next);
     } finally {

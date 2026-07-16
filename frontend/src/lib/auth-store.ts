@@ -15,10 +15,12 @@ export interface AuthUser {
 
 interface AuthState {
   user: AuthUser | null;
+  // #9: only the short-lived (60-min) access token is held in JS. The long-lived
+  // refresh token lives in an httpOnly cookie set by the backend, so it is never
+  // readable by JS (not in state, not in sessionStorage).
   accessToken: string | null;
-  refreshToken: string | null;
   hydrated: boolean;
-  setAuth: (user: AuthUser, access: string, refresh: string) => void;
+  setAuth: (user: AuthUser, access: string) => void;
   setUser: (user: AuthUser) => void;
   setHydrated: (v: boolean) => void;
   clear: () => void;
@@ -28,23 +30,19 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   accessToken: null,
-  refreshToken: null,
   hydrated: false,
-  setAuth: (user, access, refresh) => {
+  setAuth: (user, access) => {
     sessionStorage.setItem("access", access);
-    sessionStorage.setItem("refresh", refresh);
-    set({ user, accessToken: access, refreshToken: refresh });
+    set({ user, accessToken: access });
   },
   setUser: (user) => set({ user }),
   setHydrated: (v) => set({ hydrated: v }),
   clear: () => {
     sessionStorage.removeItem("access");
-    sessionStorage.removeItem("refresh");
-    set({ user: null, accessToken: null, refreshToken: null });
+    set({ user: null, accessToken: null });
   },
   hydrate: () => {
     const access = sessionStorage.getItem("access");
-    const refresh = sessionStorage.getItem("refresh");
-    if (access && refresh) set({ accessToken: access, refreshToken: refresh });
+    if (access) set({ accessToken: access });
   },
 }));
