@@ -247,11 +247,16 @@ def refresh_tokens(session: Session, refresh_store: RefreshTokenStore,
 
 
 def logout(refresh_store: RefreshTokenStore, revoked_store: RevokedTokenStore,
-           refresh_token: str, access_token: str | None) -> None:
+           refresh_token: str | None, access_token: str | None) -> None:
     """Invalidate the refresh token AND the access token (#8). The access token's
     jti is added to the revocation list with a TTL equal to its remaining lifetime,
-    so it's rejected on the next request but the list self-prunes at natural expiry."""
-    refresh_store.delete(refresh_token)
+    so it's rejected on the next request but the list self-prunes at natural expiry.
+
+    #9: ``refresh_token`` may be None when the caller has no cookie AND no body
+    token (e.g. a redundant logout) - only the refresh-store delete is skipped.
+    """
+    if refresh_token:
+        refresh_store.delete(refresh_token)
     if not access_token:
         return
     try:

@@ -15,11 +15,14 @@ class LoginIn(BaseModel):
 
 
 class RefreshIn(BaseModel):
-    refresh_token: str
+    # #9: refresh token now lives in an httpOnly cookie; the body field is a
+    # backward-compat fallback for non-browser clients. The route resolves
+    # cookie-first, then body.
+    refresh_token: str | None = None
 
 
 class LogoutIn(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
     # #8: the access token to revoke on logout. Optional for backward compat with
     # clients that only send the refresh token (those logouts won't kill the
     # access token early, but it still expires naturally).
@@ -62,6 +65,10 @@ class PreferencesOut(BaseModel):
 
 class TokenOut(BaseModel):
     access_token: str
-    refresh_token: str
+    # #9: the refresh token is delivered via an httpOnly cookie, NOT the response
+    # body, so an XSS intercepting the login/refresh response can't read it.
+    # Kept (nullable) for backward-compat clients that still read the body; the
+    # auth routes set it to None.
+    refresh_token: str | None = None
     token_type: str = "bearer"
     user: UserOut
