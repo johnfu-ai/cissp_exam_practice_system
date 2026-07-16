@@ -20,6 +20,10 @@ class CleanedOption:
     text_en: str
     text_zh: str
     is_correct: bool
+    # #18: per-option explanations (PRD §10 option_explanations). Default empty
+    # so existing fixtures/records without them are unaffected.
+    explanation_en: str = ""
+    explanation_zh: str = ""
 
 
 @dataclass
@@ -38,12 +42,34 @@ class CleanedQuestion:
     issues: list[str]
     needs_revision: bool
     available_languages: list[str] = field(default_factory=list)
+    # #18: source-provided license status (FR-ETL-09); None -> unconfirmed downstream.
+    license_status: str | None = None
 
 
 def _normalize_type(raw_type: str) -> QuestionType:
     if raw_type == "matching":
         return QuestionType.single_choice
     return QuestionType(raw_type)
+
+
+# Coarse type-based difficulty prior (#16). Used ONLY when the source carries
+# no difficulty - it gives the CAT engine real variation to match against for
+# the seeded osg10 data (which has no difficulty field), without inventing
+# psychometric claims. Multi-select is genuinely harder than single-select;
+# true/false is easier. Source difficulty always overrides this. The CAT
+# DISCLAIMER already states it is a study tool, not official ISC2 scoring.
+_TYPE_DIFFICULTY_PRIOR = {
+    QuestionType.multiple_choice: 4,
+    QuestionType.true_false: 2,
+}
+
+
+def _resolve_difficulty(raw: RawQuestion) -> int:
+    """Source difficulty wins; else a coarse type-based prior; else medium."""
+    if raw.difficulty is not None:
+        return raw.difficulty
+    qt = _normalize_type(raw.type)
+    return _TYPE_DIFFICULTY_PRIOR.get(qt, DIFFICULTY_DEFAULT)
 
 
 def validate(raw: RawQuestion) -> list[str]:
@@ -94,6 +120,9 @@ def transform(raw: RawQuestion, pending_translation_ids: set[str] | None = None)
             for p in raw.prompt_items
         ]
 
+    # #18: attach per-option explanations when the source carries them.
+    opt_expl = raw.option_explanations or {}
+
     return CleanedQuestion(
         external_id=raw.id,
         question_type=_normalize_type(raw.type),
@@ -105,6 +134,8 @@ def transform(raw: RawQuestion, pending_translation_ids: set[str] | None = None)
                 text_en=o.text.en,
                 text_zh=o.text.zh,
                 is_correct=o.key in raw.correct_keys,
+                explanation_en=(opt_expl[o.key].en if o.key in opt_expl else ""),
+                explanation_zh=(opt_expl[o.key].zh if o.key in opt_expl else ""),
             )
             for o in raw.options
         ],
@@ -113,8 +144,9 @@ def transform(raw: RawQuestion, pending_translation_ids: set[str] | None = None)
         prompt_items=prompt_items,
         source_chapter=raw.source.chapter,
         source_chapter_title=raw.source.chapter_title,
-        difficulty=DIFFICULTY_DEFAULT,
+        difficulty=_resolve_difficulty(raw),
         issues=issues,
         needs_revision=needs_revision,
         available_languages=available,
+        license_status=raw.license_status,
     )

@@ -117,32 +117,38 @@ def _existing_key(session, dataset_slug, external_id) -> QuestionExternalKey | N
 
 
 def _translation_payload(cleaned, language):
-    """Return (stem, rationale, [option_contents]) for one language.
+    """Return (stem, rationale, [(option_content, option_explanation), ...]) for
+    one language.
 
     For zh, falls back to the en text when a field is empty so the translation
     row is never blank. A zh translation is only written when `has_zh`
-    (i.e. zh is in cleaned.available_languages).
+    (i.e. zh is in cleaned.available_languages). Per-option explanations (#18)
+    fall back the same way; an empty explanation is normalized to None on write
+    so absence stays backward-compatible with delivery.
     """
     if language == "en":
         stem, rationale = cleaned.stem_en, cleaned.explanation_en
         opts = [(o.text_en if o.text_en else "") for o in cleaned.options]
+        expls = [(o.explanation_en if o.explanation_en else "") for o in cleaned.options]
     else:
         stem = cleaned.stem_zh if cleaned.stem_zh else cleaned.stem_en
         rationale = cleaned.explanation_zh if cleaned.explanation_zh else cleaned.explanation_en
         opts = [(o.text_zh if o.text_zh else o.text_en) for o in cleaned.options]
+        expls = [(o.explanation_zh if o.explanation_zh else o.explanation_en) for o in cleaned.options]
     # NFR-SEC-07: sanitize imported rich text so no <script>/on*/javascript:
     # is ever persisted via the import pipeline.
     stem = sanitize_rich_text(stem, TextFormat.markdown)
     rationale = sanitize_rich_text(rationale, TextFormat.markdown)
     opts = [sanitize_rich_text(o, TextFormat.markdown) for o in opts]
-    return stem, rationale, opts
+    expls = [sanitize_rich_text(e, TextFormat.markdown) if e else "" for e in expls]
+    return stem, rationale, list(zip(opts, expls))
 
 
 def _write_translations(session, q, cleaned):
     """Write one QuestionTranslation per language in cleaned.available_languages."""
     langs = list(cleaned.available_languages)
     for lang in langs:
-        stem, rationale, opts = _translation_payload(cleaned, lang)
+        stem, rationale, opt_pairs = _translation_payload(cleaned, lang)
         session.add(QuestionTranslation(
             question_id=q.id,
             language=lang,
@@ -152,11 +158,12 @@ def _write_translations(session, q, cleaned):
             options=[
                 {
                     "order_index": i,
-                    "content": opts[i],
+                    "content": content,
                     "content_format": "markdown",
-                    "explanation": None,
+                    # empty -> None so delivery's {en,zh} stays None for absent
+                    "explanation": (explanation if explanation else None),
                 }
-                for i in range(len(opts))
+                for i, (content, explanation) in enumerate(opt_pairs)
             ],
         ))
     q.available_languages = sorted(langs)
@@ -214,18 +221,30 @@ def _differs(q: Question, options: list[QuestionOption],
     # question_type change
     if q.question_type != cleaned.question_type:
         return True
-    # Per-language option content / rationale change. The expected values come
-    # from _translation_payload (the same helper _write_translations uses), so a
-    # re-import with no real edit stays "unchanged" while an edited option text
-    # or rationale is detected for either language.
+    # #16: difficulty change (previously ignored, so enrichment never landed)
+    if q.difficulty != cleaned.difficulty:
+        return True
+    # #18: license_status change (source license vs. curated/manual value)
+    if q.license_status != _resolve_license(cleaned):
+        return True
+    # Per-language option content / rationale / per-option explanation change.
+    # The expected values come from _translation_payload (the same helper
+    # _write_translations uses), so a re-import with no real edit stays
+    # "unchanged" while an edited option text, rationale, or per-option
+    # explanation is detected for either language.
     for lang in cleaned.available_languages:
         t = next((tr for tr in translations if tr.language == lang), None)
         if t is None:
             return True
-        _stem, exp_rationale, exp_opts = _translation_payload(cleaned, lang)
+        _stem, exp_rationale, exp_opt_pairs = _translation_payload(cleaned, lang)
         if t.correct_answer_rationale != exp_rationale:
             return True
-        if [o.get("content") for o in (t.options or [])] != exp_opts:
+        exp_contents = [c for c, _ in exp_opt_pairs]
+        if [o.get("content") for o in (t.options or [])] != exp_contents:
+            return True
+        # #18: per-option explanation - normalize stored None <-> expected "".
+        exp_expls = [(e if e else None) for _, e in exp_opt_pairs]
+        if [o.get("explanation") for o in (t.options or [])] != exp_expls:
             return True
     return False
 
@@ -261,11 +280,22 @@ def _find_duplicate(session, org_id, stem_hash):
     ).first()
 
 
+def _resolve_license(cleaned) -> LicenseStatus:
+    """#18 / FR-ETL-09: source license_status wins, else unconfirmed."""
+    if cleaned.license_status:
+        try:
+            return LicenseStatus(cleaned.license_status)
+        except ValueError:
+            pass
+    return LicenseStatus.unconfirmed
+
+
 def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
     """Apply one cleaned record. Returns 'created' | 'updated' | 'unchanged' | 'duplicate'."""
     existing = _existing_key(session, dataset_slug, cleaned.external_id)
     status = QuestionStatus.needs_revision if cleaned.needs_revision else QuestionStatus.draft
     stem_hash, option_fingerprint = _dedup_hashes(cleaned)
+    license_status = _resolve_license(cleaned)
 
     if existing is None:
         # Three-level dedup: a question imported under a NEW external_id but with
@@ -280,7 +310,7 @@ def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
             source=cleaned.external_id,
             stem_hash=stem_hash,
             option_fingerprint=option_fingerprint,
-            license_status=LicenseStatus.unconfirmed,
+            license_status=license_status,
             import_job_id=import_job_id,
             prompt_items=cleaned.prompt_items,
             available_languages=sorted(cleaned.available_languages),
@@ -323,6 +353,7 @@ def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
     q.prompt_items = cleaned.prompt_items
     q.stem_hash = stem_hash
     q.option_fingerprint = option_fingerprint
+    q.license_status = license_status
     q.version = (q.version or 1) + 1
     # replace canonical options
     for o in options:

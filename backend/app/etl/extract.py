@@ -48,6 +48,13 @@ class RawQuestion:
     explanation: Bilingual
     meta: dict
     prompt_items: list[RawPromptItem] | None = None
+    # Enrichment fields (PRD §10 import template / FR-ETL-09). All optional:
+    # absence -> None, defaults applied downstream. ETL hardcoding these (#16/#18)
+    # is what made CAT ability-matching meaningless and dropped per-option
+    # explanations even when the source carried them.
+    difficulty: int | None = None
+    option_explanations: dict[str, Bilingual] | None = None
+    license_status: str | None = None
 
 
 @dataclass
@@ -59,6 +66,78 @@ class ExtractError:
 
 def _bilingual(d: dict) -> Bilingual:
     return Bilingual(en=d.get("en", ""), zh=d.get("zh", ""))
+
+
+# difficulty label -> int (PRD §11.1 range 1-5). Labels are a convenience for
+# the CSV/XLSX/JSON import template (#35); int/numeric-string also accepted.
+_DIFFICULTY_LABELS = {
+    "very_easy": 1, "easy": 2, "medium": 3, "hard": 4, "very_hard": 5,
+}
+
+
+def _parse_difficulty(value) -> int | None:
+    """Parse a source difficulty value to a clamped int in [1, 5], else None.
+
+    Accepts int, numeric string, or label (easy/medium/hard/...). Out-of-range
+    values clamp to 1 or 5. Garbage -> None (so the transform fallback applies).
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in _DIFFICULTY_LABELS:
+            return _DIFFICULTY_LABELS[v]
+        if v == "":
+            return None
+        try:
+            n = int(v)
+        except ValueError:
+            return None
+    elif isinstance(value, bool):  # bool is an int subclass; reject it
+        return None
+    elif isinstance(value, int):
+        n = value
+    else:
+        return None
+    return max(1, min(5, n))
+
+
+def _parse_option_explanations(rec: dict) -> dict[str, Bilingual] | None:
+    """Merge per-option explanations from the PRD §10 template fields.
+
+    Supports two shapes:
+      - split: ``option_explanations`` (en, {key: text}) + ``option_explanations_zh``
+        (zh, {key: text}) - the documented CSV/XLSX/JSON template format.
+      - nested: ``option_explanations`` as {key: {en, zh}}.
+    Returns None when neither field is present. Keys with no text on either
+    side still yield a Bilingual("", "") - transform treats empty as absent.
+    """
+    en_map = rec.get("option_explanations")
+    zh_map = rec.get("option_explanations_zh")
+    if en_map is None and zh_map is None:
+        return None
+    en_map = en_map or {}
+    zh_map = zh_map or {}
+    keys = set(en_map.keys()) | set(zh_map.keys())
+    out: dict[str, Bilingual] = {}
+    for k in keys:
+        en_val = en_map.get(k, "")
+        zh_val = zh_map.get(k, "")
+        # A nested {en, zh} on either side is the alternate single-field shape.
+        en_nested = en_val if isinstance(en_val, dict) else None
+        zh_nested = zh_val if isinstance(zh_val, dict) else None
+        en_str = (en_nested.get("en", "") if en_nested else (str(en_val) if en_val else ""))
+        # zh: explicit zh_map wins, else pull from a nested en value, else a nested zh.
+        if zh_nested:
+            zh_str = zh_nested.get("zh", "")
+        elif zh_val and not isinstance(zh_val, dict):
+            zh_str = str(zh_val)
+        elif en_nested:
+            zh_str = en_nested.get("zh", "")
+        else:
+            zh_str = ""
+        out[k] = Bilingual(en=en_str, zh=zh_str)
+    return out
 
 
 def _parse_record(rec: dict) -> RawQuestion:
@@ -89,6 +168,12 @@ def _parse_record(rec: dict) -> RawQuestion:
             ]
             if rec.get("prompt_items")
             else None
+        ),
+        difficulty=_parse_difficulty(rec.get("difficulty")) or _parse_difficulty(rec.get("meta", {}).get("difficulty")),
+        option_explanations=_parse_option_explanations(rec),
+        license_status=(
+            rec.get("license_status")
+            or (rec.get("meta", {}) or {}).get("license_status")
         ),
     )
     return raw
