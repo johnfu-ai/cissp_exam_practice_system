@@ -37,6 +37,7 @@ export interface SessionCreateInput {
   difficulty?: number | null;
   tag_id?: string | null;
   language_mode?: LanguageMode | null;
+  shuffle_options?: boolean;
 }
 
 export interface SessionOut {
@@ -74,6 +75,13 @@ export interface QuestionDelivery {
   options: OptionDelivery[];
   elapsed_ms: number;
   previous_answer: PreviousAnswer | null;
+  note: string | null;
+}
+
+export interface RelatedQuestion {
+  question_id: string;
+  stem: Localized;
+  knowledge_point_id: string | null;
 }
 
 export interface AnswerInput {

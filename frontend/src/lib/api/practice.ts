@@ -12,6 +12,7 @@ import type {
   SessionSummary,
   QuestionStateInput,
   QuestionState,
+  RelatedQuestion,
 } from "./types";
 
 export function useSession(id: string) {
@@ -34,6 +35,15 @@ export function useSessionSummary(id: string, enabled = true) {
     queryKey: qk.summary(id),
     queryFn: () => apiJson<SessionSummary>(`/api/practice/sessions/${id}/summary`),
     enabled,
+  });
+}
+
+export function useRelatedQuestions(questionId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: qk.related(questionId ?? "none"),
+    queryFn: () =>
+      apiJson<RelatedQuestion[]>(`/api/practice/questions/${questionId}/related`),
+    enabled: enabled && !!questionId,
   });
 }
 

@@ -200,6 +200,7 @@ def create_session(
             "order_mode": payload.order_mode,
             "count": payload.count,
             "language_mode": mode,
+            "shuffle_options": payload.shuffle_options,
             "question_ids": [str(qid) for qid in ordered],
         },
     )
@@ -256,6 +257,13 @@ def get_question_at(
             PracticeAnswer.question_id == question.id,
         )
     ).scalars().first()
+    # FR-ANS-07: surface the user's existing note so the runner can pre-load it.
+    uqs = session.execute(
+        select(UserQuestionState).where(
+            UserQuestionState.user_id == user_id,
+            UserQuestionState.question_id == question.id,
+        )
+    ).scalars().first()
     return {
         "session_id": str(ps.id),
         "position": position,
@@ -267,6 +275,7 @@ def get_question_at(
         "stem": localized_stem(translations),
         "options": delivery_options(options, translations),
         "elapsed_ms": elapsed_ms,
+        "note": (uqs.note if uqs and uqs.note else None),
         "previous_answer": (
             {
                 "selected": prev.user_answer.get("selected"),
@@ -572,3 +581,69 @@ def set_question_state(
         state.error_type = payload.error_type
     session.flush()
     return state
+
+
+def related_questions(
+    session: Session, *, user_id, org_id, question_id, limit: int = 5
+) -> list[dict]:
+    """FR-ANS-08: same-knowledge-point questions recommended for further practice.
+
+    Returns up to `limit` live questions (same org, not deleted) that share at
+    least one knowledge point with `question_id`, excluding the question itself
+    and any the user has already marked mastered. Each carries a localized stem
+    (en/zh) + the shared knowledge_point_id. Empty list when the source question
+    has no knowledge point or no matches exist.
+    """
+    q = session.get(Question, question_id)
+    if q is None or q.deleted_at is not None or q.organization_id != org_id:
+        raise NotFound(f"question {question_id} not found")
+
+    kp_rows = session.execute(
+        select(QuestionMapping.knowledge_point_id).where(
+            QuestionMapping.question_id == question_id,
+            QuestionMapping.knowledge_point_id.is_not(None),
+        )
+    ).scalars().all()
+    kp_ids = [k for k in kp_rows if k is not None]
+    if not kp_ids:
+        return []
+
+    mastered_ids = set(
+        session.execute(
+            select(UserQuestionState.question_id).where(
+                UserQuestionState.user_id == user_id,
+                UserQuestionState.is_mastered.is_(True),
+            )
+        ).scalars().all()
+    )
+
+    related_qids = (
+        session.execute(
+            select(QuestionMapping.question_id, QuestionMapping.knowledge_point_id)
+            .join(Question, Question.id == QuestionMapping.question_id)
+            .where(
+                QuestionMapping.knowledge_point_id.in_(kp_ids),
+                QuestionMapping.question_id != question_id,
+                Question.organization_id == org_id,
+                not_deleted(Question),
+            )
+            .distinct()
+            .limit(limit * 4)  # over-fetch, then drop mastered, then trim
+        ).all()
+    )
+
+    out: list[dict] = []
+    seen: set[uuid.UUID] = set()
+    for qid, kp_id in related_qids:
+        if qid in seen or qid in mastered_ids:
+            continue
+        seen.add(qid)
+        translations = translations_for(session, qid)
+        out.append({
+            "question_id": str(qid),
+            "stem": localized_stem(translations),
+            "knowledge_point_id": str(kp_id) if kp_id else None,
+        })
+        if len(out) >= limit:
+            break
+    return out

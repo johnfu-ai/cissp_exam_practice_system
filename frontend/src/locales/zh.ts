@@ -205,6 +205,7 @@ export const zh: typeof en = {
     summarySource: "题集",
     summaryOrder: "顺序",
     summaryLanguage: "语言",
+    shuffleOptions: "打乱选项顺序",
     starting: "开始中…",
     startPractice: "开始练习",
     countHint: "题目数量需在 1 到 200 之间。",
@@ -221,6 +222,9 @@ export const zh: typeof en = {
   practiceRunner: {
     questionLabel: "第",
     ofTotal: "题，共",
+    sessionTimeTitle: "会话用时",
+    questionTimeTitle: "本题用时",
+    relatedTitle: "相关练习（相同知识点）",
     resume: "继续",
     pause: "暂停",
     sessionPaused: "会话已暂停，继续以恢复。",

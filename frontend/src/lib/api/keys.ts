@@ -9,6 +9,7 @@ export const qk = {
   question: (sessionId: string, position: number) =>
     ["practice", "session", sessionId, "question", position] as const,
   summary: (id: string) => ["practice", "session", id, "summary"] as const,
+  related: (id: string) => ["practice", "question", id, "related"] as const,
   analytics: {
     dashboard: ["analytics", "dashboard"] as const,
     domains: ["analytics", "domains"] as const,

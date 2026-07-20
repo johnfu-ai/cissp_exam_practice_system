@@ -19,6 +19,7 @@ import { Eyebrow } from "@/components/eyebrow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectTrigger,
@@ -298,6 +299,14 @@ export function CreateSessionForm() {
                 </Select>
               </div>
             </div>
+            {/* §8.1: shuffle the display order of options per question */}
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={form.shuffleOptions}
+                onCheckedChange={(v) => set("shuffleOptions", v === true)}
+              />
+              {t("practiceForm.shuffleOptions")}
+            </label>
           </section>
         </CardContent>
       </Card>
