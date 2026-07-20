@@ -39,7 +39,9 @@ Verified against commit history on `master` (HEAD `aae28be` at time of writing).
 
 All four Tier 1 security items are done on branch `fix/p1-tier1-security` (#11 `fb7f69b`, #8 `3a9f4d9`, #7 `1f00010`, #10 `6190433`). 521 backend + 97 frontend tests pass. See the commit messages for design details. Remaining auth follow-up (not Tier 1): #9 httpOnly-cookie storage, #11 password-policy strengthening (breach-list/complexity), and a per-user `tokens_invalid_before` so password change invalidates access tokens issued in *other* sessions.
 
-### 🟠 Tier 2 — production readiness (blocks any non-local deployment)
+### 🟠 Tier 2 — production readiness — ✅ COMPLETE (2026-07-20)
+
+All five Tier 2 items shipped on `feat/p2-tier2-prod-readiness` (#25 backups+Redis durability, #24 workers+graceful shutdown, #26 observability, #27 hardened Dockerfiles, #28 compose split+limits+restart). See `docs/superpowers/specs/2026-07-20-tier2-prod-readiness-design.md` for the design. 567 backend tests (+5 observability), both images build multi-stage + non-root, full-stack e2e-verified (`docker compose up` -> migrate -> /health, /metrics, X-Request-ID, login, frontend, backup dump, graceful SIGTERM shutdown). Remaining backlog: Tier 3 (#22, #21), frontend #32, #35 (product decision), P2/P3 polish.
 
 | # | Proposal | Why it matters | Effort |
 |---|----------|----------------|--------|

@@ -1,5 +1,28 @@
+# Tier 2 #27: keep build context lean + keep tests/docs/caches out of the
+# runtime image. Secrets (.env) are never baked into the image.
+.git
+.gitignore
+.github
+
+# Local build artifacts + deps (the builder installs its own node_modules).
 node_modules/
 .next/
 out/
 build/
-.env*.local
+coverage/
+
+# Tests are not needed at runtime.
+**/__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Docs + Docker metadata.
+*.md
+Dockerfile
+.dockerignore
+
+# Local env (never bake secrets into the image).
+.env
+.env*

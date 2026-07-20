@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: cissp
       POSTGRES_USER: cissp
-      POSTGRES_PASSWORD: cissp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cissp}
     ports:
       - "5432:5432"
     volumes:
@@ -14,25 +14,36 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7
+    # Tier 2 #25: AOF persistence + a named volume so a restart no longer logs
+    # out every user (refresh tokens) or clears rate-limit / lockout counters.
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   migrate:
     # One-shot: applies migrations + idempotent seed BEFORE the backend starts.
     # backend depends_on this completing successfully, so N backend replicas
     # never race on `alembic upgrade head` (audit P0 #6 C-4).
+    # Shares the backend image (same Dockerfile/context) so a single
+    # `docker compose build backend` updates both - otherwise compose would
+    # build a stale separate `cissp_exam-migrate` image.
+    image: cissp_exam-backend
     build: ./backend
     environment:
       APP_ENV: dev
-      DATABASE_URL: postgresql+psycopg://cissp:cissp@postgres:5432/cissp
+      DATABASE_URL: postgresql+psycopg://cissp:${POSTGRES_PASSWORD:-cissp}@postgres:5432/cissp
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: dev-only-change-me
       SEED_ADMIN_EMAIL: admin@example.com
@@ -51,7 +62,7 @@ services:
     build: ./backend
     environment:
       APP_ENV: dev
-      DATABASE_URL: postgresql+psycopg://cissp:cissp@postgres:5432/cissp
+      DATABASE_URL: postgresql+psycopg://cissp:${POSTGRES_PASSWORD:-cissp}@postgres:5432/cissp
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: dev-only-change-me
       JWT_ALGORITHM: HS256
@@ -62,6 +73,9 @@ services:
       # a random password is generated and printed once. Never commit a real
       # admin password here.
       CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      # Tier 2 #24: worker count + graceful-shutdown window (entrypoint.sh).
+      UVICORN_WORKERS: "1"
+      UVICORN_GRACEFUL_SHUTDOWN_SECONDS: "30"
     ports:
       - "8000:8000"
     volumes:
@@ -69,11 +83,14 @@ services:
       # build context), so mount them read-only for the import pipeline.
       - ./docs/questions:/app/docs/questions:ro
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/live"]
+      # Python-based probe (no curl in the apt-free image). Hits /live so a dep
+      # blip doesn't get the pod killed by a liveness probe.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/live',timeout=5).status==200 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,8 +105,38 @@ services:
       BACKEND_URL: http://backend:8000
     ports:
       - "3000:3000"
+    restart: unless-stopped
     depends_on:
       - backend
 
+  # Tier 2 #25: on-demand Postgres backup. Run with
+  #   docker compose --profile backup run --rm backup
+  # or via a host crontab for daily backups (PRD §7.3). Keeps the 30 most
+  # recent gzipped dumps in the `backups` volume. See scripts/restore.sh.
+  backup:
+    image: postgres:16
+    profiles: ["backup"]
+    environment:
+      PGHOST: postgres
+      PGUSER: cissp
+      PGPASSWORD: ${POSTGRES_PASSWORD:-cissp}
+      PGDATABASE: cissp
+    volumes:
+      - backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        ts=$$(date -u +%Y%m%dT%H%M%SZ)
+        out=/backups/cissp-$$ts.sql.gz
+        pg_dump --format=plain | gzip > "$$out"
+        ls -1t /backups/cissp-*.sql.gz 2>/dev/null | tail -n +31 | xargs -r rm -f
+        echo "backup written: $$out"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  redisdata:
+  backups:

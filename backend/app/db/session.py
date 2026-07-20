@@ -30,3 +30,13 @@ def get_session() -> Iterator[Session]:
         yield session
     finally:
         session.close()
+
+
+def dispose_engine() -> None:
+    """Close the pooled DB connections. Called on app shutdown (Tier 2 #24
+    graceful shutdown) so a SIGTERM/deploy doesn't leak pool connections."""
+    global _engine, _SessionLocal
+    if _engine is not None:
+        _engine.dispose()
+        _engine = None
+        _SessionLocal = None

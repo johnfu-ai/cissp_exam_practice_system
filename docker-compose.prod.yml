@@ -1,0 +1,65 @@
+# Tier 2 #28: production overrides. Apply with
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Requires (fail-safe if unset):
+#   JWT_SECRET         >= 32 chars, NOT the default (the config validator
+#                       refuses to start otherwise - audit P0 #2).
+#   POSTGRES_PASSWORD  strong DB password.
+#   CORS_ORIGINS       comma-separated allowed origins.
+# Optional:
+#   UVICORN_WORKERS    (default 2)  SENTRY_DSN  SENTRY_TRACES_SAMPLE_RATE
+#
+# What this override changes vs dev:
+#   * APP_ENV=production -> HTTPS redirect + strong-secret enforcement.
+#   * DB + Redis are NOT published to the host (internal to the compose net).
+#   * Backend runs N workers with multiprocess Prometheus metrics.
+#   * Resource limits (mem/cpu) on backend + frontend.
+#   * restart: always (daemon-restart resilient).
+services:
+  postgres:
+    ports: !reset []
+    restart: always
+
+  redis:
+    ports: !reset []
+    restart: always
+
+  migrate:
+    environment:
+      APP_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required for production}
+      DATABASE_URL: postgresql+psycopg://cissp:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/cissp
+    restart: "no"
+
+  backend:
+    environment:
+      APP_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required for production}
+      DATABASE_URL: postgresql+psycopg://cissp:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/cissp
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+      # Tier 2 #24: N workers; Redis-backed stores are shared across workers.
+      UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
+      UVICORN_GRACEFUL_SHUTDOWN_SECONDS: "30"
+      # Tier 2 #26: Sentry (no-op without SENTRY_DSN).
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
+      # Tier 2 #26: multiprocess Prometheus metrics so /metrics aggregates
+      # across N uvicorn workers instead of reflecting only the serving one.
+      # The dir is created by entrypoint.sh on the container's ephemeral layer.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+    volumes:
+      - ./docs/questions:/app/docs/questions:ro
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "2.0"
+    restart: always
+
+  frontend:
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+    restart: always
