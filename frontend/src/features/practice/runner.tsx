@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useSession,
@@ -10,6 +10,7 @@ import {
   useResumeSession,
   useFinishSession,
   useUpdateQuestionState,
+  useRelatedQuestions,
 } from "@/lib/api/practice";
 import {
   initialRunnerState,
@@ -49,8 +50,8 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { Bookmark, Flag, CheckCircle2, PauseCircle, PlayCircle, XCircle } from "lucide-react";
-import type { ErrorType, LanguageMode, Localized } from "@/lib/api/types";
+import { Bookmark, Flag, CheckCircle2, Clock, PauseCircle, PlayCircle, XCircle } from "lucide-react";
+import type { ErrorType, LanguageMode, Localized, OptionDelivery } from "@/lib/api/types";
 
 const ERROR_TYPES: ErrorType[] = [
   "concept_unclear",
@@ -64,6 +65,48 @@ const LANGUAGE_MODES: LanguageMode[] = ["en", "zh", "bilingual"];
 /** True when a Localized slot carries any translatable content. */
 function hasContent(loc: Localized | null | undefined): boolean {
   return !!loc && (loc.en != null || loc.zh != null);
+}
+
+/** #36-rem / FR-PRAC-09: a ticking "now" timestamp for the live timer.
+ * Stops ticking when `active` is false (paused) so the timer freezes. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+}
+
+function formatDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
+/** Deterministic seeded Fisher-Yates so a question's option order is stable
+ * across re-renders/re-fetches but varies per question. Selection/submit stay
+ * canonical order_index (each option object carries its own). */
+function shuffleBySeed<T extends { order_index: number }>(items: T[], seed: string): T[] {
+  // xorshift32 seeded from a hash of `seed`
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  let state = h >>> 0 || 1;
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state >>>= 0;
+    const j = state % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 export function Runner({ sessionId }: { sessionId: string }) {
@@ -83,6 +126,22 @@ export function Runner({ sessionId }: { sessionId: string }) {
 
   const delivery = question.data;
   const paused = !!session.data?.paused_at;
+  // #36-rem: live timer (freezes while paused) + per-question shuffle + same-KP
+  const now = useNow(!paused);
+  const shuffleOptions = !!session.data?.config?.shuffle_options;
+  // #36-rem / §8.1: shuffle the DISPLAY order of options (canonical order_index
+  // stays on each option, so selection/submit/judging are unaffected). Computed
+  // before the early-return guards so hook order is stable across renders.
+  const displayedOptions: OptionDelivery[] = useMemo(() => {
+    if (!delivery) return [];
+    return shuffleOptions
+      ? shuffleBySeed(delivery.options, delivery.question_id)
+      : delivery.options;
+  }, [delivery?.options, delivery?.question_id, shuffleOptions]);
+  const related = useRelatedQuestions(
+    runner.phase === "submitted" && delivery ? delivery.question_id : null,
+    runner.phase === "submitted",
+  );
 
   const [mode, setMode] = useState<LanguageMode>("en");
   useEffect(() => {
@@ -179,6 +238,11 @@ export function Runner({ sessionId }: { sessionId: string }) {
   const result = runner.result;
   const progressPct =
     delivery.total > 0 ? ((delivery.position + 1) / delivery.total) * 100 : 0;
+  // #36-rem / FR-PRAC-09: live session + per-question elapsed.
+  const sessionElapsed = session.data?.started_at
+    ? now - new Date(session.data.started_at).getTime()
+    : 0;
+  const questionElapsed = startedAt ? now - new Date(startedAt).getTime() : 0;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col">
@@ -190,6 +254,16 @@ export function Runner({ sessionId }: { sessionId: string }) {
             <span className="font-medium text-foreground tabular-nums">{delivery.position + 1}</span>{" "}
             {t("practiceRunner.ofTotal")}{" "}
             <span className="tabular-nums">{delivery.total}</span>
+          </div>
+          {/* #36-rem / FR-PRAC-09: live timer (session total + this question) */}
+          <div className="flex items-center gap-3 text-sm tabular-nums text-muted-foreground">
+            <span title={t("practiceRunner.sessionTimeTitle")}>
+              <Clock className="mr-1 inline h-4 w-4 align-text-bottom" />
+              {formatDuration(sessionElapsed)}
+            </span>
+            <span title={t("practiceRunner.questionTimeTitle")}>
+              {formatDuration(questionElapsed)}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <Select value={mode} onValueChange={(v) => setMode(v as LanguageMode)}>
@@ -245,7 +319,7 @@ export function Runner({ sessionId }: { sessionId: string }) {
           ) : (
             <OptionList
               questionType={delivery.question_type}
-              options={delivery.options}
+              options={displayedOptions}
               selected={runner.selected}
               disabled={submitted || paused}
               onToggle={(i) => setRunner((s) => toggleSelection(s, i, delivery.question_type))}
@@ -327,6 +401,19 @@ export function Runner({ sessionId }: { sessionId: string }) {
                   ))}
                 </div>
               )}
+              {/* #36-rem / FR-ANS-08: same-knowledge-point recommendation */}
+              {related.data && related.data.length > 0 && (
+                <div className="space-y-1 border-t border-border pt-3">
+                  <p className="text-sm font-medium">{t("practiceRunner.relatedTitle")}</p>
+                  <ul className="list-inside list-disc space-y-1">
+                    {related.data.map((rq) => (
+                      <li key={rq.question_id} className="text-sm text-muted-foreground">
+                        <BilingualText mode={mode} en={rq.stem.en} zh={rq.stem.zh} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -359,7 +446,11 @@ export function Runner({ sessionId }: { sessionId: string }) {
                 >
                   <CheckCircle2 className="h-4 w-4" /> {t("practiceRunner.markMastered")}
                 </Button>
-                <NoteDialog onSave={(note) => setQuestionState({ note })} t={t} />
+                <NoteDialog
+                  initialNote={delivery.note}
+                  onSave={(note) => setQuestionState({ note })}
+                  t={t}
+                />
                 <Select onValueChange={(v) => setQuestionState({ error_type: v as ErrorType })}>
                   <SelectTrigger className="h-9 w-[200px]">
                     <SelectValue placeholder={t("practiceRunner.tagErrorType")} />
@@ -402,10 +493,25 @@ export function Runner({ sessionId }: { sessionId: string }) {
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
-function NoteDialog({ onSave, t }: { onSave: (note: string) => void; t: TFn }) {
+function NoteDialog({
+  initialNote,
+  onSave,
+  t,
+}: {
+  initialNote: string | null | undefined;
+  onSave: (note: string) => void;
+  t: TFn;
+}) {
   const [note, setNote] = useState("");
   return (
-    <Dialog>
+    <Dialog
+      // #36-rem / FR-ANS-07: pre-load the existing note when the dialog opens so
+      // the user can view/edit (not just replace). Reset on each open in case the
+      // underlying note changed between questions.
+      onOpenChange={(open) => {
+        if (open) setNote(initialNote ?? "");
+      }}
+    >
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           {t("practiceRunner.addNote")}

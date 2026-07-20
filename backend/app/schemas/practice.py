@@ -30,6 +30,10 @@ class SessionCreateIn(BaseModel):
     question_type: str | None = None
     difficulty: int | None = None
     tag_id: uuid.UUID | None = None
+    # §8.1 practice config: shuffle the display order of options per question.
+    # The backend stores the flag; the frontend applies the display permutation
+    # (selection/submit stay canonical order_index, so judging is unaffected).
+    shuffle_options: bool = False
 
 
 class SessionOut(BaseModel):
@@ -67,6 +71,9 @@ class QuestionDeliveryOut(BaseModel):
     options: list[OptionDelivery]
     elapsed_ms: int
     previous_answer: dict | None = None
+    # FR-ANS-07: the user's existing note for this question, so the runner's
+    # notes dialog can pre-load for view/edit (None when no note exists).
+    note: str | None = None
 
 
 class AnswerIn(BaseModel):
@@ -104,6 +111,15 @@ class WrongQuestion(BaseModel):
     stem: Localized
     selected_indexes: list[int]
     correct_indexes: list[int]
+
+
+class RelatedQuestionOut(BaseModel):
+    """FR-ANS-08: a same-knowledge-point question recommended for further
+    practice. Stem is localized (en/zh) so the client can render in the
+    current language mode without an extra fetch."""
+    question_id: uuid.UUID
+    stem: Localized
+    knowledge_point_id: uuid.UUID | None = None
 
 
 class SessionSummaryOut(BaseModel):

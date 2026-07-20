@@ -11,6 +11,7 @@ export interface SessionFormState {
   difficulty: number | null;
   tagId: string | null;
   languageMode: LanguageMode | null;
+  shuffleOptions: boolean;
 }
 
 export const defaultSessionFormState: SessionFormState = {
@@ -24,6 +25,7 @@ export const defaultSessionFormState: SessionFormState = {
   difficulty: null,
   tagId: null,
   languageMode: null,
+  shuffleOptions: false,
 };
 
 export function buildSessionPayload(f: SessionFormState): SessionCreateInput {
@@ -32,6 +34,7 @@ export function buildSessionPayload(f: SessionFormState): SessionCreateInput {
     subset: f.subset,
     order_mode: f.orderMode,
   };
+  if (f.shuffleOptions) payload.shuffle_options = true;
   if (f.domainId) payload.domain_id = f.domainId;
   if (f.bookId) payload.book_id = f.bookId;
   if (f.chapterIds.length > 0) payload.chapter_ids = f.chapterIds;

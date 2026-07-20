@@ -210,3 +210,102 @@ def test_set_question_state_returns_error_type(client):
     )
     assert r2.status_code == 200, r2.text
     assert r2.json()["error_type"] == "concept_unclear"
+
+
+# --- #36-rem: timer note on delivery / shuffle_options / same-KP related ---
+
+def test_shuffle_options_persisted_in_config(client):
+    c, store, db = client
+    h, user = _headers(db, store)
+    _seed_bilingual_question(db, user)
+    r = c.post("/api/practice/sessions",
+               json={"count": 1, "shuffle_options": True}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["config"]["shuffle_options"] is True
+    # default is False when omitted
+    r2 = c.post("/api/practice/sessions",
+                json={"count": 1}, headers=h)
+    assert r2.json()["config"]["shuffle_options"] is False
+
+
+def test_delivery_carries_existing_note(client):
+    """FR-ANS-07: the delivery surfaces the user's existing note for view/edit."""
+    c, store, db = client
+    h, user = _headers(db, store)
+    q = _seed_bilingual_question(db, user)
+    sid = c.post("/api/practice/sessions", json={"count": 1}, headers=h).json()["id"]
+    # no note yet -> delivery note is None
+    d0 = c.get(f"/api/practice/sessions/{sid}/questions/0", headers=h).json()
+    assert d0["note"] is None
+    # save a note
+    c.put(f"/api/practice/questions/{q.id}/state", json={"note": "my note"}, headers=h)
+    d1 = c.get(f"/api/practice/sessions/{sid}/questions/0", headers=h).json()
+    assert d1["note"] == "my note"
+
+
+def _seed_question_with_kp(db, user, kp, stem="KP question"):
+    from app.models.question import QuestionMapping
+    q = _seed_bilingual_question(db, user)
+    # overwrite the en stem so we can distinguish questions in assertions
+    from app.models.question import QuestionTranslation
+    t = db.query(QuestionTranslation).filter_by(question_id=q.id, language="en").one()
+    t.stem = stem
+    db.add(QuestionMapping(question_id=q.id, knowledge_point_id=kp.id))
+    db.flush()
+    return q
+
+
+def test_related_questions_same_kp(client):
+    """FR-ANS-08: /related returns same-KP questions, excluding the current one."""
+    from app.models.taxonomy import KnowledgePoint
+    c, store, db = client
+    h, user = _headers(db, store)
+    kp = KnowledgePoint(name="Symmetric crypto")
+    db.add(kp)
+    db.flush()
+    q1 = _seed_question_with_kp(db, user, kp, stem="q1 stem")
+    q2 = _seed_question_with_kp(db, user, kp, stem="q2 stem")
+    db.flush()
+    r = c.get(f"/api/practice/questions/{q1.id}/related", headers=h)
+    assert r.status_code == 200, r.text
+    items = r.json()
+    assert len(items) == 1
+    assert items[0]["question_id"] == str(q2.id)
+    assert items[0]["stem"]["en"] == "q2 stem"
+    assert items[0]["knowledge_point_id"] == str(kp.id)
+
+
+def test_related_excludes_mastered(client):
+    from app.models.taxonomy import KnowledgePoint
+    from app.models.practice import UserQuestionState
+    c, store, db = client
+    h, user = _headers(db, store)
+    kp = KnowledgePoint(name="Asymmetric crypto")
+    db.add(kp)
+    db.flush()
+    q1 = _seed_question_with_kp(db, user, kp)
+    q2 = _seed_question_with_kp(db, user, kp)
+    db.flush()
+    # mark q2 mastered -> excluded from recommendations
+    db.add(UserQuestionState(user_id=user.id, question_id=q2.id, is_mastered=True))
+    db.flush()
+    r = c.get(f"/api/practice/questions/{q1.id}/related", headers=h)
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_related_no_kp_returns_empty(client):
+    c, store, db = client
+    h, user = _headers(db, store)
+    q = _seed_bilingual_question(db, user)  # no KP bound
+    r = c.get(f"/api/practice/questions/{q.id}/related", headers=h)
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_related_missing_question_404(client):
+    import uuid
+    c, store, db = client
+    h, _ = _headers(db, store)
+    r = c.get(f"/api/practice/questions/{uuid.uuid4()}/related", headers=h)
+    assert r.status_code == 404

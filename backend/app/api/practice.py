@@ -12,6 +12,7 @@ from app.schemas.practice import (
     AnswerResultOut,
     QuestionDeliveryOut,
     QuestionStateIn,
+    RelatedQuestionOut,
     SessionCreateIn,
     SessionOut,
     SessionSummaryOut,
@@ -182,3 +183,19 @@ def set_question_state(
         "note": state.note,
         "error_type": state.error_type.value if state.error_type else None,
     }
+
+
+@router.get("/questions/{question_id}/related", response_model=list[RelatedQuestionOut])
+def get_related_questions(
+    question_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("practice:read")),
+):
+    """FR-ANS-08: same-knowledge-point questions for further practice."""
+    try:
+        return svc.related_questions(
+            session, user_id=current.user.id, org_id=current.org_id,
+            question_id=question_id,
+        )
+    except svc.NotFound:
+        raise HTTPException(status_code=404, detail="question not found")

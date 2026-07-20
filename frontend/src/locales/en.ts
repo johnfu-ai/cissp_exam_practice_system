@@ -206,6 +206,7 @@ export const en = {
     summarySource: "Source",
     summaryOrder: "Order",
     summaryLanguage: "Language",
+    shuffleOptions: "Shuffle option order",
     starting: "Starting…",
     startPractice: "Start practice",
     countHint: "Choose between 1 and 200 questions.",
@@ -222,6 +223,9 @@ export const en = {
   practiceRunner: {
     questionLabel: "Question",
     ofTotal: "of",
+    sessionTimeTitle: "Session time",
+    questionTimeTitle: "This question",
+    relatedTitle: "Related practice (same knowledge point)",
     resume: "Resume",
     pause: "Pause",
     sessionPaused: "Session paused. Resume to continue.",
