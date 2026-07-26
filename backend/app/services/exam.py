@@ -59,16 +59,7 @@ from app.services.i18n import (
 from app.services.snapshot import localized_from_snapshot, snapshot_question
 
 
-class ValidationError(ValueError):
-    pass
-
-
-class NotFound(LookupError):
-    pass
-
-
-class ConflictError(ValueError):
-    pass
+from app.services.errors import ConflictError, NotFound, ValidationError
 
 
 def _current_cat_params_or_default(session) -> dict:

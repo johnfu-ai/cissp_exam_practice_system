@@ -34,16 +34,7 @@ from app.schemas.taxonomy import (
 from app.services.audit import log_audit
 
 
-class ValidationError(ValueError):
-    """Invalid input (maps to HTTP 422)."""
-
-
-class NotFound(LookupError):
-    """Entity not found (maps to HTTP 404)."""
-
-
-class ConflictError(ValueError):
-    """Operation conflicts with existing data (maps to HTTP 409)."""
+from app.services.errors import ConflictError, NotFound, ValidationError
 
 
 # --- ExamBlueprint ---
