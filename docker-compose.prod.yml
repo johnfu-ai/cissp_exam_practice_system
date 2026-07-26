@@ -47,8 +47,11 @@ services:
       # across N uvicorn workers instead of reflecting only the serving one.
       # The dir is created by entrypoint.sh on the container's ephemeral layer.
       PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+      # #35 / FR-IMP-01: writable volume for uploaded import files.
+      ETL_UPLOAD_ROOT: /app/uploads
     volumes:
       - ./docs/questions:/app/docs/questions:ro
+      - upload_data:/app/uploads
     deploy:
       resources:
         limits:

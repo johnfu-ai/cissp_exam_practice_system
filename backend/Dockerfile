@@ -33,6 +33,11 @@ RUN useradd --create-home --uid 1001 app
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
 COPY --chown=app:app . .
 
+# #35 / FR-IMP-01: writable upload dir for the non-root `app` user. The named
+# `upload_data` volume mounts here; creating it now (owned by app) makes the
+# volume inherit app ownership on first mount so uploads can write to it.
+RUN mkdir -p /app/uploads && chown -R app:app /app/uploads
+
 USER app
 
 EXPOSE 8000

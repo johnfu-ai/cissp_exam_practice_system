@@ -50,7 +50,12 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   const { accessToken, clear } = useAuthStore.getState();
   const headers = new Headers(init.headers);
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  // FormData must NOT set Content-Type - the browser sets the multipart
+  // boundary itself; a manual application/json would corrupt the upload (#35).
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body && !isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const resp = await fetch(`${BACKEND}${path}`, { ...init, headers, credentials: "include" });
   if (resp.status !== 401) return resp;
@@ -67,7 +72,9 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   }
   const retryHeaders = new Headers(init.headers);
   retryHeaders.set("Authorization", `Bearer ${newAccess}`);
-  if (init.body && !retryHeaders.has("Content-Type")) retryHeaders.set("Content-Type", "application/json");
+  if (init.body && !isFormData && !retryHeaders.has("Content-Type")) {
+    retryHeaders.set("Content-Type", "application/json");
+  }
   return fetch(`${BACKEND}${path}`, { ...init, headers: retryHeaders, credentials: "include" });
 }
 

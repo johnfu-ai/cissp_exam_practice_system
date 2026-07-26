@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   useDatasets,
   useCreateRun,
   useCommitRun,
   useRollbackRun,
+  useUploadDataset,
 } from "@/lib/api/etl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eyebrow } from "@/components/eyebrow";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
@@ -38,8 +40,12 @@ export function ImportWizard() {
   const createRun = useCreateRun();
   const commit = useCommitRun();
   const rollback = useRollbackRun();
+  const upload = useUploadDataset();
   const [run, setRun] = useState<EtlRun | null>(null);
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
+  const [uploadSlug, setUploadSlug] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function preview(slug: string) {
     setActiveSlug(slug);
@@ -47,6 +53,29 @@ export function ImportWizard() {
       onSuccess: (r) => setRun(r),
       onError: () => toast.error(t("importWiz.toastPreviewFail")),
     });
+  }
+
+  function doUpload() {
+    const slug = uploadSlug.trim();
+    if (!slug) {
+      toast.error(t("importWiz.slugRequired"));
+      return;
+    }
+    if (!uploadFile) {
+      toast.error(t("importWiz.fileRequired"));
+      return;
+    }
+    upload.mutate(
+      { file: uploadFile, datasetSlug: slug },
+      {
+        onSuccess: (r) => {
+          setRun(r);
+          setActiveSlug(r.dataset_slug);
+          toast.success(t("importWiz.toastUploaded"));
+        },
+        onError: () => toast.error(t("importWiz.toastUploadFail")),
+      },
+    );
   }
 
   function doCommit() {
@@ -80,6 +109,51 @@ export function ImportWizard() {
 
   return (
     <div className="space-y-8">
+      <section>
+        <Eyebrow className="mb-3">{t("importWiz.upload")}</Eyebrow>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("importWiz.upload")}</CardTitle>
+            <p className="text-xs text-muted-foreground">{t("importWiz.uploadDesc")}</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label htmlFor="upload-slug" className="text-xs text-muted-foreground">
+                  {t("importWiz.datasetName")}
+                </label>
+                <Input
+                  id="upload-slug"
+                  value={uploadSlug}
+                  onChange={(e) => setUploadSlug(e.target.value)}
+                  placeholder={t("importWiz.datasetNamePlaceholder")}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="upload-file" className="text-xs text-muted-foreground">
+                  {t("importWiz.acceptedFormats")}
+                </label>
+                <Input
+                  id="upload-file"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,.json"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button size="sm" onClick={doUpload} disabled={upload.isPending}>
+                {upload.isPending ? t("importWiz.uploading") : t("importWiz.uploadAndPreview")}
+              </Button>
+              {uploadFile && (
+                <span className="text-xs text-muted-foreground">{uploadFile.name}</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
       <section>
         <Eyebrow className="mb-3">{t("importWiz.datasets")}</Eyebrow>
         {datasets.data && datasets.data.length === 0 ? (
