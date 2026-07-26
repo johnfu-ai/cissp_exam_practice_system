@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     log_level: str = "info"
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
+    # FR-IMP-01 / #35: root directory for uploaded import files (CSV/XLSX/JSON).
+    # Each upload materializes as ``<etl_upload_root>/<dataset_slug>/questions.<ext>``
+    # so DatasetReader can auto-detect + re-read it at commit (drift detection).
+    # Dev defaults to the bind-mounted ``docs/questions`` so uploads sit next to
+    # seeded datasets; prod should point this at a persistent volume.
+    etl_upload_root: str = "docs/questions"
 
     @model_validator(mode="after")
     def _validate_jwt_secret(self) -> "Settings":

@@ -77,7 +77,7 @@ All five Tier 2 items shipped on `feat/p2-tier2-prod-readiness` (#25 backups+Red
 
 | # | Proposal | Note |
 |---|----------|------|
-| 35 | CSV/XLSX/JSON file upload (FR-IMP-01) | CLAUDE.md frames JSONL-only as intentional; PRD §12.1/§14.1 list CSV/XLSX/JSON as MVP must-include. **Product decision, not a bug** — confirm with PRD owner before building. |
+| 35 | CSV/XLSX/JSON file upload (FR-IMP-01) | ✅ DONE (`feat/p3-csv-xlsx-upload`) - decision: build the full upload (PRD P0 + §14.1 acceptance criterion). New `CsvExtractor`/`XlsxExtractor`/`JsonExtractor` map the §10.1 template onto `RawQuestion` (carrying per-question `domain`/`knowledge_points`/`tags`/`book` via `meta`); `DatasetReader` auto-detects format from directory contents (manifest+jsonl vs questions.csv/xlsx/json) so the runner is unchanged; `CleanedQuestion` + `_Resolvers` wire domain-by-number (current-blueprint ExamDomain), source book/edition, and best-effort KP/tag `QuestionMapping` rows; `POST /api/etl/upload` (multipart, `question:import`) materializes the file to a writable `upload_data` volume and reuses the preview/commit/rollback flow. Frontend import-wizard gains an upload card. New deps `openpyxl` + `python-multipart`. 591 backend + 127 frontend tests, zero drift, real-server e2e-verified (upload CSV -> preview -> commit -> question with domain; re-upload idempotent). |
 
 ### P2/P3 — as capacity allows
 

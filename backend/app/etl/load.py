@@ -25,6 +25,7 @@ from app.models.question import (
     QuestionRevision,
     QuestionTranslation,
 )
+from app.models.taxonomy import ExamBlueprint, ExamDomain, KnowledgePoint, Tag
 from app.services.snapshot import snapshot_question
 
 
@@ -54,7 +55,7 @@ class DryRunSummary:
 
 
 class _Resolvers:
-    """Caches Book/Chapter/Domain lookups for a batch."""
+    """Caches Book/Chapter/Domain/KnowledgePoint/Tag lookups for a batch."""
 
     def __init__(self, session: Session, org_id: uuid.UUID, dataset_slug: str):
         self.session = session
@@ -63,15 +64,22 @@ class _Resolvers:
         self._books: dict[tuple[str, str], Book] = {}
         self._chapters: dict[tuple[uuid.UUID, int], Chapter] = {}
         self._domains: dict[int, uuid.UUID | None] = {}
+        # #35: per-question domain-number (upload template) + KP/tag name caches.
+        self._domains_by_number: dict[int, uuid.UUID | None] = {}
+        self._kps: dict[str, KnowledgePoint | None] = {}
+        self._tags: dict[str, Tag | None] = {}
 
     def book(self, cleaned) -> Book:
-        key = ("CISSP OSG", "10")
+        # #35: uploaded template carries book/edition; JSONL falls back to OSG 10.
+        title = cleaned.source_book or "CISSP OSG"
+        edition = cleaned.source_edition or "10"
+        key = (title, edition)
         if key not in self._books:
             book = self.session.execute(
-                select(Book).filter_by(title="CISSP OSG", edition="10", organization_id=self.org_id)
+                select(Book).filter_by(title=title, edition=edition, organization_id=self.org_id)
             ).scalar_one_or_none()
             if book is None:
-                book = Book(title="CISSP OSG", edition="10", organization_id=self.org_id)
+                book = Book(title=title, edition=edition, organization_id=self.org_id)
                 self.session.add(book)
                 self.session.flush()
             self._books[key] = book
@@ -97,6 +105,14 @@ class _Resolvers:
         return self._chapters[key]
 
     def domain_id(self, cleaned) -> uuid.UUID | None:
+        # #35 / PRD §10.1: uploaded template gives the CISSP domain number per
+        # question directly. When present it wins over the chapter->domain mapping.
+        if cleaned.domain_number is not None:
+            if cleaned.domain_number not in self._domains_by_number:
+                self._domains_by_number[cleaned.domain_number] = self._resolve_domain_by_number(
+                    cleaned.domain_number
+                )
+            return self._domains_by_number[cleaned.domain_number]
         if cleaned.source_chapter not in self._domains:
             cdm = self.session.execute(
                 select(ChapterDomainMapping).filter_by(
@@ -105,6 +121,35 @@ class _Resolvers:
             ).scalar_one_or_none()
             self._domains[cleaned.source_chapter] = cdm.domain_id if cdm else None
         return self._domains[cleaned.source_chapter]
+
+    def _resolve_domain_by_number(self, number: int) -> uuid.UUID | None:
+        """Look up an ExamDomain by its 1-8 number in the current blueprint.
+
+        Returns None when there is no current blueprint or the number is out of
+        range - the question still imports (domain left blank for manual fix),
+        matching the JSONL 'no mapping rule' behavior.
+        """
+        return self.session.execute(
+            select(ExamDomain.id)
+            .join(ExamBlueprint, ExamBlueprint.id == ExamDomain.blueprint_id)
+            .where(ExamBlueprint.is_current.is_(True), ExamDomain.number == number)
+        ).scalar_one_or_none()
+
+    def knowledge_point(self, name: str) -> KnowledgePoint | None:
+        """Best-effort KP lookup by name (global taxonomy). None if not found."""
+        if name not in self._kps:
+            self._kps[name] = self.session.execute(
+                select(KnowledgePoint).filter_by(name=name).limit(1)
+            ).scalar_one_or_none()
+        return self._kps[name]
+
+    def tag(self, name: str) -> Tag | None:
+        """Best-effort Tag lookup by name (global taxonomy, unique). None if absent."""
+        if name not in self._tags:
+            self._tags[name] = self.session.execute(
+                select(Tag).filter_by(name=name).limit(1)
+            ).scalar_one_or_none()
+        return self._tags[name]
 
 
 def _existing_key(session, dataset_slug, external_id) -> QuestionExternalKey | None:
@@ -330,9 +375,27 @@ def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
             language=first_lang, question_id=q.id,
         ))
         ch = resolvers.chapter(cleaned)
+        domain_id = resolvers.domain_id(cleaned)
         session.add(QuestionMapping(
-            question_id=q.id, chapter_id=ch.id, domain_id=resolvers.domain_id(cleaned),
+            question_id=q.id, chapter_id=ch.id, domain_id=domain_id,
         ))
+        # #35 / PRD §10.1: best-effort knowledge-point + tag mappings. Each named
+        # KP/tag that already exists in the taxonomy gets its own QuestionMapping
+        # row (a question can map to several). Unknown names are skipped silently
+        # rather than failing the import - they can be created in /taxonomy then
+        # the file re-imported.
+        for kp_name in cleaned.knowledge_points:
+            kp = resolvers.knowledge_point(kp_name)
+            if kp is not None:
+                session.add(QuestionMapping(
+                    question_id=q.id, domain_id=domain_id, knowledge_point_id=kp.id,
+                ))
+        for tag_name in cleaned.tags:
+            tag = resolvers.tag(tag_name)
+            if tag is not None:
+                session.add(QuestionMapping(
+                    question_id=q.id, domain_id=domain_id, tag_id=tag.id,
+                ))
         return "created"
 
     q = session.get(Question, existing.question_id)

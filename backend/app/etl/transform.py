@@ -44,6 +44,14 @@ class CleanedQuestion:
     available_languages: list[str] = field(default_factory=list)
     # #18: source-provided license status (FR-ETL-09); None -> unconfirmed downstream.
     license_status: str | None = None
+    # #35 / FR-IMP-01: uploaded-template (CSV/XLSX/JSON) enrichment carried in
+    # RawQuestion.meta. All default to None/empty so JSONL records (which derive
+    # book/domain via the chapter-mapping path) keep their existing behavior.
+    source_book: str | None = None
+    source_edition: str | None = None
+    domain_number: int | None = None
+    knowledge_points: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
 def _normalize_type(raw_type: str) -> QuestionType:
@@ -149,4 +157,9 @@ def transform(raw: RawQuestion, pending_translation_ids: set[str] | None = None)
         needs_revision=needs_revision,
         available_languages=available,
         license_status=raw.license_status,
+        source_book=(raw.meta.get("book") or None),
+        source_edition=(str(raw.meta["edition"]) if raw.meta.get("edition") else None),
+        domain_number=raw.meta.get("domain"),
+        knowledge_points=list(raw.meta.get("knowledge_points") or []),
+        tags=list(raw.meta.get("tags") or []),
     )

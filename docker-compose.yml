@@ -76,12 +76,19 @@ services:
       # Tier 2 #24: worker count + graceful-shutdown window (entrypoint.sh).
       UVICORN_WORKERS: "1"
       UVICORN_GRACEFUL_SHUTDOWN_SECONDS: "30"
+      # #35 / FR-IMP-01: uploaded import files (CSV/XLSX/JSON) land in a
+      # writable volume (docs/questions above is read-only). Local non-container
+      # dev keeps the config default of docs/questions.
+      ETL_UPLOAD_ROOT: /app/uploads
     ports:
       - "8000:8000"
     volumes:
       # Seeded ETL datasets live at the repo root (not inside the backend
       # build context), so mount them read-only for the import pipeline.
       - ./docs/questions:/app/docs/questions:ro
+      # #35: writable volume for uploaded import files - the non-root `app`
+      # user writes here, and DatasetReader re-reads at commit for drift check.
+      - upload_data:/app/uploads
     healthcheck:
       # Python-based probe (no curl in the apt-free image). Hits /live so a dep
       # blip doesn't get the pod killed by a liveness probe.
@@ -140,3 +147,4 @@ volumes:
   pgdata:
   redisdata:
   backups:
+  upload_data:
