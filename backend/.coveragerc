@@ -1,0 +1,18 @@
+# #23: coverage configuration. The CI threshold is enforced via
+# `pytest --cov=app --cov-fail-under=85` in .github/workflows/ci.yml.
+[run]
+source = app
+omit =
+    app/alembic/*
+    app/alembic/versions/*
+    */__init__.py
+    app/db/seed.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    \.\.\.
+show_missing = true

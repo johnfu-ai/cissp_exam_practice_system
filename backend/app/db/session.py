@@ -13,7 +13,17 @@ _SessionLocal: sessionmaker | None = None
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        _engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
+        # P2: explicit pool tuning (size/overflow/recycle) instead of psycopg
+        # defaults; pool_recycle < Postgres idle timeout avoids reusing
+        # server-closed connections (pool_pre_ping also catches this).
+        _engine = create_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            future=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_recycle=settings.db_pool_recycle,
+        )
     return _engine
 
 

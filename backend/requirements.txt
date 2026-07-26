@@ -20,3 +20,6 @@ sentry-sdk[fastapi]==2.66.0
 # #35 / FR-IMP-01: XLSX upload parsing (CSV/JSON use the stdlib).
 openpyxl==3.1.5
 python-multipart==0.0.20
+
+# #23: test coverage measurement + CI threshold enforcement.
+pytest-cov==7.0.0
