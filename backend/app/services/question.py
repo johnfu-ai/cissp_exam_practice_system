@@ -47,12 +47,7 @@ from app.services.audit import log_audit
 from app.services.snapshot import snapshot_question
 
 
-class ValidationError(ValueError):
-    """Invalid question data (maps to HTTP 422)."""
-
-
-class NotFound(LookupError):
-    """Question does not exist or is soft-deleted (maps to HTTP 404)."""
+from app.services.errors import NotFound, ValidationError
 
 
 class IllegalTransition(ValueError):

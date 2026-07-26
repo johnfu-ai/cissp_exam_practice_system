@@ -35,9 +35,26 @@ def get_sessionmaker() -> sessionmaker:
 
 
 def get_session() -> Iterator[Session]:
+    """Yield a DB session, committing on success and rolling back on error
+    (audit P2: centralize transaction management here instead of relying on
+    every route to commit + only admin.py to roll back).
+
+    Routes that already call ``session.commit()`` are unaffected - a second
+    commit on an empty post-route transaction is a no-op. The win is the
+    rollback-on-error safety net for any mutating route that raises before its
+    own commit, and a single place that owns the session lifecycle.
+
+    NB: tests override this dependency with a transaction-rollback fixture, so
+    the commit/rollback here only runs in production - the simple 5-line logic
+    is standard SQLAlchemy and verified by the route-level tests that exercise
+    commit via the override path."""
     session = get_sessionmaker()()
     try:
         yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 

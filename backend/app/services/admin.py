@@ -62,21 +62,12 @@ from app.schemas.admin import (
 from app.services.audit import log_audit
 
 
-class AdminError(Exception):
-    """Base for all admin-service errors. The router (Task 9) catches this one
-    base and maps subclasses to HTTP statuses (422/404/409)."""
-
-
-class ValidationError(AdminError):
-    pass
-
-
-class NotFound(AdminError):
-    pass
-
-
-class ConflictError(AdminError):
-    pass
+from app.services.errors import (
+    ConflictError,
+    NotFound,
+    ValidationError,
+)
+from app.services.errors import ServiceError as AdminError
 
 
 _SYSTEM_ADMIN = RoleName.system_admin.value
