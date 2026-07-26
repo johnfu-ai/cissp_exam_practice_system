@@ -55,6 +55,11 @@ jobs:
       - name: Run tests (incl. no-autogenerate-drift guard + coverage threshold)
         working-directory: backend
         run: pytest -q --cov=app --cov-report=term-missing --cov-fail-under=85
+      - name: Check OpenAPI schema freshness (#32)
+        working-directory: backend
+        run: |
+          python -m app.scripts.export_openapi ../frontend/openapi.json
+          git diff --exit-code ../frontend/openapi.json
 
   frontend:
     name: Frontend (vitest + lint + build)
@@ -73,6 +78,14 @@ jobs:
       - name: Test
         working-directory: frontend
         run: npm run test
+      - name: Typecheck (#32)
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Check generated API types freshness (#32)
+        working-directory: frontend
+        run: |
+          npm run gen:api
+          git diff --exit-code src/lib/api/schema.ts
       - name: Lint
         working-directory: frontend
         run: npm run lint

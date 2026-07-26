@@ -1,4 +1,13 @@
-// Mirrors backend Pydantic schemas. Field names are authoritative.
+// Hand-written frontend type surface for the backend API.
+//
+// #32: the GENERATED source of truth lives in `./schema.ts` (produced by
+// `npm run gen:api` from `openapi.json`, which is dumped by
+// `backend/app/scripts/export_openapi.py`). CI fails if either file is stale
+// vs the backend, so a backend schema change can't silently drift past review.
+// New code may import generated types directly from `./schema`; this file
+// keeps the app's narrower, human-readable aliases (e.g. enum unions where the
+// backend serializes a bare `string`). When the backend schema changes,
+// regenerate (`npm run gen:api`) and update the mirrors here to match.
 export type QuestionType =
   | "single_choice"
   | "multiple_choice"

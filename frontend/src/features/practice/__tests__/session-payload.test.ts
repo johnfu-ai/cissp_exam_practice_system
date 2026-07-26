@@ -23,6 +23,7 @@ describe("buildSessionPayload", () => {
       difficulty: 3,
       tagId: "t1",
       languageMode: null,
+      shuffleOptions: false,
     };
     expect(buildSessionPayload(form)).toEqual({
       count: 25,
