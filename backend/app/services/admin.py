@@ -17,7 +17,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Integer, func, or_, select
+from sqlalchemy import Integer, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -708,22 +708,32 @@ def report_summary(session, *, current, org_id=None, window_days=30) -> ReportSu
     user_ids = _scoped_user_ids(session, current)  # None or set
     cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
 
-    # answer stats in window (both practice + exam)
-    def _filtered_answers(model):
-        q = select(model).where(model.answered_at >= cutoff)
+    # Answer stats via SQL aggregation (audit P2: avoid loading every answer
+    # row into Python just to count it).
+    def _answer_stats(model):
+        q = select(
+            func.count().label("total"),
+            func.sum(case((model.is_correct.is_(True), 1), else_=0)).label("correct"),
+        ).where(model.answered_at >= cutoff)
         if user_ids is not None:
             q = q.where(model.user_id.in_(user_ids))
-        return session.execute(q).scalars().all()
+        return session.execute(q).one()
 
-    prac_ans = _filtered_answers(PracticeAnswer)
-    exam_ans = _filtered_answers(ExamAnswer)
-    total_answers = len(prac_ans) + len(exam_ans)
-    correct_answers = (
-        sum(1 for a in prac_ans if a.is_correct)
-        + sum(1 for a in exam_ans if a.is_correct)
-    )
+    prac = _answer_stats(PracticeAnswer)
+    exam = _answer_stats(ExamAnswer)
+    total_answers = (prac.total or 0) + (exam.total or 0)
+    correct_answers = int(prac.correct or 0) + int(exam.correct or 0)
     accuracy = round(correct_answers / total_answers, 4) if total_answers else 0.0
-    active_users = len({a.user_id for a in list(prac_ans) + list(exam_ans)})
+
+    # active_users: distinct users with any answer in window (practice UNION exam).
+    pa = select(PracticeAnswer.user_id).where(PracticeAnswer.answered_at >= cutoff)
+    ea = select(ExamAnswer.user_id).where(ExamAnswer.answered_at >= cutoff)
+    if user_ids is not None:
+        pa = pa.where(PracticeAnswer.user_id.in_(user_ids))
+        ea = ea.where(ExamAnswer.user_id.in_(user_ids))
+    active_users = session.execute(
+        select(func.count()).select_from(pa.union(ea).subquery())
+    ).scalar_one()
 
     # session counts in window
     def _session_count(model):
@@ -741,18 +751,22 @@ def report_summary(session, *, current, org_id=None, window_days=30) -> ReportSu
         qq = qq.where(Question.organization_id == report_org)
     published = session.execute(qq).scalars().all()
     published_question_count = len(published)
-    used_qids = set()
+    published_ids = {q.id for q in published}
+    # used question ids: unnest config.question_ids in SQL (audit P2: avoid
+    # loading every session row + parsing JSON in Python). config stores ids as
+    # JSON strings; normalize to UUID so the set intersection with Question.id
+    # (UUID) works. Malformed entries are skipped (the old code would raise).
+    used_qids: set[uuid.UUID] = set()
     for model in (PracticeSession, ExamSession):
-        sq = select(model)
+        q = select(func.jsonb_array_elements_text(model.config["question_ids"]))
         if user_ids is not None:
-            sq = sq.where(model.user_id.in_(user_ids))
-        for s in session.execute(sq).scalars().all():
-            raw = (s.config or {}).get("question_ids") or []
-            # config stores question_ids as JSON strings; normalize to UUID so
-            # the intersection with Question.id (UUID) is non-empty.
-            used_qids.update(uuid.UUID(q) if isinstance(q, str) else q for q in raw)
-    used_in_scope = {q.id for q in published} & used_qids
-    used_question_count = len(used_in_scope)
+            q = q.where(model.user_id.in_(user_ids))
+        for (qid_str,) in session.execute(q).all():
+            try:
+                used_qids.add(uuid.UUID(qid_str))
+            except (ValueError, TypeError):
+                continue
+    used_question_count = len(published_ids & used_qids)
     question_bank_usage_pct = (
         round(used_question_count / published_question_count * 100, 2)
         if published_question_count else 0.0
