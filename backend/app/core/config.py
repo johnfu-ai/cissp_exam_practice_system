@@ -44,6 +44,26 @@ class Settings(BaseSettings):
     # Dev defaults to the bind-mounted ``docs/questions`` so uploads sit next to
     # seeded datasets; prod should point this at a persistent volume.
     etl_upload_root: str = "docs/questions"
+    # P2: SQLAlchemy connection-pool tuning. Defaults match psycopg's pool; prod
+    # with N uvicorn workers multiplies these (workers*N connections). pool_recycle
+    # stays under Postgres' default idle timeout so connections are never reused
+    # after a server-side close.
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_recycle: int = 1800
+
+    def cors_origin_list(self) -> list[str]:
+        """Parsed CORS origin list, trimmed. P2: a wildcard ('*') is forbidden
+        with credentials (allow_credentials=True) - it would let any site make
+        credentialed requests. Refuse to start in that case rather than silently
+        degrading to an insecure CORS policy."""
+        origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        if "*" in origins:
+            raise ValueError(
+                "cors_origins='*' is not allowed with credentials. List the "
+                "exact allowed origins (e.g. 'https://app.example.com')."
+            )
+        return origins
 
     @model_validator(mode="after")
     def _validate_jwt_secret(self) -> "Settings":

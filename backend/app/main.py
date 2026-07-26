@@ -119,10 +119,12 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+        allow_origins=settings.cors_origin_list(),
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # P2: restrict to the methods/headers the API actually uses instead of
+        # wildcarding both (a wildcard + credentials is also insecure).
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
     # Per-request observability: request ID + metrics + access log (Tier 2 #26).
     app.add_middleware(RequestContextMiddleware)
