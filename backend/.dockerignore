@@ -1,8 +1,33 @@
+# Tier 2 #27: keep build context lean + keep tests/docs/caches out of the
+# runtime image. Secrets (.env) are never baked into the image.
+.git
+.gitignore
+.github
+.gitlab-ci.yml
+
+# Python caches + local venvs
 venv/
 .venv/
 __pycache__/
+**/__pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
 *.egg-info/
+
+# Tests + docs are not needed at runtime.
+tests/
+docs/
+*.md
+
+# Local env (never bake secrets into the image).
 .env
 .env.*
+
+# Docker metadata.
+Dockerfile
+.dockerignore

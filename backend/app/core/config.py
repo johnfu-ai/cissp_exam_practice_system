@@ -27,6 +27,17 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     seed_admin_email: str = "admin@example.com"
     seed_admin_password: str = ""
+    # Tier 2 #24: uvicorn process model. The entrypoint execs uvicorn with
+    # --workers N (default 1 = current behavior) + --timeout-graceful-shutdown
+    # so in-flight exam submits finish on SIGTERM/deploy instead of being killed.
+    uvicorn_workers: int = 1
+    uvicorn_graceful_shutdown_seconds: int = 30
+    # Tier 2 #26: observability. log_level is the root stdlib level; sentry_dsn
+    # gates Sentry init (empty = disabled, no SDK overhead). traces_sample_rate
+    # controls performance transaction sampling (0 = none).
+    log_level: str = "info"
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0
 
     @model_validator(mode="after")
     def _validate_jwt_secret(self) -> "Settings":

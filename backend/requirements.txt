@@ -12,3 +12,8 @@ bcrypt==4.2.1
 pyjwt==2.10.1
 email-validator==2.2.0
 nh3==0.3.6
+
+# Tier 2 #26 observability: structured logging + Prometheus metrics + Sentry.
+structlog==26.1.0
+prometheus-client==0.25.0
+sentry-sdk[fastapi]==2.66.0

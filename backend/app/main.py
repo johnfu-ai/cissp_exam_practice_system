@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -16,7 +19,10 @@ from app.api.questions import router as questions_router
 from app.api.taxonomy import router as taxonomy_router
 from app.api.users import router as users_router
 from app.core.config import settings
-from app.db.session import get_engine
+from app.core.logging import configure_logging, get_logger
+from app.core.metrics import metrics_response
+from app.core.observability import RequestContextMiddleware
+from app.db.session import dispose_engine, get_engine
 
 _CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
@@ -72,8 +78,44 @@ def _check_deps() -> tuple[str, str]:
     return db_status, redis_status
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Tier 2 #24: graceful shutdown. On SIGTERM (deploy / scale-down), uvicorn
+    stops accepting new connections and waits up to `--timeout-graceful-shutdown`
+    for in-flight requests (an exam submit, a migration) to finish; this lifespan
+    then closes the DB pool + health Redis client so no connections leak."""
+    log = get_logger("app.lifecycle")
+    log.info("startup", app_env=settings.app_env, workers=settings.uvicorn_workers)
+    yield
+    log.info("shutdown", app_env=settings.app_env)
+    global _health_redis
+    if _health_redis is not None:
+        try:
+            _health_redis.close()
+        except Exception:  # pragma: no cover - defensive
+            pass
+        _health_redis = None
+    dispose_engine()
+
+
+def _init_sentry() -> None:
+    """Tier 2 #26: init Sentry only when a DSN is configured. No-op otherwise
+    (no SDK overhead, no outbound traffic). Auto-detects the FastAPI integration."""
+    if not settings.sentry_dsn:
+        return
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.app_env,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+    )
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="CISSP Exam Practice System", version="0.2.0")
+    configure_logging(settings.log_level)
+    _init_sentry()
+    app = FastAPI(title="CISSP Exam Practice System", version="0.2.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -82,6 +124,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Per-request observability: request ID + metrics + access log (Tier 2 #26).
+    app.add_middleware(RequestContextMiddleware)
     # Added last -> outermost, so security headers land on every response
     # (including CORS preflight).
     app.add_middleware(SecurityHeadersMiddleware)
@@ -111,6 +155,13 @@ def create_app() -> FastAPI:
         # Backward-compat alias of /ready (frontend status badge + existing
         # tests). Now returns 503 when degraded instead of always 200.
         return _ready_body(response)
+
+    @app.get("/metrics")
+    def metrics() -> Response:
+        # Tier 2 #26: Prometheus scrape endpoint. Ops-only - keep it behind the
+        # reverse proxy / on an internal port in production (docker-compose.prod.yml).
+        body, ctype = metrics_response()
+        return Response(content=body, media_type=ctype)
 
     app.include_router(analytics_router)
     app.include_router(auth_router)
