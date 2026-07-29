@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
@@ -72,6 +73,7 @@ export function KnowledgePointsTab() {
   const remove = useDeleteKnowledgePoint();
   const [name, setName] = useState("");
   const [parent, setParent] = useState<string | null>(null);
+  const [pendingKp, setPendingKp] = useState<KnowledgePoint | null>(null);
 
   if (kps.isLoading) return <Loading label={t("taxonomyKps.loading")} />;
   if (kps.isError) return <ErrorState message={t("taxonomyKps.loadFailed")} onRetry={() => kps.refetch()} />;
@@ -120,15 +122,26 @@ export function KnowledgePointsTab() {
               <KpRow
                 kp={kp}
                 onSave={(newName) => update.mutate({ id: kp.id, body: { name: newName, parent_id: kp.parent_id } }, { onError: (e) => err(e, t("taxonomyKps.couldNotRename")) })}
-                onDelete={() => {
-                  if (!window.confirm(t("taxonomyKps.deleteConfirm", { name: kp.name }))) return;
-                  remove.mutate(kp.id, { onSuccess: () => toast.success(t("taxonomyKps.toastDeleted")), onError: (e) => err(e, t("taxonomyKps.couldNotDelete")) });
-                }}
+                onDelete={() => setPendingKp(kp)}
               />
             </div>
           ))}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={!!pendingKp}
+        onOpenChange={(o) => !o && setPendingKp(null)}
+        title={t("taxonomyKps.deleteConfirm", { name: pendingKp?.name ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (!pendingKp) return;
+          const id = pendingKp.id;
+          setPendingKp(null);
+          remove.mutate(id, { onSuccess: () => toast.success(t("taxonomyKps.toastDeleted")), onError: (e) => err(e, t("taxonomyKps.couldNotDelete")) });
+        }}
+      />
     </div>
   );
 }

@@ -11,11 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { Trash2 } from "lucide-react";
-import type { Book } from "@/lib/api/types";
+import type { Book, Chapter } from "@/lib/api/types";
 
 function err(e: unknown, fallback: string) {
   toast.error(e instanceof ApiError && (e.status === 422 || e.status === 409) ? e.message : fallback);
@@ -27,6 +28,7 @@ export function BooksTab() {
   const create = useCreateBook();
   const remove = useDeleteBook();
   const [title, setTitle] = useState("");
+  const [pendingBook, setPendingBook] = useState<Book | null>(null);
 
   if (books.isLoading) return <Loading label={t("taxonomyBooks.loading")} />;
   if (books.isError) return <ErrorState message={t("taxonomyBooks.loadFailed")} onRetry={() => books.refetch()} />;
@@ -55,13 +57,24 @@ export function BooksTab() {
         <BookCard
           key={b.id}
           book={b}
-          onDelete={() => {
-            if (!window.confirm(t("taxonomyBooks.deleteBookConfirm", { title: b.title }))) return;
-            remove.mutate(b.id, { onSuccess: () => toast.success(t("taxonomyBooks.toastDeleted")), onError: (e) => err(e, t("taxonomyBooks.couldNotDelete")) });
-          }}
+          onDelete={() => setPendingBook(b)}
         />
       ))}
       {books.data?.length === 0 && <p className="text-sm text-muted-foreground">{t("taxonomyBooks.noBooks")}</p>}
+      <ConfirmDialog
+        open={!!pendingBook}
+        onOpenChange={(o) => !o && setPendingBook(null)}
+        title={t("taxonomyBooks.deleteBookConfirm", { title: pendingBook?.title ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (!pendingBook) return;
+          const id = pendingBook.id;
+          setPendingBook(null);
+          remove.mutate(id, { onSuccess: () => toast.success(t("taxonomyBooks.toastDeleted")), onError: (e) => err(e, t("taxonomyBooks.couldNotDelete")) });
+        }}
+      />
     </div>
   );
 }
@@ -104,6 +117,7 @@ function ChapterEditor({ bookId }: { bookId: string }) {
   const remove = useDeleteChapter();
   const [order, setOrder] = useState("");
   const [title, setTitle] = useState("");
+  const [pendingChapter, setPendingChapter] = useState<Chapter | null>(null);
 
   return (
     <div className="space-y-2">
@@ -114,10 +128,7 @@ function ChapterEditor({ bookId }: { bookId: string }) {
           order={c.order_index}
           title={c.title}
           onSave={(body) => update.mutate({ bookId, chapterId: c.id, body }, { onError: (e) => err(e, t("taxonomyBooks.couldNotSaveChapter")) })}
-          onDelete={() => {
-            if (!window.confirm(t("taxonomyBooks.deleteChapterConfirm", { title: c.title }))) return;
-            remove.mutate({ bookId, chapterId: c.id }, { onError: (e) => err(e, t("taxonomyBooks.couldNotDeleteChapter")) });
-          }}
+          onDelete={() => setPendingChapter(c)}
         />
       ))}
       <div className="flex items-end gap-2 rounded-md border border-dashed p-2">
@@ -134,6 +145,20 @@ function ChapterEditor({ bookId }: { bookId: string }) {
           {t("taxonomyBooks.add")}
         </Button>
       </div>
+      <ConfirmDialog
+        open={!!pendingChapter}
+        onOpenChange={(o) => !o && setPendingChapter(null)}
+        title={t("taxonomyBooks.deleteChapterConfirm", { title: pendingChapter?.title ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (!pendingChapter) return;
+          const chapterId = pendingChapter.id;
+          setPendingChapter(null);
+          remove.mutate({ bookId, chapterId }, { onError: (e) => err(e, t("taxonomyBooks.couldNotDeleteChapter")) });
+        }}
+      />
     </div>
   );
 }

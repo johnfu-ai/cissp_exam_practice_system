@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
@@ -24,6 +25,7 @@ export function TagsTab() {
   const create = useCreateTag();
   const remove = useDeleteTag();
   const [name, setName] = useState("");
+  const [pending, setPending] = useState<Tag | null>(null);
 
   if (tags.isLoading) return <Loading label={t("taxonomyTags.loading")} />;
   if (tags.isError) return <ErrorState message={t("taxonomyTags.loadFailed")} onRetry={() => tags.refetch()} />;
@@ -55,14 +57,25 @@ export function TagsTab() {
             <TagRow
               key={tg.id}
               tag={tg}
-              onDelete={() => {
-                if (!window.confirm(t("taxonomyTags.deleteTagConfirm", { name: tg.name }))) return;
-                remove.mutate(tg.id, { onSuccess: () => toast.success(t("taxonomyTags.toastDeleted")), onError: (e) => err(e, t("taxonomyTags.couldNotDeleteTag")) });
-              }}
+              onDelete={() => setPending(tg)}
             />
           ))}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={!!pending}
+        onOpenChange={(o) => !o && setPending(null)}
+        title={t("taxonomyTags.deleteTagConfirm", { name: pending?.name ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (!pending) return;
+          const id = pending.id;
+          setPending(null);
+          remove.mutate(id, { onSuccess: () => toast.success(t("taxonomyTags.toastDeleted")), onError: (e) => err(e, t("taxonomyTags.couldNotDeleteTag")) });
+        }}
+      />
     </div>
   );
 }

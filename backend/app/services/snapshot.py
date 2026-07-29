@@ -50,6 +50,14 @@ def snapshot_question(
         "version": question.version,
         "available_languages": list(question.available_languages or []),
         "language_mode": language_mode,
+        # P3: freeze metadata that affects delivery/labeling too, so a later
+        # edit can't alter a historical review (prompt_items drives matching
+        # question display; source/license_status are provenance).
+        "source": question.source,
+        "license_status": (
+            question.license_status.value if question.license_status else None
+        ),
+        "prompt_items": question.prompt_items,
         "options": canon,
         "translations": tmap,
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useExamSession } from "@/lib/api/exam";
+import { useRouter } from "next/navigation";
 import { FixedExamRunner } from "./fixed-runner";
 import { CatExamRunner } from "./cat-runner";
 import { Loading } from "@/components/loading";
@@ -9,6 +10,7 @@ import { useT } from "@/lib/i18n/provider";
 
 export function ExamRunner({ sessionId }: { sessionId: string }) {
   const t = useT();
+  const router = useRouter();
   const session = useExamSession(sessionId);
 
   if (session.isLoading) return <Loading label={t("examRunnerPage.loadingExam")} />;
@@ -19,9 +21,7 @@ export function ExamRunner({ sessionId }: { sessionId: string }) {
 
   // A finished/expired session has no live delivery — send the user to the report.
   if (s.status !== "in_progress") {
-    if (typeof window !== "undefined") {
-      window.location.replace(`/exam/sessions/${sessionId}/report`);
-    }
+    router.replace(`/exam/sessions/${sessionId}/report`);
     return <Loading label={t("examRunnerPage.loadingReport")} />;
   }
 

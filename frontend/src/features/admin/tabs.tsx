@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
@@ -128,6 +129,7 @@ export function ClassesTab() {
   const create = useCreateClass();
   const remove = useDeleteClass();
   const [name, setName] = useState("");
+  const [pendingClass, setPendingClass] = useState<AdminClass | null>(null);
 
   if (classes.isLoading) return <Loading label={t("adminTab.loadingClasses")} />;
   if (classes.isError) return <ErrorState message={t("adminTab.loadFailedClasses")} onRetry={() => classes.refetch()} />;
@@ -146,10 +148,21 @@ export function ClassesTab() {
         </CardContent>
       </Card>
       {items.length === 0 && <p className="text-sm text-muted-foreground">{t("adminTab.noClasses")}</p>}
-      {items.map((c) => <ClassCard key={c.id} cls={c} onDelete={() => {
-        if (!window.confirm(t("adminTab.deleteClassConfirm", { name: c.name }))) return;
-        remove.mutate(c.id, { onSuccess: () => toast.success(t("adminTab.toastDeleted")), onError: (e) => err(e, t("adminTab.couldNotDeleteClass")) });
-      }} />)}
+      {items.map((c) => <ClassCard key={c.id} cls={c} onDelete={() => setPendingClass(c)} />)}
+      <ConfirmDialog
+        open={!!pendingClass}
+        onOpenChange={(o) => !o && setPendingClass(null)}
+        title={t("adminTab.deleteClassConfirm", { name: pendingClass?.name ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (!pendingClass) return;
+          const id = pendingClass.id;
+          setPendingClass(null);
+          remove.mutate(id, { onSuccess: () => toast.success(t("adminTab.toastDeleted")), onError: (e) => err(e, t("adminTab.couldNotDeleteClass")) });
+        }}
+      />
     </div>
   );
 }

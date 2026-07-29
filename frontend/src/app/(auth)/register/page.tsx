@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, ShieldCheck, User } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
@@ -104,9 +105,9 @@ export default function RegisterPage() {
         </form>
         <p className="mt-6 text-center text-sm text-muted-foreground">
           {t("auth.haveAccount")}{" "}
-          <a href="/login" className="font-medium text-primary hover:underline">
+          <Link href="/login" className="font-medium text-primary hover:underline">
             {t("auth.login")}
-          </a>
+          </Link>
         </p>
       </Card>
     </div>

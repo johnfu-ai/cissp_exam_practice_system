@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
@@ -41,6 +42,7 @@ export function BlueprintsTab() {
   const remove = useDeleteBlueprint();
   const [form, setForm] = useState<BlueprintInput>(EMPTY);
   const [showForm, setShowForm] = useState(false);
+  const [pendingBp, setPendingBp] = useState<Blueprint | null>(null);
 
   if (blueprints.isLoading) return <Loading label={t("taxonomyBlueprints.loading")} />;
   if (blueprints.isError) return <ErrorState message={t("taxonomyBlueprints.loadFailed")} onRetry={() => blueprints.refetch()} />;
@@ -106,15 +108,26 @@ export function BlueprintsTab() {
               onError: (e) => err(e, t("taxonomyBlueprints.couldNotSetCurrent")),
             })
           }
-          onDelete={() => {
-            if (!window.confirm(t("taxonomyBlueprints.deleteBlueprintConfirm", { label: bp.version_label }))) return;
-            remove.mutate(bp.id, {
-              onSuccess: () => toast.success(t("taxonomyBlueprints.toastDeleted")),
-              onError: (e) => err(e, t("taxonomyBlueprints.couldNotDelete")),
-            });
-          }}
+          onDelete={() => setPendingBp(bp)}
         />
       ))}
+      <ConfirmDialog
+        open={!!pendingBp}
+        onOpenChange={(o) => !o && setPendingBp(null)}
+        title={t("taxonomyBlueprints.deleteBlueprintConfirm", { label: pendingBp?.version_label ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (!pendingBp) return;
+          const id = pendingBp.id;
+          setPendingBp(null);
+          remove.mutate(id, {
+            onSuccess: () => toast.success(t("taxonomyBlueprints.toastDeleted")),
+            onError: (e) => err(e, t("taxonomyBlueprints.couldNotDelete")),
+          });
+        }}
+      />
     </div>
   );
 }
@@ -165,6 +178,7 @@ function DomainEditor({ blueprintId, domains }: { blueprintId: string; domains: 
   const [n, setN] = useState("");
   const [name, setName] = useState("");
   const [w, setW] = useState("");
+  const [pendingDomain, setPendingDomain] = useState<Domain | null>(null);
 
   function add() {
     if (!name.trim()) return;
@@ -184,10 +198,7 @@ function DomainEditor({ blueprintId, domains }: { blueprintId: string; domains: 
           key={d.id}
           d={d}
           onSave={(body) => update.mutate({ blueprintId, domainId: d.id, body }, { onError: (e) => err(e, t("taxonomyBlueprints.couldNotUpdateDomain")) })}
-          onDelete={() => {
-            if (!window.confirm(t("taxonomyBlueprints.deleteDomainConfirm", { name: d.name }))) return;
-            remove.mutate({ blueprintId, domainId: d.id }, { onError: (e) => err(e, t("taxonomyBlueprints.couldNotDeleteDomain")) });
-          }}
+          onDelete={() => setPendingDomain(d)}
         />
       ))}
       <div className="flex items-end gap-2 rounded-md border border-dashed p-2">
@@ -196,6 +207,20 @@ function DomainEditor({ blueprintId, domains }: { blueprintId: string; domains: 
         <Input className="w-20" placeholder={t("taxonomyBlueprints.weightPlaceholder")} value={w} onChange={(e) => setW(e.target.value)} />
         <Button size="sm" onClick={add} disabled={create.isPending}>{t("taxonomyBlueprints.add")}</Button>
       </div>
+      <ConfirmDialog
+        open={!!pendingDomain}
+        onOpenChange={(o) => !o && setPendingDomain(null)}
+        title={t("taxonomyBlueprints.deleteDomainConfirm", { name: pendingDomain?.name ?? "" })}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        busy={remove.isPending}
+        onConfirm={() => {
+          if (!pendingDomain) return;
+          const domainId = pendingDomain.id;
+          setPendingDomain(null);
+          remove.mutate({ blueprintId, domainId }, { onError: (e) => err(e, t("taxonomyBlueprints.couldNotDeleteDomain")) });
+        }}
+      />
     </div>
   );
 }

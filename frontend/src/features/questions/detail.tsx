@@ -31,7 +31,8 @@ import {
   statusLabel, statusVariant, availableActions,
   feedbackTypeLabel, feedbackStatusLabel,
 } from "./labels";
-import type { ReviewAction, FeedbackType, LanguageCode } from "@/lib/api/types";
+import type { ReviewAction, FeedbackType } from "@/lib/api/types";
+import { langBadge } from "./lang-badge";
 
 const FEEDBACK_TYPES: FeedbackType[] = [
   "unclear_explanation", "suspected_wrong_answer", "ambiguous_stem", "copyright_issue", "other",
@@ -43,16 +44,6 @@ const FEEDBACK_TYPES: FeedbackType[] = [
 const REVIEW_ACTION_VARIANT: Record<string, "default" | "outline"> = {
   approve: "default",
 };
-
-/** Compact badge label for a question's available languages. */
-function langBadge(languages: LanguageCode[]): string {
-  const hasEn = languages.includes("en");
-  const hasZh = languages.includes("zh");
-  if (hasEn && hasZh) return "EN+中";
-  if (hasZh) return "中";
-  if (hasEn) return "EN";
-  return "—";
-}
 
 export function QuestionDetailView({ questionId }: { questionId: string }) {
   const t = useT();

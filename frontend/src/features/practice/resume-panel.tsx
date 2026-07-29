@@ -61,9 +61,6 @@ export function ResumePanel() {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {active.map((s) => {
-        const answered = s.config && Array.isArray((s.config as { question_ids?: unknown[] }).question_ids)
-          ? null
-          : null;
         return (
           <Card key={s.id}>
             <CardHeader>

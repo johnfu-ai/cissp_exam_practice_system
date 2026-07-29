@@ -22,20 +22,11 @@ import { useT } from "@/lib/i18n/provider";
 import { enumLabel } from "@/features/shared/enum-label";
 import { statusLabel, statusVariant } from "./labels";
 import type { QuestionStatus, QuestionType, QuestionFilters, LanguageCode } from "@/lib/api/types";
+import { langBadge } from "./lang-badge";
 
 const ANY = "__any__";
 const STATUSES: QuestionStatus[] = ["draft", "pending_review", "published", "needs_revision", "archived"];
 const TYPES: QuestionType[] = ["single_choice", "multiple_choice", "true_false", "scenario", "ordering", "drag_drop", "hotspot"];
-
-/** Compact badge label for a question's available languages. */
-function langBadge(languages: LanguageCode[]): string {
-  const hasEn = languages.includes("en");
-  const hasZh = languages.includes("zh");
-  if (hasEn && hasZh) return "EN+中";
-  if (hasZh) return "中";
-  if (hasEn) return "EN";
-  return "—";
-}
 
 export function QuestionList() {
   const t = useT();
