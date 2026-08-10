@@ -1,12 +1,13 @@
 # CISSP考试练习系统 PRD
 
-版本：1.2
-日期：2026-06-27
+版本：1.3
+日期：2026-08-10
 状态：Draft
-技术方向：前端 Next.js，后端 FastAPI
+技术方向：Flutter 学员端（Android、iOS、Windows）+ Next.js 管理端，后端 FastAPI
 目标文件：`docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md`
 
 > 修订记录
+> - v1.3 (2026-08-10)：调整客户端技术架构与职责边界。新增 Flutter 学员端，以一套 Dart/Flutter 代码库覆盖 Android、iOS、Windows，承载练习、固定/CAT 考试、错题复盘、学习分析和设置；Next.js 保留为管理端，承载管理后台、题库编辑、ETL 导入和分类管理。同步更新 §6.13、§7.4、§8、§9、§12、§13、§14、§15 与 §17。
 > - v1.2 (2026-06-27)：新增「设置页」与「界面国际化」需求（FR-SET-01..03、FR-I18N-01..06，见 §6.12）。新增 `User.interface_language`（§9.4）；偏好接口 `/api/users/me/preferences` 同时承载 `interface_language`（§9.5）；§8.1 页面清单新增设置页；§12.1 MVP 与 §14 验收标准补充；解决原开放问题 §16-#3（UI chrome 国际化纳入范围，仅界面字符串，taxonomy 数据有意不译）。原侧边栏题目内容语言选择器迁入设置页（FR-SET-02）。
 > - v1.1 (2026-06-26)：新增题目语言选择与中英文双语展示需求（FR-LANG-01..10），覆盖数据模型（§9.4）、API（§9.5）、导入模板与校验（§10）、MVP 范围（§12）与验收标准（§14）；解决原开放问题 §16-#3（题目内容双语）与 §16-#9（双语存储模型）。ETL 管道代码沿用并适配新模型，§6.3/§9.6/§10.3/§10.4 描述不变。
 > - v1.0 (2026-06-21)：初版。
@@ -347,16 +348,29 @@ ETL 管道将一个外部数据集（一个目录，含 `manifest.json` + 题目
 | ID | 需求 | 优先级 |
 |---|---|---|
 | FR-SET-01 | 提供「设置」页面作为个人偏好唯一入口，登录后可访问 | P0 |
-| FR-SET-02 | 原侧边栏账户区的题目内容语言选择器（`language_mode`）迁入设置页；侧边栏账户区改为「设置」入口 + 退出 | P0 |
+| FR-SET-02 | Flutter 学员端导航/账户区仅提供「设置」入口 + 退出；题目内容语言选择器（`language_mode`）统一放在设置页 | P0 |
 | FR-SET-03 | 设置页同时承载界面语言选择（English/中文）与题目内容语言选择（en/zh/bilingual）两张卡片 | P0 |
 | FR-I18N-01 | 界面语言取值 `en` / `zh`，默认 `en`，作为个人偏好保存在用户档案（`User.interface_language`） | P0 |
 | FR-I18N-02 | 界面语言经既有 `GET/PUT /api/users/me/preferences` 读写；非法枚举值返回 422 | P0 |
 | FR-I18N-03 | 切换界面语言后，所有 UI 界面字符串（导航、按钮、页面标题、表单标签、提示、设置页本身）即时切换，无需刷新 | P0 |
-| FR-I18N-04 | 首屏即按用户界面语言渲染，无英文闪烁、无 hydration mismatch（cookie 种子 + 服务端注入初始语言） | P0 |
+| FR-I18N-04 | 首屏即按用户界面语言渲染，无错误语言闪烁；Flutter 在进入主界面前初始化本地/服务端偏好，Next.js 管理端由 cookie 种子 + 服务端注入初始语言，且无 hydration mismatch | P0 |
 | FR-I18N-05 | 界面国际化仅覆盖 UI 界面字符串；不翻译 taxonomy 数据（domain/书本/章节/知识点/标签名称），题目内容语言由 FR-LANG 独立处理 | P0 |
 | FR-I18N-06 | `UserOut`、`/auth/me`、`/auth/login`、`/auth/register` 响应包含 `interface_language` | P1 |
 
-> 实现说明：界面语言偏好持久化在后端 `User.interface_language`（默认 `en`），前端以 cookie 种子的客户端 i18n context 渲染（无新依赖、无 `[locale]` 路由）。详见设计文档 `docs/superpowers/specs/2026-06-27-settings-and-ui-i18n-design.md`。
+> 实现说明：界面语言偏好统一持久化在后端 `User.interface_language`（默认 `en`）。Flutter 学员端同时缓存最近一次成功同步的偏好，用于首帧初始化；Next.js 管理端继续以 cookie 种子的客户端 i18n context 渲染（无 `[locale]` 路由）。既有 Next.js 实现详见 `docs/superpowers/specs/2026-06-27-settings-and-ui-i18n-design.md`。
+
+### 6.13 客户端平台与职责边界（FR-CLIENT）
+
+系统采用双客户端架构：Flutter 作为学员端，以一套 Dart/Flutter 代码库覆盖 Android、iOS、Windows；Next.js 作为浏览器管理端。两个客户端共享同一套 FastAPI、认证体系、权限模型和业务数据，不在客户端复制服务端业务规则。
+
+| ID | 需求 | 优先级 |
+|---|---|---|
+| FR-CLIENT-01 | Flutter 学员端使用同一套代码库构建 Android、iOS、Windows 应用；允许将签名、通知、安全存储等平台差异封装为薄适配层 | P0 |
+| FR-CLIENT-02 | Flutter 学员端承载练习、固定模拟考试、CAT 模拟考试、错题/收藏复盘、个人学习分析和设置 | P0 |
+| FR-CLIENT-03 | Next.js 管理端承载管理后台、题库编辑与审核、ETL 导入、分类/参考数据管理 | P0 |
+| FR-CLIENT-04 | Flutter 与 Next.js 通过同一套 FastAPI REST API 访问数据，并遵循相同的认证、租户隔离、权限、语言模式和历史快照规则 | P0 |
+| FR-CLIENT-05 | Flutter 学员端针对手机触控和 Windows 键鼠分别提供自适应布局与输入方式，但练习、计时、提交和 CAT 前进式规则保持一致 | P0 |
+| FR-CLIENT-06 | Next.js 管理端不作为 MVP 学员刷题入口；Flutter 学员端不承载题库导入、题目审核、分类维护和系统管理操作 | P0 |
 
 ## 7. 非功能需求
 
@@ -400,11 +414,11 @@ ETL 管道将一个外部数据集（一个目录，含 `manifest.json` + 题目
 | ID | 需求 |
 |---|---|
 | NFR-UX-01 | 练习页面应减少干扰，突出题干、选项、计时和提交 |
-| NFR-UX-02 | 普通练习支持桌面、平板和移动端 |
-| NFR-UX-03 | CAT 模拟考试优先保障桌面端体验 |
-| NFR-UX-04 | 支持键盘选择选项和提交答案 |
+| NFR-UX-02 | Flutter 学员端适配 Android、iOS 手机/平板和 Windows 桌面窗口，支持响应式布局 |
+| NFR-UX-03 | CAT 模拟考试在 Android、iOS、Windows 上保持规则和状态一致，Windows 优先保障完整桌面体验 |
+| NFR-UX-04 | Android/iOS 支持触控操作；Windows 支持键盘选择、提交及常用快捷操作 |
 | NFR-UX-05 | 颜色反馈不能作为唯一状态提示 |
-| NFR-UX-06 | 目标满足 WCAG 2.1 AA |
+| NFR-UX-06 | Next.js 管理端目标满足 WCAG 2.1 AA；Flutter 学员端同时遵循 Android、iOS、Windows 的无障碍语义和辅助技术规范 |
 | NFR-UX-07 | 解析页应适合长文本、表格、代码块和图片 |
 | NFR-UX-08 | 支持浅色和深色模式可作为 P2 增强 |
 
@@ -422,23 +436,23 @@ ETL 管道将一个外部数据集（一个目录，含 `manifest.json` + 题目
 
 ### 8.1 页面清单
 
-| 页面 | 核心内容 |
-|---|---|
-| 登录/注册 | 注册、登录、忘记密码 |
-| 首页仪表盘 | 学习概览、薄弱 domain、今日建议、继续练习 |
-| 题库导入 | 上传文件、字段映射、预览校验、导入结果 |
-| 题目管理 | 筛选、编辑、审核、批量操作、纠错反馈 |
-| 分类管理 | domain、知识点、书本、章节、标签 |
-| 练习配置 | 选择范围、题量、模式、计时、选项打乱 |
-| 答题页 | 题干、选项、进度、计时、提交、标记 |
-| 解析页 | 答案、解析、错误选项解释、知识点、笔记 |
-| 错题本 | 错题筛选、重练、掌握状态 |
-| 收藏题 | 收藏题列表和专项练习 |
-| 固定模拟考试 | 规则确认、考试答题、计时、提交 |
-| CAT 模拟考试 | CAT 规则确认、动态出题、前进式答题 |
-| 考试报告 | 总结果、domain 分析、耗时分析、复习建议 |
-| 设置 | 界面语言（English/中文）、题目内容语言（en/zh/bilingual） |
-| 管理后台 | 用户、题库、分类、配置、报表、审计 |
+| 页面 | 核心内容 | 承载端 |
+|---|---|---|
+| 登录/注册 | 注册、登录、忘记密码 | Flutter 学员端；Next.js 管理端提供管理员登录 |
+| 首页仪表盘 | 学习概览、薄弱 domain、今日建议、继续练习 | Flutter 学员端 |
+| 题库导入 | 上传文件、字段映射、预览校验、导入结果 | Next.js 管理端 |
+| 题目管理 | 筛选、编辑、审核、批量操作、纠错反馈 | Next.js 管理端 |
+| 分类管理 | domain、知识点、书本、章节、标签 | Next.js 管理端 |
+| 练习配置 | 选择范围、题量、模式、计时、选项打乱 | Flutter 学员端 |
+| 答题页 | 题干、选项、进度、计时、提交、标记 | Flutter 学员端 |
+| 解析页 | 答案、解析、错误选项解释、知识点、笔记 | Flutter 学员端 |
+| 错题本 | 错题筛选、重练、掌握状态 | Flutter 学员端 |
+| 收藏题 | 收藏题列表和专项练习 | Flutter 学员端 |
+| 固定模拟考试 | 规则确认、考试答题、计时、提交 | Flutter 学员端 |
+| CAT 模拟考试 | CAT 规则确认、动态出题、前进式答题 | Flutter 学员端 |
+| 考试报告 | 总结果、domain 分析、耗时分析、复习建议 | Flutter 学员端 |
+| 设置 | 界面语言（English/中文）、题目内容语言（en/zh/bilingual） | Flutter 学员端 |
+| 管理后台 | 用户、题库、分类、配置、报表、审计 | Next.js 管理端 |
 
 ### 8.2 答题页原则
 
@@ -453,14 +467,12 @@ ETL 管道将一个外部数据集（一个目录，含 `manifest.json` + 题目
 ### 9.1 总体架构
 
 ```text
-用户浏览器
-  |
-  | HTTPS / REST
-  v
-Next.js App Router 前端
-  |
-  | REST API
-  v
+Flutter 学员端                         Next.js 管理端
+(Android / iOS / Windows)              (浏览器)
+          |                                |
+          +---------- HTTPS / REST --------+
+                           |
+                           v
 FastAPI 后端
   |-- Auth Service
   |-- Question Bank Service
@@ -476,15 +488,26 @@ FastAPI 后端
 PostgreSQL + Redis + Background Worker
 ```
 
-### 9.2 前端 Next.js
+### 9.2 客户端
 
-- 使用 Next.js App Router、React、TypeScript。
-- 服务端数据建议使用 TanStack Query。
-- 本地练习状态可使用 Zustand 或 React Context。
-- 表单使用 React Hook Form + Zod 校验。
-- UI 组件建议使用 shadcn/ui 或同类组件库。
-- 图表可使用 ECharts、Recharts 或 Tremor。
-- 富文本渲染使用 Markdown/HTML 白名单清洗。
+#### 9.2.1 Flutter 学员端
+
+- 使用 Dart + Flutter，以一个代码库构建 Android、iOS、Windows 应用。
+- 承载练习、固定/CAT 考试、错题与收藏复盘、个人学习分析和设置，不承载管理功能。
+- 采用响应式页面骨架：Android/iOS 以触控和窄屏为主，Windows 以可变窗口、键盘和鼠标为主。
+- API 客户端统一处理 HTTPS、认证刷新、超时、重试和错误映射；访问令牌仅保存在内存，长期刷新凭据通过受管 Cookie 容器并结合系统安全存储持久化。
+- 练习/考试的当前选择、计时和语言切换保存在会话状态中；关键答题进度以服务端会话为准，避免进程退出造成业务状态分叉。
+- 界面国际化支持 `en`/`zh`，题目内容语言独立支持 `en`/`zh`/`bilingual`，字段及行为与现有 API 保持一致。
+- 富文本渲染仅接受后端清洗后的 Markdown/HTML 白名单内容。
+
+#### 9.2.2 Next.js 管理端
+
+- 使用 Next.js App Router、React、TypeScript，作为浏览器管理端。
+- 承载管理后台、题库编辑/审核、ETL 导入、分类管理、配置、报表和审计，不作为 MVP 学员刷题入口。
+- 服务端数据使用 TanStack Query；表单使用 React Hook Form + Zod 校验。
+- UI 组件使用 shadcn/ui 或同类组件库；管理报表图表可使用 ECharts、Recharts、Tremor 或现有轻量图表实现。
+- 富文本编辑与预览必须遵循 Markdown/HTML 白名单清洗规则。
+- Flutter 与 Next.js 应基于同一份 FastAPI OpenAPI 契约维护类型和接口一致性。
 
 ### 9.3 后端 FastAPI
 
@@ -744,21 +767,21 @@ MVP 可采用规则驱动加简化能力估计：
 
 ### 12.1 MVP 必须包含
 
-1. 用户注册登录。
-2. CSV/XLSX/JSON 题库导入。
-3. ETL 管道：以 `docs/questions/` 数据集为输入，完成抽取、清洗、幂等加载，首批导入 OSG 第 10 版双语题库。
-4. 导入模板、字段映射、预览校验、错误报告。
-4. 题目管理和基本分类管理。
-5. 单选、多选题练习。
-6. 按 domain、书本、章节筛选练习。
-7. 答题后查看答案详解和错误选项解释。
-8. 错题本、收藏题和个人笔记。
-9. 固定题量模拟考试。
-10. 基础 CAT 模拟考试。
-11. 学习仪表盘和 domain 正确率分析。
-12. 基础管理后台。
-13. 题目中英文双语存储与展示，用户可选 `en`/`zh`/`bilingual` 语言模式并在答题中即时切换（FR-LANG-01..07、09）。
-14. 设置页与界面国际化：设置页承载界面语言（English/中文）与题目内容语言选择，界面语言切换后整个 UI 界面即时切换并持久化（FR-SET-01..03、FR-I18N-01..05）。
+1. 用户注册登录和共享认证体系。
+2. 一套 Flutter 学员端代码覆盖 Android、iOS、Windows。
+3. Flutter 学员端提供单选/多选练习，并支持按 domain、书本、章节筛选。
+4. Flutter 学员端在答题后展示答案详解和错误选项解释。
+5. Flutter 学员端提供错题本、收藏题、个人笔记和重练。
+6. Flutter 学员端提供固定题量模拟考试和基础 CAT 模拟考试。
+7. Flutter 学员端提供学习仪表盘、domain 正确率分析和设置。
+8. Next.js 管理端提供 CSV/XLSX/JSON 题库导入。
+9. ETL 管道：以 `docs/questions/` 数据集为输入，完成抽取、清洗、幂等加载，首批导入 OSG 第 10 版双语题库。
+10. Next.js 管理端提供导入模板、字段映射、预览校验和错误报告。
+11. Next.js 管理端提供题目管理、审核和基本分类管理。
+12. Next.js 管理端提供基础用户、配置、报表和审计功能。
+13. 题目中英文双语存储与展示，用户可选 `en`/`zh`/`bilingual` 语言模式并在 Flutter 答题中即时切换（FR-LANG-01..07、09）。
+14. Flutter 设置页承载界面语言（English/中文）与题目内容语言选择，界面语言切换后整个学员端 UI 即时切换并持久化（FR-SET-01..03、FR-I18N-01..05）。
+15. Flutter 与 Next.js 共享同一套 FastAPI REST API、权限和租户隔离规则。
 
 ### 12.2 MVP 暂不包含
 
@@ -766,18 +789,18 @@ MVP 可采用规则驱动加简化能力估计：
 2. 拖拽题、热点题等复杂高级题型完整交互。
 3. 机构版计费和订阅。
 4. AI 自动生成题目。
-5. 离线练习。
-6. 原生移动 App。
+5. 离线练习及离线题库同步。
+6. Flutter Web、macOS 和 Linux 客户端。
 
 ## 13. 发布阶段
 
 | 阶段 | 周期 | 目标 |
 |---|---:|---|
-| Phase 0 | 1 周 | 数据模型、导入模板、页面原型、技术脚手架 |
-| Phase 1 | 3-4 周 | 登录、题库导入、题目管理、基础练习 |
-| Phase 2 | 2-3 周 | 错题本、收藏、个人笔记、解析增强、学习仪表盘 |
-| Phase 3 | 3-4 周 | 固定模拟考试、基础 CAT 模拟考试、考试报告 |
-| Phase 4 | 2-3 周 | 管理后台、内容质量、性能、安全、审计 |
+| Phase 0 | 1 周 | 数据模型、导入模板、Flutter 学员端与 Next.js 管理端脚手架、共享 API 契约 |
+| Phase 1 | 3-4 周 | 共享登录认证、Next.js 题库导入/管理、Flutter 基础练习 |
+| Phase 2 | 2-3 周 | Flutter 错题本、收藏、个人笔记、解析增强、学习仪表盘和设置 |
+| Phase 3 | 3-4 周 | Flutter 固定模拟考试、基础 CAT 模拟考试、考试报告及三平台适配 |
+| Phase 4 | 2-3 周 | Next.js 管理后台、内容质量、性能、安全、审计与应用发布准备 |
 | Phase 5 | 持续 | 机构版、多语言、复杂题型、AI 辅助、正式 IRT 校准 |
 
 ## 14. 验收标准
@@ -806,10 +829,13 @@ MVP 可采用规则驱动加简化能力估计：
 22. 答案快照冻结所选模式与双语内容，历史不受后续编辑影响（FR-LANG-07）。
 23. 编辑器分语言编辑/预览 en 与 zh，发布校验所需语言完整性（FR-LANG-09）。
 24. 管理端可查询语言覆盖率并按缺失语言过滤（FR-LANG-10）。
-25. 登录后侧边栏账户区提供「设置」入口且不再直接暴露题目内容语言下拉；设置页同时承载界面语言（English/中文）与题目内容语言（en/zh/bilingual）两张卡片（FR-SET-01..03）。
-26. 用户选择界面语言后，所有 UI 界面字符串（导航、按钮、页面标题、表单标签、提示）即时切换为该语言，刷新后保持；首屏无英文闪烁（FR-I18N-03/04）。
+25. Flutter 学员端登录后导航/账户区提供「设置」入口且不直接暴露题目内容语言下拉；设置页同时承载界面语言（English/中文）与题目内容语言（en/zh/bilingual）两张卡片（FR-SET-01..03）。
+26. 用户选择界面语言后，目标客户端的 UI 界面字符串（导航、按钮、页面标题、表单标签、提示）即时切换为该语言，重新启动后保持；首屏无错误语言闪烁，Next.js 管理端无 hydration mismatch（FR-I18N-03/04）。
 27. 界面语言偏好持久化在后端 `User.interface_language`，经 `/api/users/me/preferences` 读写，非法枚举值返回 422；`/auth/me` 等响应包含 `interface_language`（FR-I18N-01/02/06）。
 28. 界面国际化仅覆盖 UI 界面字符串，不翻译 taxonomy 数据（domain/书本/章节/知识点/标签名称）；题目内容语言由 FR-LANG 独立处理（FR-I18N-05）。
+29. 同一套 Flutter 代码库可分别构建并运行 Android、iOS、Windows 应用，三端均可完成登录、练习、固定/CAT 考试、错题复盘、学习分析和设置核心流程（FR-CLIENT-01/02）。
+30. Next.js 管理端可完成题库编辑/审核、ETL 导入、分类管理和基础系统管理，不提供 MVP 学员刷题流程（FR-CLIENT-03/06）。
+31. Flutter 与 Next.js 调用同一套 FastAPI API；相同用户、权限、题目、练习/考试会话和语言偏好在客户端之间保持一致（FR-CLIENT-04/05）。
 
 ## 15. 风险与应对
 
@@ -824,6 +850,9 @@ MVP 可采用规则驱动加简化能力估计：
 | 缺少 IRT 校准数据 | CAT 结果不可信 | MVP 使用规则驱动，后续通过答题数据校准 |
 | 机构版权限复杂 | 后期重构成本高 | 提前设计租户、角色和审计模型 |
 | ETL 源数据脏（缺译、题型不匹配、章节无 domain 映射） | 入库质量差或整批失败 | dry-run 预览、单题错误隔离、问题题入库 draft 待修订、章节映射表可维护 |
+| Flutter 三平台窗口、输入和生命周期差异 | 三端体验或状态行为不一致 | 共享业务状态机，平台差异封装为薄适配层，建立 Android/iOS/Windows 核心流程测试矩阵 |
+| Android/iOS/Windows 构建签名与商店发布门槛 | 无法稳定交付安装包 | 提前准备 Android 签名密钥、macOS/Xcode、Apple 开发者账号、Windows 代码签名证书和多平台 CI |
+| Flutter 与 Next.js 双客户端接口契约漂移 | 同一业务在不同端行为不一致 | 以 FastAPI OpenAPI 为唯一契约，生成/校验客户端类型并执行契约测试 |
 
 ## 16. 开放问题
 
@@ -832,7 +861,7 @@ MVP 可采用规则驱动加简化能力估计：
 3. 是否需要中英文双语界面？题库内容是否优先英文？**已决议（2026-06-26，v1.1）**：题库内容（题干、选项、解析）按中英文分别存储并支持 `en`/`zh`/`bilingual` 展示与即时切换（FR-LANG-01..10，见 §6.11）。**UI 界面字符串（chrome）国际化已于 v1.2 纳入范围（2026-06-27）**：新增界面语言 `en`/`zh` 选择（FR-I18N-01..06，见 §6.12），切换后整个 UI 界面即时切换并持久化；仅覆盖手写界面字符串，taxonomy 数据（domain/书本/章节/知识点/标签名称）有意不译，留待后续版本。
 4. 书本章节是否优先支持 OSG、AIO、Eleventh Hour 等常见教材？
 5. CAT 模拟结果是否显示“通过/未通过”，还是显示“准备度等级”更稳妥？
-6. 是否需要部署为 SaaS，还是先做自托管 Web 应用？
+6. FastAPI 后端与 Next.js 管理端需要部署为 SaaS，还是先自托管；Flutter 学员端如何配置生产 API 地址与发布渠道？
 7. `matching` 题型在 MVP 中如何落库：~~归一化为多选、扩展 `QuestionType` 新增 `matching` 枚举，还是暂存为 draft 待后续支持配对交互？~~ **已决议（2026-06-21）**：归一化为 `single_choice`（每题恰好 1 个正确项），`prompt_items` 存入 `questions.prompt_items` JSONB，并标记 `needs_revision`。后续如需配对交互再扩展枚举。
 8. OSG 章节到 CISSP 8 大 domain 的映射规则由谁维护、是否随教材版本变化？**已决议（2026-06-21）**：以 `ChapterDomainMapping`（GLOBAL）承载，OSG v10 的 21 章→8 domain 默认映射随 seed 一起初始化（见 §10.4 与 ETL 设计文档），后续可经 `/api/etl/mappings` 维护、随教材版本以新 `dataset_slug` 区分。
 9. 双语内容如何落库？~~**已决议（2026-06-21）**：每个源题生成两条 `Question` 行（`language='en'` 与 `'zh'`），经同一 `external_id` 关联（`QuestionExternalKey` 唯一约束 `(dataset_slug, external_id, language)`）。保留现有 `stem`/`content` 单一 Text 列不动；练习/考试会话在渲染时按所选语言取对应行。~~ **已修订（2026-06-26，v1.1）**：改为“一题一行 + `question_translations` 多语言行”模型——一条 `Question` 持结构/规范字段与 `available_languages`，`question_translations` 按语言存题干/选项内容/解析（`(question_id, language)` 唯一）；`QuestionOption` 仅保留 `order_index`+`is_correct`（与语言无关的答案键）；`Explanation` 表废弃，内容并入翻译行；`QuestionExternalKey` 唯一键改为 `(dataset_slug, external_id)`。该模型支持手工命题题目的并排展示、即时切换与分语言编辑（FR-LANG-05/06/09），旧“两行”方案被取代。ETL 代码沿用并适配新模型（见 §6.3/§9.6）。
@@ -842,9 +871,10 @@ MVP 可采用规则驱动加简化能力估计：
 1. 确认 MVP 目标用户：个人自学版或机构教学版。
 2. 确认第一版导入模板字段。
 3. 确认题目状态流转：草稿、待审核、已发布、需修订、已归档。
-4. 设计核心页面线框图：导入、练习、解析、考试、报告、管理后台。
-5. 基于本 PRD 拆分数据模型、API 设计和前端任务。
+4. 分别设计 Flutter 学员端自适应线框图（练习、解析、考试、报告、设置）和 Next.js 管理端线框图（导入、题库、分类、管理后台）。
+5. 基于本 PRD 拆分数据模型、共享 API、Flutter 学员端和 Next.js 管理端任务。
 6. 先实现固定模拟考试，再实现基础 CAT，降低算法不确定性。
+7. 建立 Android、iOS、Windows 构建签名、安装包和核心流程验收矩阵。
 
 ## 18. 术语表
 
@@ -861,3 +891,5 @@ MVP 可采用规则驱动加简化能力估计：
 | theta | 能力估计值 |
 | SE | 标准误，用于表达能力估计的不确定性 |
 | 题目快照 | 答题时保存的题目和选项副本，用于保证历史记录不被后续编辑影响 |
+| Flutter 学员端 | 使用同一套 Dart/Flutter 代码库构建的 Android、iOS、Windows 学员应用 |
+| Next.js 管理端 | 面向浏览器的管理应用，承载题库、ETL、分类和系统管理能力 |
