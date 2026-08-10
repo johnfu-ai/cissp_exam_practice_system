@@ -830,6 +830,42 @@ abstract class AppLocalizations {
   /// **'Any domain'**
   String get practiceAnyDomain;
 
+  /// No description provided for @practiceBook.
+  ///
+  /// In en, this message translates to:
+  /// **'Book'**
+  String get practiceBook;
+
+  /// No description provided for @practiceAnyBook.
+  ///
+  /// In en, this message translates to:
+  /// **'Any book'**
+  String get practiceAnyBook;
+
+  /// No description provided for @practiceChapter.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapter'**
+  String get practiceChapter;
+
+  /// No description provided for @practiceAnyChapter.
+  ///
+  /// In en, this message translates to:
+  /// **'Any chapter'**
+  String get practiceAnyChapter;
+
+  /// No description provided for @practiceKeyPoints.
+  ///
+  /// In en, this message translates to:
+  /// **'Key points'**
+  String get practiceKeyPoints;
+
+  /// No description provided for @practiceOptionExplanations.
+  ///
+  /// In en, this message translates to:
+  /// **'Option explanations'**
+  String get practiceOptionExplanations;
+
   /// No description provided for @practiceLanguage.
   ///
   /// In en, this message translates to:

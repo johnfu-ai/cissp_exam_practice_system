@@ -38,6 +38,7 @@ describe("ImportWizard upload (#35)", () => {
     expect(screen.getByLabelText("Dataset name")).toBeInTheDocument();
     expect(screen.getByLabelText("CSV, XLSX, or JSON")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload & preview" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Download CSV template" })).toBeEnabled();
   });
 
   it("does not call upload when the dataset name is missing", () => {

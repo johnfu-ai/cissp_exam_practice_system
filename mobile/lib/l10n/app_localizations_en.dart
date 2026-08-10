@@ -393,6 +393,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get practiceAnyDomain => 'Any domain';
 
   @override
+  String get practiceBook => 'Book';
+
+  @override
+  String get practiceAnyBook => 'Any book';
+
+  @override
+  String get practiceChapter => 'Chapter';
+
+  @override
+  String get practiceAnyChapter => 'Any chapter';
+
+  @override
+  String get practiceKeyPoints => 'Key points';
+
+  @override
+  String get practiceOptionExplanations => 'Option explanations';
+
+  @override
   String get practiceLanguage => 'Question language';
 
   @override

@@ -13,6 +13,7 @@ import 'package:cissp_compass/core/session_tracker.dart';
 import 'package:cissp_compass/core/storage.dart';
 import 'package:cissp_compass/design/bilingual_text.dart';
 import 'package:cissp_compass/design/legal_footer.dart';
+import 'package:cissp_compass/design/runner_shortcuts.dart';
 import 'package:cissp_compass/design/theme.dart';
 import 'package:cissp_compass/features/exam/format.dart';
 import 'package:cissp_compass/features/practice/option_shuffle.dart';
@@ -43,12 +44,16 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
   String _subset = 'all';
   String _orderMode = 'random';
   String? _domainId;
+  String? _bookId;
+  String? _chapterId;
   String? _languageMode;
   bool _shuffleOptions = false;
   bool _starting = false;
   String? _error;
 
   List<DomainOut> _domains = const [];
+  List<BookOut> _books = const [];
+  List<ChapterOut> _chapters = const [];
   List<SessionOut> _resume = const [];
   bool _loadingMeta = true;
 
@@ -66,14 +71,35 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
 
     try {
       final domains = await api.domains();
+      List<BookOut> books = const [];
       try {
-        await api.books();
+        books = await api.books();
       } catch (_) {}
-      if (mounted) setState(() => _domains = domains);
+      if (mounted) {
+        setState(() {
+          _domains = domains;
+          _books = books;
+        });
+      }
     } catch (_) {}
 
     await _refreshResume(api, prefs);
     if (mounted) setState(() => _loadingMeta = false);
+  }
+
+  Future<void> _onBookChanged(String? bookId) async {
+    setState(() {
+      _bookId = bookId;
+      _chapterId = null;
+      _chapters = const [];
+    });
+    if (bookId == null) return;
+    try {
+      final chapters = await ref.read(cisspApiProvider).chapters(bookId);
+      if (mounted) setState(() => _chapters = chapters);
+    } catch (_) {
+      if (mounted) setState(() => _chapters = const []);
+    }
   }
 
   Future<void> _refreshResume(CisspApi api, PrefsStore prefs) async {
@@ -119,6 +145,8 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
       'subset': _subset,
       'order_mode': _orderMode,
       if (_domainId != null) 'domain_id': _domainId,
+      if (_bookId != null) 'book_id': _bookId,
+      if (_chapterId != null) 'chapter_ids': [_chapterId],
       if (_languageMode != null) 'language_mode': _languageMode,
       if (_shuffleOptions) 'shuffle_options': true,
     };
@@ -244,6 +272,46 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
                 ),
             ],
             onChanged: (v) => setState(() => _domainId = v),
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 16),
+          Text(l10n.practiceBook, style: theme.textTheme.labelLarge),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String?>(
+            value: _bookId,
+            items: [
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Text(l10n.practiceAnyBook),
+              ),
+              for (final b in _books)
+                DropdownMenuItem<String?>(
+                  value: b.id,
+                  child: Text(b.title),
+                ),
+            ],
+            onChanged: (v) => _onBookChanged(v),
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 16),
+          Text(l10n.practiceChapter, style: theme.textTheme.labelLarge),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String?>(
+            value: _chapterId,
+            items: [
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Text(l10n.practiceAnyChapter),
+              ),
+              for (final c in _chapters)
+                DropdownMenuItem<String?>(
+                  value: c.id,
+                  child: Text('${c.orderIndex}. ${c.title}'),
+                ),
+            ],
+            onChanged: _bookId == null
+                ? null
+                : (v) => setState(() => _chapterId = v),
             decoration: const InputDecoration(border: OutlineInputBorder()),
           ),
           const SizedBox(height: 16),
@@ -573,7 +641,7 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
         ? delivery.elapsedMs
         : _now.difference(started.toLocal()).inMilliseconds;
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: Text(l10n.practiceQuestionOf(delivery.position + 1, delivery.total)),
         leading: IconButton(
@@ -633,6 +701,7 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
             text: delivery.stem,
             mode: _languageMode,
             style: Theme.of(context).textTheme.titleMedium,
+            markdown: true,
           ),
           const SizedBox(height: 16),
           OptionList(
@@ -660,9 +729,13 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
             ),
             if (result != null) ...[
               const SizedBox(height: 8),
-              BilingualText(
-                text: result.correctRationale,
+              ExplanationPanel(
                 mode: _languageMode,
+                rationale: result.correctRationale,
+                keyPoints: result.keyPointSummary,
+                perOption: result.perOption,
+                keyPointsLabel: l10n.practiceKeyPoints,
+                optionExplanationsLabel: l10n.practiceOptionExplanations,
               ),
             ],
             const SizedBox(height: 16),
@@ -736,6 +809,30 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
             ),
         ],
       ),
+    );
+
+    return RunnerShortcuts(
+      enabled: useDesktopShortcuts(context),
+      onSelectSlot: (slot) {
+        if (paused || submitted) return;
+        final order = _displayOrder.isEmpty
+            ? delivery.options.map((o) => o.orderIndex).toList()
+            : _displayOrder;
+        if (slot < 0 || slot >= order.length) return;
+        setState(() {
+          _runner = toggleSelection(_runner, order[slot], delivery.questionType);
+        });
+      },
+      onSubmit: paused || _busy
+          ? null
+          : () {
+              if (!submitted && canSubmit(_runner)) {
+                _submit();
+              } else if (submitted) {
+                _nextOrFinish();
+              }
+            },
+      child: scaffold,
     );
   }
 }

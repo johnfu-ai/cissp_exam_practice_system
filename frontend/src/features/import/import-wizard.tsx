@@ -14,12 +14,31 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/empty-state";
 import { toast } from "@/components/ui/sonner";
 import { useT } from "@/lib/i18n/provider";
 import type { EtlRun } from "@/lib/api/types";
+import {
+  CANONICAL_IMPORT_FIELDS,
+  REQUIRED_IMPORT_FIELDS,
+  autoMapHeaders,
+  buildImportTemplateCsv,
+  downloadTextFile,
+  parseCsvHeaders,
+  remapCsv,
+  type CanonicalImportField,
+} from "@/lib/import-template";
+
+const SKIP = "__skip__";
 
 function Count({ label, value, tone }: { label: string; value: number; tone?: "create" | "update" | "muted" | "error" }) {
   const color =
@@ -45,6 +64,9 @@ export function ImportWizard() {
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [uploadSlug, setUploadSlug] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvText, setCsvText] = useState<string | null>(null);
+  const [mapping, setMapping] = useState<Record<string, CanonicalImportField | "">>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function preview(slug: string) {
@@ -55,7 +77,20 @@ export function ImportWizard() {
     });
   }
 
-  function doUpload() {
+  async function onFileChange(file: File | null) {
+    setUploadFile(file);
+    setCsvHeaders([]);
+    setCsvText(null);
+    setMapping({});
+    if (!file || !file.name.toLowerCase().endsWith(".csv")) return;
+    const text = await file.text();
+    const headers = parseCsvHeaders(text);
+    setCsvText(text);
+    setCsvHeaders(headers);
+    setMapping(autoMapHeaders(headers));
+  }
+
+  async function doUpload() {
     const slug = uploadSlug.trim();
     if (!slug) {
       toast.error(t("importWiz.slugRequired"));
@@ -65,8 +100,22 @@ export function ImportWizard() {
       toast.error(t("importWiz.fileRequired"));
       return;
     }
+
+    let file = uploadFile;
+    if (csvText && csvHeaders.length > 0) {
+      const mappedRequired = REQUIRED_IMPORT_FIELDS.every((f) =>
+        Object.values(mapping).includes(f),
+      );
+      if (!mappedRequired) {
+        toast.error(t("importWiz.mappingRequired"));
+        return;
+      }
+      const remapped = remapCsv(csvText, mapping);
+      file = new File([remapped], uploadFile.name, { type: "text/csv" });
+    }
+
     upload.mutate(
-      { file: uploadFile, datasetSlug: slug },
+      { file, datasetSlug: slug },
       {
         onSuccess: (r) => {
           setRun(r);
@@ -117,6 +166,18 @@ export function ImportWizard() {
             <p className="text-xs text-muted-foreground">{t("importWiz.uploadDesc")}</p>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  downloadTextFile("cissp-import-template.csv", buildImportTemplateCsv())
+                }
+              >
+                {t("importWiz.downloadTemplate")}
+              </Button>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <label htmlFor="upload-slug" className="text-xs text-muted-foreground">
@@ -138,12 +199,51 @@ export function ImportWizard() {
                   ref={fileInputRef}
                   type="file"
                   accept=".csv,.xlsx,.json"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => void onFileChange(e.target.files?.[0] ?? null)}
                 />
               </div>
             </div>
+
+            {csvHeaders.length > 0 && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div>
+                  <h4 className="text-sm font-medium">{t("importWiz.fieldMapping")}</h4>
+                  <p className="text-xs text-muted-foreground">{t("importWiz.fieldMappingDesc")}</p>
+                </div>
+                <div className="grid gap-2">
+                  {csvHeaders.map((h) => (
+                    <div key={h} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm">
+                      <span className="truncate font-mono text-xs">{h}</span>
+                      <span className="text-muted-foreground">→</span>
+                      <Select
+                        value={mapping[h] || SKIP}
+                        onValueChange={(v) =>
+                          setMapping((m) => ({
+                            ...m,
+                            [h]: v === SKIP ? "" : (v as CanonicalImportField),
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue placeholder={t("importWiz.skipColumn")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SKIP}>{t("importWiz.skipColumn")}</SelectItem>
+                          {CANONICAL_IMPORT_FIELDS.map((f) => (
+                            <SelectItem key={f} value={f}>
+                              {f}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center gap-3">
-              <Button size="sm" onClick={doUpload} disabled={upload.isPending}>
+              <Button size="sm" onClick={() => void doUpload()} disabled={upload.isPending}>
                 {upload.isPending ? t("importWiz.uploading") : t("importWiz.uploadAndPreview")}
               </Button>
               {uploadFile && (

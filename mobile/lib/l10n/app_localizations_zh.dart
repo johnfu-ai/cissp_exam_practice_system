@@ -381,6 +381,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get practiceAnyDomain => '任意域';
 
   @override
+  String get practiceBook => '书本';
+
+  @override
+  String get practiceAnyBook => '任意书本';
+
+  @override
+  String get practiceChapter => '章节';
+
+  @override
+  String get practiceAnyChapter => '任意章节';
+
+  @override
+  String get practiceKeyPoints => '知识点';
+
+  @override
+  String get practiceOptionExplanations => '选项解析';
+
+  @override
   String get practiceLanguage => '题目语言';
 
   @override

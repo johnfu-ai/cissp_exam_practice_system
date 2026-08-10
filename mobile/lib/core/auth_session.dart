@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:cissp_compass/core/api_provider.dart';
 import 'package:cissp_compass/core/errors.dart';
+import 'package:cissp_compass/core/refresh_gate.dart';
 import 'package:cissp_compass/core/storage.dart';
 
 class AuthState {
@@ -58,8 +59,7 @@ class AuthSession extends StateNotifier<AuthState> {
   final PrefsStore _prefs;
   late final Dio _dio;
   late final CisspApi _api;
-
-  Future<String?>? _refreshInflight;
+  final RefreshGate<String?> _refreshGate = RefreshGate<String?>();
 
   Dio get dio => _dio;
   CisspApi get api => _api;
@@ -148,11 +148,7 @@ class AuthSession extends StateNotifier<AuthState> {
   }
 
   /// Singleton refresh — concurrent 401s share one `/api/auth/refresh` call.
-  Future<String?> refreshOnce() {
-    return _refreshInflight ??= _doRefresh().whenComplete(() {
-      _refreshInflight = null;
-    });
-  }
+  Future<String?> refreshOnce() => _refreshGate.runOnce(_doRefresh);
 
   Future<String?> _doRefresh() async {
     final refresh = await _tokens.getRefreshToken();

@@ -27,5 +27,6 @@ export const qk = {
     lowAccuracy: ["admin", "quality", "low-accuracy"] as const,
     audit: (q: Record<string, unknown>) => ["admin", "audit", q] as const,
     report: (windowDays: number) => ["admin", "report", windowDays] as const,
+    languageCoverage: ["admin", "language-coverage"] as const,
   },
 };

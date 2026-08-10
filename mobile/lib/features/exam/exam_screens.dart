@@ -13,7 +13,9 @@ import 'package:cissp_compass/core/session_tracker.dart';
 import 'package:cissp_compass/core/storage.dart';
 import 'package:cissp_compass/design/bilingual_text.dart';
 import 'package:cissp_compass/design/legal_footer.dart';
+import 'package:cissp_compass/design/runner_shortcuts.dart';
 import 'package:cissp_compass/design/theme.dart';
+import 'package:cissp_compass/features/exam/cat_runner_state.dart';
 import 'package:cissp_compass/features/exam/format.dart';
 import 'package:cissp_compass/features/practice/runner_machine.dart';
 import 'package:cissp_compass/features/shared/option_list.dart';
@@ -536,7 +538,7 @@ class _FixedExamBodyState extends ConsumerState<_FixedExamBody> {
     final selected = _selections[_position] ?? const <int>[];
     final critical = isTimeCritical(_remainingMs);
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: Text(
           delivery == null
@@ -589,6 +591,7 @@ class _FixedExamBodyState extends ConsumerState<_FixedExamBody> {
                         text: delivery.stem,
                         mode: _languageMode,
                         style: Theme.of(context).textTheme.titleMedium,
+                        markdown: true,
                       ),
                       const SizedBox(height: 16),
                       OptionList(
@@ -652,6 +655,29 @@ class _FixedExamBodyState extends ConsumerState<_FixedExamBody> {
               ],
             ),
     );
+
+    return RunnerShortcuts(
+      enabled: useDesktopShortcuts(context),
+      onSelectSlot: (slot) {
+        final opts = delivery?.options;
+        if (opts == null || slot < 0 || slot >= opts.length) return;
+        _toggle(opts[slot].orderIndex);
+      },
+      onSubmit: _busy
+          ? null
+          : () {
+              if (_position + 1 < _session.totalQuestions) {
+                _goTo(_position + 1);
+              } else {
+                _finish();
+              }
+            },
+      onPrev: _position == 0 || _busy ? null : () => _goTo(_position - 1),
+      onNext: _busy || _position + 1 >= _session.totalQuestions
+          ? null
+          : () => _goTo(_position + 1),
+      child: scaffold,
+    );
   }
 }
 
@@ -667,7 +693,11 @@ class _CatExamBody extends ConsumerStatefulWidget {
 class _CatExamBodyState extends ConsumerState<_CatExamBody> {
   QuestionDelivery? _delivery;
   List<int> _selected = const [];
-  String _languageMode = 'en';
+  CatRunnerState _cat = const CatRunnerState(
+    languageMode: 'en',
+    position: 0,
+    questionId: '',
+  );
   String _startedAt = '';
   bool _loading = true;
   bool _busy = false;
@@ -675,6 +705,8 @@ class _CatExamBodyState extends ConsumerState<_CatExamBody> {
   DateTime? _deadline;
   Timer? _tick;
   bool _finishing = false;
+
+  String get _languageMode => _cat.languageMode;
 
   @override
   void initState() {
@@ -716,7 +748,10 @@ class _CatExamBodyState extends ConsumerState<_CatExamBody> {
       setState(() {
         _delivery = q;
         _selected = const [];
-        _languageMode = q.languageMode;
+        _cat = _cat
+            .copyWithLanguage(q.languageMode)
+            .afterNext(position: q.position, questionId: q.questionId);
+        // afterNext increments nextCallCount — correct for real /next loads.
         _startedAt = DateTime.now().toUtc().toIso8601String();
         if (q.timeRemainingMs != null) {
           _remainingMs = q.timeRemainingMs!;
@@ -808,7 +843,7 @@ class _CatExamBodyState extends ConsumerState<_CatExamBody> {
     final delivery = _delivery;
     final critical = isTimeCritical(_remainingMs);
 
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: Text(
           delivery == null
@@ -861,8 +896,8 @@ class _CatExamBodyState extends ConsumerState<_CatExamBody> {
                   ],
                   selected: {_languageMode},
                   onSelectionChanged: (s) {
-                    // CRITICAL: local-only — never call examNext.
-                    setState(() => _languageMode = s.first);
+                    // CRITICAL: local-only via CatRunnerState — never call examNext.
+                    setState(() => _cat = _cat.copyWithLanguage(s.first));
                   },
                 ),
                 const SizedBox(height: 16),
@@ -870,6 +905,7 @@ class _CatExamBodyState extends ConsumerState<_CatExamBody> {
                   text: delivery.stem,
                   mode: _languageMode,
                   style: Theme.of(context).textTheme.titleMedium,
+                  markdown: true,
                 ),
                 const SizedBox(height: 16),
                 OptionList(
@@ -886,6 +922,18 @@ class _CatExamBodyState extends ConsumerState<_CatExamBody> {
                 ),
               ],
             ),
+    );
+
+    return RunnerShortcuts(
+      enabled: useDesktopShortcuts(context),
+      onSelectSlot: (slot) {
+        final opts = delivery?.options;
+        if (opts == null || slot < 0 || slot >= opts.length) return;
+        _toggle(opts[slot].orderIndex);
+      },
+      onSubmit:
+          _busy || delivery == null || _selected.isEmpty ? null : _submit,
+      child: scaffold,
     );
   }
 }
@@ -1131,40 +1179,111 @@ class _ExamReviewScreenState extends ConsumerState<ExamReviewScreen> {
                     ],
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _items.length,
-                  itemBuilder: (context, i) {
-                    final item = _items[i];
-                    final correct = item.options
-                        .where((o) => o.isCorrect)
-                        .map((o) => o.orderIndex)
-                        .toList();
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '#${item.position + 1}',
-                              style: Theme.of(context).textTheme.labelLarge,
-                            ),
-                            const SizedBox(height: 8),
-                            BilingualText(text: item.stem, mode: _mode),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${l10n.examYourAnswer}: ${(item.yourSelected ?? const []).join(", ")}',
-                            ),
-                            Text(
-                              '${l10n.examCorrectAnswer}: ${correct.join(", ")}',
-                            ),
-                          ],
-                        ),
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      child: SegmentedButton<String>(
+                        segments: [
+                          ButtonSegment(value: 'en', label: Text(l10n.langEn)),
+                          ButtonSegment(value: 'zh', label: Text(l10n.langZh)),
+                          ButtonSegment(
+                            value: 'bilingual',
+                            label: Text(l10n.langBilingual),
+                          ),
+                        ],
+                        selected: {_mode},
+                        onSelectionChanged: (s) =>
+                            setState(() => _mode = s.first),
                       ),
-                    );
-                  },
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _items.length,
+                        itemBuilder: (context, i) {
+                          final item = _items[i];
+                          final correct = item.options
+                              .where((o) => o.isCorrect)
+                              .map((o) => o.orderIndex)
+                              .toList();
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '#${item.position + 1}',
+                                    style:
+                                        Theme.of(context).textTheme.labelLarge,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  BilingualText(
+                                    text: item.stem,
+                                    mode: _mode,
+                                    markdown: true,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  for (final o in item.options)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '${String.fromCharCode(65 + o.orderIndex)}. ',
+                                            style: TextStyle(
+                                              color: o.isCorrect
+                                                  ? AppColors.success
+                                                  : AppColors.muted,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: BilingualText(
+                                              text: o.content,
+                                              mode: _mode,
+                                              markdown: true,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    '${l10n.examYourAnswer}: ${(item.yourSelected ?? const []).join(", ")}',
+                                  ),
+                                  Text(
+                                    '${l10n.examCorrectAnswer}: ${correct.join(", ")}',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  ExplanationPanel(
+                                    mode: _mode,
+                                    rationale: item.correctRationale,
+                                    keyPoints: item.keyPointSummary,
+                                    perOption: [
+                                      for (final o in item.options)
+                                        PerOptionExplanation(
+                                          orderIndex: o.orderIndex,
+                                          isCorrect: o.isCorrect,
+                                          explanation: o.explanation,
+                                        ),
+                                    ],
+                                    keyPointsLabel: l10n.practiceKeyPoints,
+                                    optionExplanationsLabel:
+                                        l10n.practiceOptionExplanations,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
     );
   }

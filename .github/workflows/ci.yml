@@ -112,9 +112,27 @@ jobs:
       - name: Analyze
         working-directory: mobile
         run: flutter analyze
-      - name: Unit tests
+      - name: Dart OpenAPI drift check
+        run: bash scripts/check_dart_api_drift.sh
+      - name: Unit tests (VM)
         working-directory: mobile
-        run: dart test -p vm test/
+        # Prefer dart test -p vm (WSL-safe). Widget tests need flutter_tester;
+        # run them separately so a WSL WebSocket flake doesn't hide unit failures.
+        run: >
+          dart test -p vm
+          test/auth_refresh_test.dart
+          test/cat_language_toggle_test.dart
+          test/cat_no_advance_integration_test.dart
+          test/cookie_test.dart
+          test/exam_format_test.dart
+          test/option_shuffle_test.dart
+          test/runner_machine_test.dart
+          test/session_tracker_test.dart
+          test/widget_test.dart
+      - name: Widget tests
+        working-directory: mobile
+        continue-on-error: false
+        run: flutter test test/bilingual_text_test.dart test/shell_breakpoint_test.dart
   mobile-android:
     name: Mobile (Android APK)
     runs-on: ubuntu-latest

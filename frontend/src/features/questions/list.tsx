@@ -4,7 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuestions } from "@/lib/api/questions";
 import { useDomains } from "@/lib/api/taxonomy";
-import { Card, CardContent } from "@/components/ui/card";
+import { useLanguageCoverage } from "@/lib/api/admin";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,7 @@ export function QuestionList() {
   const size = 20;
 
   const domains = useDomains();
+  const coverage = useLanguageCoverage();
   const filters: QuestionFilters = {
     page,
     size,
@@ -60,6 +62,35 @@ export function QuestionList() {
 
   return (
     <div className="space-y-6">
+      {coverage.data && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">{t("questionsList.languageCoverage")}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div className="rounded-md border p-3 text-center">
+              <div className="text-xl font-semibold tabular-nums">{coverage.data.total}</div>
+              <div className="text-xs text-muted-foreground">{t("questionsList.coverageTotal")}</div>
+            </div>
+            <div className="rounded-md border p-3 text-center">
+              <div className="text-xl font-semibold tabular-nums">{coverage.data.en_only}</div>
+              <div className="text-xs text-muted-foreground">{t("questionsList.coverageEnOnly")}</div>
+            </div>
+            <div className="rounded-md border p-3 text-center">
+              <div className="text-xl font-semibold tabular-nums">{coverage.data.zh_only}</div>
+              <div className="text-xs text-muted-foreground">{t("questionsList.coverageZhOnly")}</div>
+            </div>
+            <div className="rounded-md border p-3 text-center">
+              <div className="text-xl font-semibold tabular-nums">{coverage.data.both}</div>
+              <div className="text-xs text-muted-foreground">{t("questionsList.coverageBoth")}</div>
+            </div>
+            <div className="rounded-md border p-3 text-center">
+              <div className="text-xl font-semibold tabular-nums">{coverage.data.neither}</div>
+              <div className="text-xs text-muted-foreground">{t("questionsList.coverageNeither")}</div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-wrap items-end gap-3">

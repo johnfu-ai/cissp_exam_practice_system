@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiJson } from "@/lib/api";
+import { apiFetch, apiJson, ApiError } from "@/lib/api";
 import { qk } from "./keys";
 import type {
   AdminUser,
@@ -77,6 +77,66 @@ export function useClassMembers(id: string, enabled = true) {
   return useQuery({
     queryKey: qk.admin.classMembers(id),
     queryFn: () => apiJson<ClassMember[]>(`/api/admin/classes/${id}/members`),
+    enabled,
+  });
+}
+
+async function expectNoContent(path: string, init: RequestInit): Promise<void> {
+  const resp = await apiFetch(path, init);
+  if (!resp.ok) throw new ApiError(resp.status, await resp.text());
+}
+
+export function useAddClassMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ classId, userId }: { classId: string; userId: string }) =>
+      expectNoContent(`/api/admin/classes/${classId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId }),
+      }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: qk.admin.classMembers(vars.classId) });
+      qc.invalidateQueries({ queryKey: qk.admin.classes });
+    },
+  });
+}
+
+export function useRemoveClassMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ classId, userId }: { classId: string; userId: string }) =>
+      expectNoContent(`/api/admin/classes/${classId}/members/${userId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: qk.admin.classMembers(vars.classId) });
+      qc.invalidateQueries({ queryKey: qk.admin.classes });
+    },
+  });
+}
+
+export function useAdminResetPassword() {
+  return useMutation({
+    mutationFn: ({ id, newPassword }: { id: string; newPassword?: string }) =>
+      apiJson<{ ok: boolean; password?: string }>(`/api/admin/users/${id}/reset-password`, {
+        method: "POST",
+        body: JSON.stringify(newPassword ? { new_password: newPassword } : {}),
+      }),
+  });
+}
+
+export interface LanguageCoverage {
+  total: number;
+  en_only: number;
+  zh_only: number;
+  both: number;
+  neither: number;
+}
+
+export function useLanguageCoverage(enabled = true) {
+  return useQuery({
+    queryKey: qk.admin.languageCoverage,
+    queryFn: () => apiJson<LanguageCoverage>("/api/admin/questions/language-coverage"),
     enabled,
   });
 }

@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import {
-  useAdminUsers, useSetUserStatus, useSetUserRoles,
+  useAdminUsers, useSetUserStatus, useSetUserRoles, useAdminResetPassword,
   useClasses, useCreateClass, useDeleteClass, useClassMembers,
+  useAddClassMember, useRemoveClassMember,
   useCatParams, useCreateCatParams, useSetCurrentCatParams,
   useQualityDashboard, useQualityFeedback, useResolveFeedback, useLowAccuracy,
   useAuditLogs, useReportSummary,
@@ -17,14 +18,14 @@ import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "@/components/ui/sonner";
-import { ApiError } from "@/lib/api";
+import { ApiError, apiJson } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { enumLabel } from "@/features/shared/enum-label";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import { fmtDate, fmtPct } from "@/features/shared/format";
-import type { AdminClass, RoleName } from "@/lib/api/types";
+import type { AdminClass, AdminUser, RoleName } from "@/lib/api/types";
 
 const ROLES: RoleName[] = ["individual_learner", "instructor", "content_editor", "org_admin", "system_admin"];
 const AUDIT_ACTIONS = ["login", "logout", "import", "edit", "publish", "delete", "archive", "permission_change", "config_change"];
@@ -42,6 +43,7 @@ export function UsersTab() {
   const users = useAdminUsers(search);
   const setStatus = useSetUserStatus();
   const setRoles = useSetUserRoles();
+  const resetPw = useAdminResetPassword();
 
   if (users.isLoading) return <Loading label={t("adminTab.loadingUsers")} />;
   if (users.isError) return <ErrorState message={t("adminTab.loadFailedUsers")} onRetry={() => users.refetch()} />;
@@ -87,14 +89,38 @@ export function UsersTab() {
                     <Badge variant={u.status === "active" ? "success" : "destructive"}>{enumLabel(t, "userStatus", u.status)}</Badge>
                   </td>
                   <td className="px-4 py-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={setStatus.isPending}
-                      onClick={() => setStatus.mutate({ id: u.id, status: u.status === "active" ? "disabled" : "active" }, { onError: (e) => err(e, t("adminTab.couldNotChangeStatus")) })}
-                    >
-                      {u.status === "active" ? t("adminTab.disable") : t("adminTab.enable")}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={setStatus.isPending}
+                        onClick={() => setStatus.mutate({ id: u.id, status: u.status === "active" ? "disabled" : "active" }, { onError: (e) => err(e, t("adminTab.couldNotChangeStatus")) })}
+                      >
+                        {u.status === "active" ? t("adminTab.disable") : t("adminTab.enable")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={resetPw.isPending}
+                        onClick={() =>
+                          resetPw.mutate(
+                            { id: u.id },
+                            {
+                              onSuccess: (out) => {
+                                if (out.password) {
+                                  toast.success(t("adminTab.toastResetPassword", { password: out.password }));
+                                } else {
+                                  toast.success(t("adminTab.toastResetPasswordOk"));
+                                }
+                              },
+                              onError: (e) => err(e, t("adminTab.couldNotResetPassword")),
+                            },
+                          )
+                        }
+                      >
+                        {t("adminTab.resetPassword")}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -170,7 +196,42 @@ export function ClassesTab() {
 function ClassCard({ cls, onDelete }: { cls: AdminClass; onDelete: () => void }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [memberEmail, setMemberEmail] = useState("");
+  const [adding, setAdding] = useState(false);
   const members = useClassMembers(cls.id, open);
+  const addMember = useAddClassMember();
+  const removeMember = useRemoveClassMember();
+
+  async function addByEmail() {
+    const email = memberEmail.trim().toLowerCase();
+    if (!email) return;
+    setAdding(true);
+    try {
+      const found = await apiJson<{ items: AdminUser[]; total: number }>(
+        `/api/admin/users?${new URLSearchParams({ search: email, offset: "0" })}`,
+      );
+      const match = found.items.find((u) => u.email.toLowerCase() === email);
+      if (!match) {
+        toast.error(t("adminTab.memberNotFound"));
+        return;
+      }
+      addMember.mutate(
+        { classId: cls.id, userId: match.id },
+        {
+          onSuccess: () => {
+            setMemberEmail("");
+            toast.success(t("adminTab.toastMemberAdded"));
+          },
+          onError: (e) => err(e, t("adminTab.couldNotAddMember")),
+        },
+      );
+    } catch (e) {
+      err(e, t("adminTab.couldNotAddMember"));
+    } finally {
+      setAdding(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -184,11 +245,45 @@ function ClassCard({ cls, onDelete }: { cls: AdminClass; onDelete: () => void })
         </div>
       </CardHeader>
       {open && (
-        <CardContent className="space-y-1">
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <Input
+              className="flex-1"
+              placeholder={t("adminTab.addMemberEmail")}
+              value={memberEmail}
+              onChange={(e) => setMemberEmail(e.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={adding || addMember.isPending || !memberEmail.trim()}
+              onClick={() => void addByEmail()}
+            >
+              {t("adminTab.addMember")}
+            </Button>
+          </div>
           {members.isLoading && <p className="text-sm text-muted-foreground">{t("adminTab.loading")}</p>}
           {members.data?.length === 0 && <p className="text-sm text-muted-foreground">{t("adminTab.noMembers")}</p>}
           {members.data?.map((m) => (
-            <div key={m.user_id} className="text-sm">{m.email}{m.display_name ? ` · ${m.display_name}` : ""}</div>
+            <div key={m.user_id} className="flex items-center justify-between gap-2 text-sm">
+              <span>{m.email}{m.display_name ? ` · ${m.display_name}` : ""}</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive"
+                disabled={removeMember.isPending}
+                onClick={() =>
+                  removeMember.mutate(
+                    { classId: cls.id, userId: m.user_id },
+                    {
+                      onSuccess: () => toast.success(t("adminTab.toastMemberRemoved")),
+                      onError: (e) => err(e, t("adminTab.couldNotRemoveMember")),
+                    },
+                  )
+                }
+              >
+                {t("adminTab.removeMember")}
+              </Button>
+            </div>
           ))}
         </CardContent>
       )}
