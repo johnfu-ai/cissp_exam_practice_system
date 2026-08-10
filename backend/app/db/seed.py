@@ -150,11 +150,11 @@ def run_seed(session: Session) -> dict:
     # Bootstrap system_admin (so the system is usable after auth lock-down).
     admin_email = settings.seed_admin_email.lower()
     dev_mode = settings.app_env.lower() in {"development", "dev", "test"}
-    # In dev the admin defaults to "admin" (dev convenience — no committed
+    # In dev the admin defaults to "Adminadmin1" (dev convenience — no committed
     # secret). In prod the password is generated (and printed once) or set via
     # SEED_ADMIN_PASSWORD. effective_pw is None only in prod-without-override,
     # which means "leave an existing admin's password alone" on re-seed.
-    effective_pw = settings.seed_admin_password or ("admin" if dev_mode else None)
+    effective_pw = settings.seed_admin_password or ("Adminadmin1" if dev_mode else None)
     admin = session.execute(select(User).filter_by(email=admin_email)).scalar_one_or_none()
     if admin is None:
         pw = effective_pw or secrets.token_urlsafe(16)
@@ -162,8 +162,8 @@ def run_seed(session: Session) -> dict:
                      display_name="System Admin", status=UserStatus.active,
                      default_organization_id=personal_org.id)
         session.add(admin); session.flush()
-        if effective_pw == "admin" and not settings.seed_admin_password:
-            print(f"[seed] created admin {admin_email} with dev-default password 'admin' "
+        if effective_pw == "Adminadmin1" and not settings.seed_admin_password:
+            print(f"[seed] created admin {admin_email} with dev-default password 'Adminadmin1' "
                   "(set SEED_ADMIN_PASSWORD or APP_ENV=production to override)")
         elif effective_pw is None:
             print(f"[seed] created admin {admin_email} with generated password: {pw}")

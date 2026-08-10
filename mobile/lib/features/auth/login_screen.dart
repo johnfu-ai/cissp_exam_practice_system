@@ -125,7 +125,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 TextButton(
                   onPressed: _busy
                       ? null
-                      : () => _submit(email: 'admin@example.com', password: 'admin'),
+                      : () => _submit(email: 'admin@example.com', password: 'Adminadmin1'),
                   child: Text(l10n.authDevLogin),
                 ),
                 const SizedBox(height: 8),

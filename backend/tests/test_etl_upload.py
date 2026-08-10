@@ -254,7 +254,7 @@ def _headers(db, store, email="imp@example.com"):
     from app.models.enums import RoleName
     from app.services.auth import register_user
 
-    user, _ = register_user(db, email=email, password="pw123456",
+    user, _ = register_user(db, email=email, password="pw12345678",
                             display_name="I", refresh_store=store)
     db.flush()
     r = db.query(Role).filter_by(name=RoleName.system_admin).first()
@@ -406,7 +406,7 @@ def test_upload_requires_question_import_permission(client, tmp_path, monkeypatc
     c, store, db = client
     monkeypatch.setattr(etl_api.settings, "etl_upload_root", str(tmp_path))
     _seed_blueprint_and_taxonomy(db)
-    user, _ = register_user(db, email="noperm@example.com", password="pw123456",
+    user, _ = register_user(db, email="noperm@example.com", password="pw12345678",
                             display_name="N", refresh_store=store)
     db.flush()
     token = create_access_token(

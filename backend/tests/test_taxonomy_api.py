@@ -27,7 +27,7 @@ def client(db_session, session_with_roles):
 
 def _admin(db_session, store, email="tax@example.com"):
     """Register a system_admin user; return (headers, user)."""
-    user, _ = register_user(db_session, email=email, password="pw123456",
+    user, _ = register_user(db_session, email=email, password="pw12345678",
                             display_name="Tax", refresh_store=store)
     db_session.flush()
     sa = db_session.query(Role).filter_by(name=RoleName.system_admin).first()

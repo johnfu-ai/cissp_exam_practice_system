@@ -1,7 +1,7 @@
 # CISSP Exam System — Improvement Progress & Roadmap
 
-**Date:** 2026-07-04
-**Supersedes-in-scope:** `docs/audits/2026-07-03-improvement-proposals.md` (the 36-proposal audit). That audit remains the canonical `file:line` reference; this doc tracks what got done after it and what remains.
+**Date:** 2026-07-04  
+**Superseded by:** `docs/audits/2026-08-10-improvement-review.md` (treat this July roadmap as historical; many “open” rows below were later closed).
 
 All P0 items (#1–#6) are DONE and merged to `master`. This doc covers the P1/P2/P3 backlog.
 

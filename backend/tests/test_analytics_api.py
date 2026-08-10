@@ -37,7 +37,7 @@ def client(db_session, session_with_roles):
 def _headers(db_session, store, email="analytics@example.com",
              role=RoleName.individual_learner, perms=None):
     user, _ = register_user(
-        db_session, email=email, password="pw123456",
+        db_session, email=email, password="pw12345678",
         display_name="L", refresh_store=store,
     )
     db_session.flush()

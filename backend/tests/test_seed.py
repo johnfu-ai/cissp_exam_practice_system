@@ -152,31 +152,31 @@ def _admin(db_session):
     return db_session.execute(select(User).filter_by(email="admin@example.com")).scalar_one()
 
 
-def test_seed_dev_defaults_admin_password_to_admin(db_session, monkeypatch):
+def test_seed_dev_defaults_admin_password_to_adminadmin1(db_session, monkeypatch):
     monkeypatch.setattr("app.db.seed.settings", _settings("development"))
     run_seed(db_session)
-    assert verify_password("admin", _admin(db_session).password_hash)
+    assert verify_password("Adminadmin1", _admin(db_session).password_hash)
 
 
 def test_seed_prod_generates_random_admin_password(db_session, monkeypatch, capsys):
     monkeypatch.setattr("app.db.seed.settings", _settings("production"))
     run_seed(db_session)
     admin = _admin(db_session)
-    assert not verify_password("admin", admin.password_hash)  # random, not the dev default
+    assert not verify_password("Adminadmin1", admin.password_hash)  # random, not the dev default
     assert "generated password" in capsys.readouterr().out  # printed once
 
 
 def test_seed_prod_does_not_reset_existing_admin(db_session, monkeypatch):
-    # create the admin in dev (password "admin")
+    # create the admin in dev (password "Adminadmin1")
     monkeypatch.setattr("app.db.seed.settings", _settings("development"))
     run_seed(db_session)
     # admin sets their own password via the UI
-    _admin(db_session).password_hash = hash_password("custompw1")
+    _admin(db_session).password_hash = hash_password("custompw12")
     db_session.flush()
     # re-seed in PROD with no explicit seed_admin_password -> must NOT reset
     monkeypatch.setattr("app.db.seed.settings", _settings("production"))
     run_seed(db_session)
-    assert verify_password("custompw1", _admin(db_session).password_hash)
+    assert verify_password("custompw12", _admin(db_session).password_hash)
 
 
 def test_seed_prod_resets_when_explicit_operator_password(db_session, monkeypatch):
@@ -191,6 +191,6 @@ def test_seed_prod_resets_when_explicit_operator_password(db_session, monkeypatc
 def test_seed_dev_resets_existing_admin_to_explicit(db_session, monkeypatch):
     monkeypatch.setattr("app.db.seed.settings", _settings("development"))
     run_seed(db_session)
-    monkeypatch.setattr("app.db.seed.settings", _settings("development", seed_admin_password="devpw123"))
+    monkeypatch.setattr("app.db.seed.settings", _settings("development", seed_admin_password="devpw12345"))
     run_seed(db_session)
-    assert verify_password("devpw123", _admin(db_session).password_hash)
+    assert verify_password("devpw12345", _admin(db_session).password_hash)

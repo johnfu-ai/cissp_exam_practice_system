@@ -7,12 +7,14 @@ import {
   useCommitRun,
   useRollbackRun,
   useUploadDataset,
+  usePasteMarkdown,
 } from "@/lib/api/etl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eyebrow } from "@/components/eyebrow";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
@@ -60,10 +62,13 @@ export function ImportWizard() {
   const commit = useCommitRun();
   const rollback = useRollbackRun();
   const upload = useUploadDataset();
+  const paste = usePasteMarkdown();
   const [run, setRun] = useState<EtlRun | null>(null);
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [uploadSlug, setUploadSlug] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [pasteMarkdown, setPasteMarkdown] = useState("");
+  const [pasteSlug, setPasteSlug] = useState("");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvText, setCsvText] = useState<string | null>(null);
   const [mapping, setMapping] = useState<Record<string, CanonicalImportField | "">>({});
@@ -123,6 +128,25 @@ export function ImportWizard() {
           toast.success(t("importWiz.toastUploaded"));
         },
         onError: () => toast.error(t("importWiz.toastUploadFail")),
+      },
+    );
+  }
+
+  function doPaste() {
+    const md = pasteMarkdown.trim();
+    if (!md) {
+      toast.error(t("importWiz.toastPasteFail"));
+      return;
+    }
+    paste.mutate(
+      { markdown: md, dataset_slug: pasteSlug.trim() || undefined },
+      {
+        onSuccess: (r) => {
+          setRun(r);
+          setActiveSlug(r.dataset_slug);
+          toast.success(t("importWiz.toastUploaded"));
+        },
+        onError: () => toast.error(t("importWiz.toastPasteFail")),
       },
     );
   }
@@ -255,6 +279,40 @@ export function ImportWizard() {
       </section>
 
       <section>
+        <Eyebrow className="mb-3">{t("importWiz.paste")}</Eyebrow>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("importWiz.paste")}</CardTitle>
+            <p className="text-xs text-muted-foreground">{t("importWiz.pasteDesc")}</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="paste-slug" className="text-xs text-muted-foreground">
+                {t("importWiz.datasetName")}
+              </label>
+              <Input
+                id="paste-slug"
+                value={pasteSlug}
+                onChange={(e) => setPasteSlug(e.target.value)}
+                placeholder={t("importWiz.datasetNamePlaceholder")}
+              />
+            </div>
+            <Textarea
+              id="paste-markdown"
+              value={pasteMarkdown}
+              onChange={(e) => setPasteMarkdown(e.target.value)}
+              placeholder={t("importWiz.pastePlaceholder")}
+              rows={10}
+              className="font-mono text-sm"
+            />
+            <Button size="sm" onClick={doPaste} disabled={paste.isPending}>
+              {paste.isPending ? t("importWiz.pastePreviewing") : t("importWiz.pastePreview")}
+            </Button>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section>
         <Eyebrow className="mb-3">{t("importWiz.datasets")}</Eyebrow>
         {datasets.data && datasets.data.length === 0 ? (
           <EmptyState title={t("importWiz.noDatasets")} description={t("importWiz.noDatasetsDesc")} />
@@ -298,10 +356,11 @@ export function ImportWizard() {
               </Badge>
             </CardHeader>
             <CardContent className="space-y-5">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                 <Count label={t("importWiz.wouldCreate")} value={summary.would_create} tone="create" />
                 <Count label={t("importWiz.wouldUpdate")} value={summary.would_update} tone="update" />
                 <Count label={t("importWiz.unchanged")} value={summary.unchanged} tone="muted" />
+                <Count label={t("importWiz.duplicates")} value={summary.duplicates ?? 0} tone="muted" />
                 <Count label={t("importWiz.errors")} value={summary.errors.length} tone="error" />
               </div>
 
@@ -331,6 +390,32 @@ export function ImportWizard() {
                   </ul>
                 </div>
               </div>
+
+              {(summary.conflicts?.length ?? 0) > 0 && (
+                <div>
+                  <h4 className="mb-2 text-sm font-medium">
+                    {t("importWiz.conflicts", { n: summary.conflicts!.length })}
+                  </h4>
+                  <div className="max-h-48 overflow-y-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-muted/60">
+                        <tr className="text-left text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">{t("importWiz.colExternalId")}</th>
+                          <th className="px-3 py-2 font-medium">{t("importWiz.colReason")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.conflicts!.map((c, i) => (
+                          <tr key={`${c.external_id}-${i}`} className="border-t">
+                            <td className="px-3 py-2 font-mono text-xs">{c.external_id}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{c.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {summary.errors.length > 0 && (
                 <div>

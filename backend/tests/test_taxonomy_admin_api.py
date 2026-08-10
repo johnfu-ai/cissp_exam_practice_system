@@ -26,7 +26,7 @@ def client(db_session, session_with_roles):
 def _headers(db_session, store, email="a@example.com", role=RoleName.system_admin,
              perms=None):
     user, _ = register_user(
-        db_session, email=email, password="pw123456",
+        db_session, email=email, password="pw12345678",
         display_name="A", refresh_store=store,
     )
     db_session.flush()

@@ -32,6 +32,11 @@ class MappingIn(BaseModel):
     domain_id: uuid.UUID | None = None
 
 
+class PasteIn(BaseModel):
+    markdown: str
+    dataset_slug: str | None = None
+
+
 @router.get("/datasets")
 def list_datasets(session: Session = Depends(get_session),
                   _: CurrentUser = Depends(require_permission("question:import"))):
@@ -137,6 +142,69 @@ async def upload_dataset(
             raise HTTPException(status_code=404, detail="dataset not found")
         ds.source_path = str(target_dir)
         ds.format = _UPLOAD_EXTS[ext]
+    session.flush()
+
+    run = run_preview(session, current.org_id, ds, initiated_by_id=current.user.id)
+    summary = run.preview_summary or {}
+    ds.total_questions = (
+        summary.get("would_create", 0) + summary.get("would_update", 0) + summary.get("unchanged", 0)
+    )
+    session.commit()
+    return {
+        "run_id": str(run.id),
+        "phase": run.phase.value,
+        "preview_summary": run.preview_summary,
+        "dataset_slug": slug,
+    }
+
+
+@router.post("/paste")
+def paste_markdown(
+    body: PasteIn,
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("question:import")),
+):
+    """FR-IMP-02: interactive Markdown paste → materialize as questions.json → preview."""
+    import json
+
+    from app.etl.markdown_paste import markdown_content_hash, parse_markdown_paste
+
+    md = (body.markdown or "").strip()
+    if not md:
+        raise HTTPException(status_code=422, detail="markdown is required")
+    rows = parse_markdown_paste(md)
+    if not rows:
+        raise HTTPException(
+            status_code=422,
+            detail="no questions parsed; need stem + options A./B. … and optional Answer:/答案:",
+        )
+    # Drop internal helper keys before writing JSON for JsonExtractor.
+    clean_rows = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
+    slug = (body.dataset_slug or "").strip() or f"paste-{markdown_content_hash(md)}"
+    target_dir = Path(settings.etl_upload_root) / slug
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for old in target_dir.glob("questions.*"):
+        old.unlink()
+    target = target_dir / "questions.json"
+    target.write_text(json.dumps(clean_rows, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    ds = session.execute(select(EtlDataset).filter_by(slug=slug)).scalar_one_or_none()
+    if ds is None:
+        ds = EtlDataset(
+            organization_id=current.org_id,
+            slug=slug,
+            name=slug,
+            source_path=str(target_dir),
+            format=ImportFormat.json,
+            languages=["en"],
+            total_questions=0,
+        )
+        session.add(ds)
+    else:
+        if ds.organization_id != current.org_id:
+            raise HTTPException(status_code=404, detail="dataset not found")
+        ds.source_path = str(target_dir)
+        ds.format = ImportFormat.json
     session.flush()
 
     run = run_preview(session, current.org_id, ds, initiated_by_id=current.user.id)

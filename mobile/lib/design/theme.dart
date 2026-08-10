@@ -5,9 +5,9 @@ abstract final class AppColors {
   static const primary = Color(0xFF007AFF);
   static const canvas = Color(0xFFF7F7FA);
   static const card = Color(0xFFFFFFFF);
-  static const success = Color(0xFF34C759);
+  static const success = Color(0xFF157A3A); // WCAG AA on white (~web --success)
   static const warning = Color(0xFFFF9500);
-  static const destructive = Color(0xFFFF3B30);
+  static const destructive = Color(0xFFD93838); // WCAG AA on white (~web --destructive)
   static const muted = Color(0xFF8E8E93);
   static const foreground = Color(0xFF1C1C1E);
   static const border = Color(0xFFE5E5EA);

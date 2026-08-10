@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     log_level: str = "info"
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
+    # Password-reset email (empty smtp_host = NullMailer / no send).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True
+    # Public URL of the admin frontend (for reset links), e.g. https://admin.example.com
+    app_public_url: str = "http://localhost:3000"
     # FR-IMP-01 / #35: root directory for uploaded import files (CSV/XLSX/JSON).
     # Each upload materializes as ``<etl_upload_root>/<dataset_slug>/questions.<ext>``
     # so DatasetReader can auto-detect + re-read it at commit (drift detection).

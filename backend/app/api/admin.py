@@ -23,8 +23,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.dependencies import CurrentUser, require_permission
+from app.dependencies import CurrentUser, get_refresh_store, require_permission
 from app.db.session import get_session
+from app.core.security import RefreshTokenStore
 from app.models.enums import AuditAction, QuestionFeedbackType
 from app.schemas.admin import (
     AdminResetPasswordIn,
@@ -139,12 +140,14 @@ def admin_reset_user_password(
     user_id: uuid.UUID, payload: AdminResetPasswordIn,
     session: Session = Depends(get_session),
     current: CurrentUser = Depends(require_permission("admin:manage_users")),
+    refresh_store: RefreshTokenStore = Depends(get_refresh_store),
 ):
     """Admin-assisted password reset (forgotten-password path for self-hosted
     deployments without email). Audited as ``password_reset``."""
     try:
         out = svc.admin_reset_password(
-            session, current=current, user_id=user_id, new_password=payload.new_password
+            session, current=current, user_id=user_id,
+            new_password=payload.new_password, refresh_store=refresh_store,
         )
     except svc.AdminError as e:
         session.rollback()

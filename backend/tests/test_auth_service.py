@@ -27,12 +27,12 @@ def test_register_user_creates_personal_org_and_membership(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
     user, tokens = register_user(
-        session, email="ALICE@Example.com", password="pw123456",
+        session, email="ALICE@Example.com", password="pw12345678",
         display_name="Alice", refresh_store=store,
     )
     session.flush()
     assert user.email == "alice@example.com"  # case-folded
-    assert user.password_hash and user.password_hash != "pw123456"
+    assert user.password_hash and user.password_hash != "pw12345678"
     assert user.default_organization_id is not None
     org = session.get(Organization, user.default_organization_id)
     assert org.kind == OrgKind.personal
@@ -45,11 +45,11 @@ def test_register_user_creates_personal_org_and_membership(session_with_roles):
 def test_register_duplicate_email_raises(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
-    register_user(session, email="bob@example.com", password="pw123456",
+    register_user(session, email="bob@example.com", password="pw12345678",
                   display_name="Bob", refresh_store=store)
     session.flush()
     with pytest.raises(AuthError) as exc:
-        register_user(session, email="BOB@example.com", password="pw123456",
+        register_user(session, email="BOB@example.com", password="pw12345678",
                       display_name="Bob2", refresh_store=store)
     assert exc.value.status_code == 409
 
@@ -58,11 +58,11 @@ def test_authenticate_success_and_lockout(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
     lockout = InMemoryLockoutStore(threshold=2)
-    register_user(session, email="carol@example.com", password="pw123456",
+    register_user(session, email="carol@example.com", password="pw12345678",
                   display_name="Carol", refresh_store=store)
     session.flush()
 
-    user, tokens = authenticate(session, email="carol@example.com", password="pw123456",
+    user, tokens = authenticate(session, email="carol@example.com", password="pw12345678",
                                 refresh_store=store, lockout_store=lockout)
     assert user.email == "carol@example.com"
 
@@ -79,7 +79,7 @@ def test_authenticate_success_and_lockout(session_with_roles):
 def test_refresh_rotates_and_old_invalid(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
-    user, tokens = register_user(session, email="dave@example.com", password="pw123456",
+    user, tokens = register_user(session, email="dave@example.com", password="pw12345678",
                                  display_name="Dave", refresh_store=store)
     session.flush()
     new_tokens = refresh_tokens(session, store, tokens.refresh_token)
@@ -92,7 +92,7 @@ def test_logout_invalidates_refresh(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
     revoked = InMemoryRevokedTokenStore()
-    user, tokens = register_user(session, email="eve@example.com", password="pw123456",
+    user, tokens = register_user(session, email="eve@example.com", password="pw12345678",
                                  display_name="Eve", refresh_store=store)
     session.flush()
     logout(store, revoked, tokens.refresh_token, tokens.access_token)
@@ -106,7 +106,7 @@ def test_logout_revokes_access_token_jti(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
     revoked = InMemoryRevokedTokenStore()
-    user, tokens = register_user(session, email="rev@example.com", password="pw123456",
+    user, tokens = register_user(session, email="rev@example.com", password="pw12345678",
                                  display_name="Rev", refresh_store=store)
     session.flush()
     jti = decode_access_token(tokens.access_token)["jti"]
@@ -121,7 +121,7 @@ def test_logout_without_access_token_is_best_effort(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
     revoked = InMemoryRevokedTokenStore()
-    user, tokens = register_user(session, email="be@example.com", password="pw123456",
+    user, tokens = register_user(session, email="be@example.com", password="pw12345678",
                                  display_name="BE", refresh_store=store)
     session.flush()
     logout(store, revoked, tokens.refresh_token, None)
@@ -135,7 +135,7 @@ def test_refresh_reuse_revokes_entire_family(session_with_roles):
     can't keep the session alive."""
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
-    user, tokens = register_user(session, email="reuse@example.com", password="pw123456",
+    user, tokens = register_user(session, email="reuse@example.com", password="pw12345678",
                                  display_name="Reuse", refresh_store=store)
     session.flush()
     rt1 = tokens.refresh_token
@@ -157,7 +157,7 @@ def test_refresh_reuse_revokes_entire_family(session_with_roles):
 def test_load_user_perms_returns_role_perms(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
-    user, tokens = register_user(session, email="frank@example.com", password="pw123456",
+    user, tokens = register_user(session, email="frank@example.com", password="pw12345678",
                                  display_name="Frank", refresh_store=store)
     session.flush()
     perms = load_user_perms(session, user.id, user.default_organization_id)
@@ -169,26 +169,28 @@ def test_load_user_perms_returns_role_perms(session_with_roles):
 def test_change_password_rejects_wrong_current(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
-    user, _ = register_user(session, email="cp@example.com", password="pw123456",
+    user, _ = register_user(session, email="cp@example.com", password="pw12345678",
                             display_name="CP", refresh_store=store)
     session.flush()
     with pytest.raises(AuthError) as exc:
-        change_password(session, user=user, current_password="wrong", new_password="newpw123")
+        change_password(session, user=user, current_password="wrong",
+                        new_password="newpw12345", refresh_store=store)
     assert exc.value.status_code == 401
     # original password still works
-    assert verify_password("pw123456", user.password_hash)
+    assert verify_password("pw12345678", user.password_hash)
 
 
 def test_change_password_updates_hash_and_audits(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
-    user, _ = register_user(session, email="cp2@example.com", password="pw123456",
+    user, _ = register_user(session, email="cp2@example.com", password="pw12345678",
                             display_name="CP2", refresh_store=store)
     session.flush()
-    change_password(session, user=user, current_password="pw123456", new_password="newpw123")
+    change_password(session, user=user, current_password="pw12345678",
+                    new_password="newpw12345", refresh_store=store)
     session.flush()
-    assert verify_password("newpw123", user.password_hash)
-    assert not verify_password("pw123456", user.password_hash)
+    assert verify_password("newpw12345", user.password_hash)
+    assert not verify_password("pw12345678", user.password_hash)
     # audit row written as password_change
     from app.models.admin import AuditLog
     rows = session.query(AuditLog).filter_by(
@@ -200,7 +202,7 @@ def test_request_reset_issues_token_for_known_email(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
     rst = InMemoryPasswordResetTokenStore()
-    register_user(session, email="rr@example.com", password="pw123456",
+    register_user(session, email="rr@example.com", password="pw12345678",
                   display_name="RR", refresh_store=store)
     session.flush()
     token = request_password_reset(
@@ -236,29 +238,31 @@ def test_confirm_reset_consumes_token_and_sets_password(session_with_roles):
     session = session_with_roles
     store = InMemoryRefreshTokenStore()
     rst = InMemoryPasswordResetTokenStore()
-    user, _ = register_user(session, email="cr@example.com", password="pw123456",
+    user, _ = register_user(session, email="cr@example.com", password="pw12345678",
                             display_name="CR", refresh_store=store)
     session.flush()
     token = request_password_reset(
         session, email="cr@example.com", reset_store=rst,
         lockout_store=InMemoryLockoutStore(threshold=5))
     confirmed = confirm_password_reset(
-        session, token=token, new_password="newpw123", reset_store=rst)
+        session, token=token, new_password="newpw12345", reset_store=rst,
+        refresh_store=store)
     session.flush()
     assert confirmed.id == user.id
-    assert verify_password("newpw123", user.password_hash)
+    assert verify_password("newpw12345", user.password_hash)
     # single-use: a second confirm with the same token fails
     with pytest.raises(AuthError):
-        confirm_password_reset(session, token=token, new_password="another123",
-                               reset_store=rst)
+        confirm_password_reset(session, token=token, new_password="another1234",
+                               reset_store=rst, refresh_store=store)
 
 
 def test_confirm_reset_bogus_token_raises(session_with_roles):
     session = session_with_roles
     rst = InMemoryPasswordResetTokenStore()
+    store = InMemoryRefreshTokenStore()
     with pytest.raises(AuthError) as exc:
-        confirm_password_reset(session, token="bogus", new_password="newpw123",
-                               reset_store=rst)
+        confirm_password_reset(session, token="bogus", new_password="newpw12345",
+                               reset_store=rst, refresh_store=store)
     assert exc.value.status_code == 401
 
 
@@ -280,7 +284,7 @@ def test_authenticate_missing_user_still_runs_bcrypt(monkeypatch, session_with_r
 
     monkeypatch.setattr(auth_mod, "verify_password", spy)
     with pytest.raises(AuthError):
-        authenticate(session, email="nobody@example.com", password="pw123456",
+        authenticate(session, email="nobody@example.com", password="pw12345678",
                      refresh_store=store, lockout_store=lockout)
     # bcrypt ran once against the dummy hash even though no user matched the email
     assert calls["n"] == 1

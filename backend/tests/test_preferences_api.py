@@ -37,7 +37,7 @@ def auth_client(db_session, session_with_roles):
 def _register(auth_client, email="pref@example.com"):
     resp = auth_client.post(
         "/api/auth/register",
-        json={"email": email, "password": "pw123456", "display_name": "Pref"},
+        json={"email": email, "password": "pw12345678", "display_name": "Pref"},
     )
     assert resp.status_code == 200, resp.text
     return resp.json()["access_token"]

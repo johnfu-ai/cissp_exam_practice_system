@@ -92,6 +92,7 @@ def _answer_rows(session: Session, user_id, since=None):
     merged across practice + exam answers for ``user_id``.
 
     If ``since`` is given, only rows with ``answered_at >= since`` are returned.
+    Union is pushed to SQL (single round-trip) rather than two Python extends.
     """
     pa = select(
         PracticeAnswer.question_id,
@@ -108,10 +109,7 @@ def _answer_rows(session: Session, user_id, since=None):
     if since is not None:
         pa = pa.where(PracticeAnswer.answered_at >= since)
         ea = ea.where(ExamAnswer.answered_at >= since)
-    rows = []
-    rows.extend(session.execute(pa).all())
-    rows.extend(session.execute(ea).all())
-    return rows
+    return list(session.execute(pa.union_all(ea)).all())
 
 
 def _filter_since(rows, since):

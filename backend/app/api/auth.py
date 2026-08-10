@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import settings, _DEV_ENVS
+from app.core.mail import Mailer
 from app.core.security import (
     PasswordResetTokenStore,
     RateLimiter,
@@ -18,6 +19,7 @@ from app.dependencies import (
     CurrentUser,
     get_current_user,
     get_lockout_store,
+    get_mailer,
     get_rate_limiter,
     get_refresh_store,
     get_reset_token_store,
@@ -200,17 +202,26 @@ def me(current: CurrentUser = Depends(get_current_user),
 @router.put("/password")
 def change_password_route(
     body: PasswordChangeIn,
+    request: Request,
     current: CurrentUser = Depends(get_current_user),
     session: Session = Depends(get_session),
+    refresh_store: RefreshTokenStore = Depends(get_refresh_store),
+    revoked_store: RevokedTokenStore = Depends(get_revoked_store),
 ):
     try:
         change_password(
             session, user=current.user,
             current_password=body.current_password,
             new_password=body.new_password,
+            refresh_store=refresh_store,
         )
     except AuthError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))
+    # Also kill this request's access token immediately (JWT iat is second-
+    # precision, so tokens_invalid_before alone can miss same-second tokens).
+    auth = request.headers.get("Authorization") or ""
+    if auth.lower().startswith("bearer "):
+        logout(refresh_store, revoked_store, None, auth.split(" ", 1)[1].strip())
     session.commit()
     return {"ok": True}
 
@@ -221,6 +232,7 @@ def reset_password_request(
     session: Session = Depends(get_session),
     reset_store: PasswordResetTokenStore = Depends(get_reset_token_store),
     lockout_store: LockoutStore = Depends(get_lockout_store),
+    mailer: Mailer = Depends(get_mailer),
     _: bool = Depends(auth_rate_limit("reset")),
 ):
     try:
@@ -231,9 +243,25 @@ def reset_password_request(
     except AuthError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))
     session.commit()
-    # Always 200 (no email enumeration). The token is returned ONLY in a
-    # development/dev/test environment so the flow is testable end-to-end
-    # without email infra; a real deployment emails the link (future work).
+    # Always 200 (no email enumeration). Email the link when SMTP is configured.
+    # Token is returned ONLY in development/dev/test so the flow is testable
+    # without email infra; production never returns the token in the body.
+    if token is not None:
+        base = (settings.app_public_url or "").rstrip("/")
+        link = f"{base}/forgot-password?token={token}" if base else token
+        try:
+            mailer.send(
+                to=body.email.lower().strip(),
+                subject="Password reset",
+                body_text=(
+                    "Use this link to reset your password (expires soon):\n\n"
+                    f"{link}\n\n"
+                    "If you did not request this, ignore this email.\n"
+                ),
+            )
+        except Exception:
+            # Don't leak mail failures into enumeration-sensitive responses.
+            pass
     resp = {"ok": True}
     if token is not None and settings.app_env.lower() in {"development", "dev", "test"}:
         resp["token"] = token
@@ -245,11 +273,13 @@ def reset_password_confirm(
     body: ResetPasswordConfirmIn,
     session: Session = Depends(get_session),
     reset_store: PasswordResetTokenStore = Depends(get_reset_token_store),
+    refresh_store: RefreshTokenStore = Depends(get_refresh_store),
 ):
     try:
         confirm_password_reset(
             session, token=body.token,
             new_password=body.new_password, reset_store=reset_store,
+            refresh_store=refresh_store,
         )
     except AuthError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))

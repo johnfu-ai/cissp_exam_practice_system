@@ -41,7 +41,7 @@ def client(db_session, session_with_roles):
 
 def _headers(db, store, email="e2e@example.com"):
     user, _ = register_user(
-        db, email=email, password="pw123456", display_name="E2E", refresh_store=store,
+        db, email=email, password="pw12345678", display_name="E2E", refresh_store=store,
     )
     db.flush()
     role = db.query(Role).filter_by(name=RoleName.individual_learner).first()

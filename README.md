@@ -139,6 +139,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ./scripts/restore.sh <dump.sql.gz>
 ```
 
+Ops runbook (TLS, SMTP, Sentry, Flutter signing, incidents): [`docs/ops/production-runbook.md`](docs/ops/production-runbook.md)
+
 ## Documentation
 
 - PRD: [`docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md`](docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md)

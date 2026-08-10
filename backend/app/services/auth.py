@@ -2,7 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import time
 
 import jwt
@@ -274,12 +274,19 @@ def logout(refresh_store: RefreshTokenStore, revoked_store: RevokedTokenStore,
 
 # ---- P0 #1: secure password change + reset ----
 
+def invalidate_user_sessions(user: User, *, refresh_store: RefreshTokenStore) -> None:
+    """Kill all refresh families and mark access tokens issued before now invalid."""
+    user.tokens_invalid_before = datetime.now(timezone.utc)
+    refresh_store.revoke_all_for_user(user.id)
+
+
 def change_password(session: Session, *, user: User, current_password: str,
-                    new_password: str) -> None:
+                    new_password: str, refresh_store: RefreshTokenStore) -> None:
     """Authenticated password change — requires proof of the current password."""
     if not user.password_hash or not verify_password(current_password, user.password_hash):
         raise AuthError("incorrect current password", status_code=401)
     user.password_hash = hash_password(new_password)
+    invalidate_user_sessions(user, refresh_store=refresh_store)
     session.flush()
     log_audit(
         session, action=AuditAction.password_change, actor_id=user.id,
@@ -321,7 +328,8 @@ def request_password_reset(session: Session, *, email: str,
 
 
 def confirm_password_reset(session: Session, *, token: str, new_password: str,
-                           reset_store: PasswordResetTokenStore) -> User:
+                           reset_store: PasswordResetTokenStore,
+                           refresh_store: RefreshTokenStore) -> User:
     """Consume a single-use reset token and set the new password."""
     user_id = reset_store.consume(token)
     if user_id is None:
@@ -332,6 +340,7 @@ def confirm_password_reset(session: Session, *, token: str, new_password: str,
     if user.status != UserStatus.active:
         raise AuthError("account disabled", status_code=403)
     user.password_hash = hash_password(new_password)
+    invalidate_user_sessions(user, refresh_store=refresh_store)
     session.flush()
     log_audit(
         session, action=AuditAction.password_reset, actor_id=user.id,

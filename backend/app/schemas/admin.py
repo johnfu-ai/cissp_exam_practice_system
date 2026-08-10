@@ -5,6 +5,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.password_policy import validate_password
 from app.models.enums import QuestionFeedbackStatus, RoleName, UserStatus
 
 
@@ -28,7 +29,14 @@ class UserRolesIn(BaseModel):
 class AdminResetPasswordIn(BaseModel):
     """Admin-assisted password reset. If new_password is omitted, the service
     generates a random one and returns it (the admin relays it out-of-band)."""
-    new_password: str | None = Field(default=None, min_length=8, max_length=128)
+    new_password: str | None = Field(default=None, min_length=10, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _strong(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return validate_password(v)
 
 
 class ClassOut(BaseModel):

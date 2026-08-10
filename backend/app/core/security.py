@@ -65,6 +65,7 @@ class RefreshTokenStore(Protocol):
     def delete(self, token: str) -> None: ...
     def rotate(self, old: str, *, user_id: uuid.UUID, org_id: uuid.UUID, ttl_seconds: int) -> str: ...
     def revoke_family(self, family_id: str) -> None: ...
+    def revoke_all_for_user(self, user_id: uuid.UUID) -> None: ...
 
 
 def _entry(user_id: uuid.UUID, org_id: uuid.UUID, family_id: str, rotated: bool = False) -> dict:
@@ -116,15 +117,27 @@ class InMemoryRefreshTokenStore:
         for token in self._families.pop(family_id, set()):
             self._tokens.pop(token, None)
 
+    def revoke_all_for_user(self, user_id):
+        uid = str(user_id)
+        families = {
+            entry["family_id"]
+            for entry in self._tokens.values()
+            if entry.get("user_id") == uid
+        }
+        for family_id in families:
+            self.revoke_family(family_id)
+
 
 class RedisRefreshTokenStore:
     def __init__(self, redis_url: str, prefix: str = "refresh:",
-                 family_prefix: str = "refresh_family:") -> None:
+                 family_prefix: str = "refresh_family:",
+                 user_prefix: str = "refresh_user:") -> None:
         import redis
 
         self._redis = redis.from_url(redis_url, socket_connect_timeout=2)
         self._prefix = prefix
         self._family_prefix = family_prefix
+        self._user_prefix = user_prefix
 
     def _key(self, token: str) -> str:
         return f"{self._prefix}{token}"
@@ -132,12 +145,17 @@ class RedisRefreshTokenStore:
     def _fkey(self, family_id: str) -> str:
         return f"{self._family_prefix}{family_id}"
 
+    def _ukey(self, user_id: uuid.UUID | str) -> str:
+        return f"{self._user_prefix}{user_id}"
+
     def store(self, token, user_id, org_id, ttl_seconds):
         family_id = generate_refresh_token()
         self._redis.setex(self._key(token), ttl_seconds,
                           json.dumps(_entry(user_id, org_id, family_id)))
         self._redis.sadd(self._fkey(family_id), token)
         self._redis.expire(self._fkey(family_id), ttl_seconds)
+        self._redis.sadd(self._ukey(user_id), family_id)
+        self._redis.expire(self._ukey(user_id), ttl_seconds)
 
     def load(self, token):
         raw = self._redis.get(self._key(token))
@@ -169,6 +187,8 @@ class RedisRefreshTokenStore:
                           json.dumps(_entry(user_id, org_id, family_id)))
         self._redis.sadd(self._fkey(family_id), new)
         self._redis.expire(self._fkey(family_id), ttl_seconds)
+        self._redis.sadd(self._ukey(user_id), family_id)
+        self._redis.expire(self._ukey(user_id), ttl_seconds)
         return new
 
     def revoke_family(self, family_id):
@@ -179,6 +199,14 @@ class RedisRefreshTokenStore:
             if keys:
                 self._redis.delete(*keys)
         self._redis.delete(fkey)
+
+    def revoke_all_for_user(self, user_id):
+        ukey = self._ukey(user_id)
+        families = self._redis.smembers(ukey)
+        for raw in families or []:
+            family_id = raw.decode() if isinstance(raw, bytes) else raw
+            self.revoke_family(family_id)
+        self._redis.delete(ukey)
 
 
 class PasswordResetTokenStore(Protocol):

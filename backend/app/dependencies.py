@@ -2,6 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable
 
 import jwt
@@ -10,9 +11,8 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.mail import Mailer, build_mailer
 from app.core.security import (
-    InMemoryRefreshTokenStore,
-    InMemoryRevokedTokenStore,
     RateLimiter,
     RedisRefreshTokenStore,
     RedisPasswordResetTokenStore,
@@ -40,6 +40,7 @@ _lockout: LockoutStore | None = None
 _reset_store: "RedisPasswordResetTokenStore | None" = None
 _revoked_store: RevokedTokenStore | None = None
 _rate_limiter: RateLimiter | None = None
+_mailer: Mailer | None = None
 
 
 def get_refresh_store() -> RefreshTokenStore:
@@ -77,6 +78,13 @@ def get_rate_limiter() -> RateLimiter:
     return _rate_limiter
 
 
+def get_mailer() -> Mailer:
+    global _mailer
+    if _mailer is None:
+        _mailer = build_mailer()
+    return _mailer
+
+
 @dataclass
 class CurrentUser:
     user: User
@@ -112,6 +120,28 @@ def get_current_user(
     # no need to revoke individual tokens).
     if user.status == UserStatus.disabled:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="account disabled")
+    # Reject access tokens minted before a password change/reset.
+    # JWT `iat` is second-precision; compare at second granularity with `<`
+    # so a token minted in the same second as the cutoff (the new login) still works.
+    cutoff = user.tokens_invalid_before
+    if cutoff is not None:
+        iat = claims.get("iat")
+        if iat is not None:
+            if isinstance(iat, (int, float)):
+                iat_ts = int(iat)
+            elif isinstance(iat, datetime):
+                iat_aware = iat if iat.tzinfo else iat.replace(tzinfo=timezone.utc)
+                iat_ts = int(iat_aware.timestamp())
+            else:
+                iat_ts = None
+            if iat_ts is not None:
+                cut = cutoff if cutoff.tzinfo else cutoff.replace(tzinfo=timezone.utc)
+                if iat_ts < int(cut.timestamp()):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="token revoked",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
     org_id = uuid.UUID(claims["org_id"])
     # #8: load roles+perms fresh from the DB rather than trusting token claims, so a
     # role revocation takes effect immediately (not up to 60 min stale).

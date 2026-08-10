@@ -1,13 +1,15 @@
 // Hand-written frontend type surface for the backend API.
 //
 // #32: the GENERATED source of truth lives in `./schema.ts` (produced by
-// `npm run gen:api` from `openapi.json`, which is dumped by
-// `backend/app/scripts/export_openapi.py`). CI fails if either file is stale
-// vs the backend, so a backend schema change can't silently drift past review.
-// New code may import generated types directly from `./schema`; this file
-// keeps the app's narrower, human-readable aliases (e.g. enum unions where the
-// backend serializes a bare `string`). When the backend schema changes,
-// regenerate (`npm run gen:api`) and update the mirrors here to match.
+// `npm run gen:api` from `openapi.json`). Prefer importing generated shapes
+// from `./schema` for new code; this module keeps stable human-readable
+// aliases used across features. When the backend schema changes, regenerate
+// (`npm run gen:api`) and update mirrors here.
+import type { components } from "./schema";
+
+/** Generated schema namespace (for progressive migration off hand mirrors). */
+export type Schemas = components["schemas"];
+
 export type QuestionType =
   | "single_choice"
   | "multiple_choice"
@@ -416,6 +418,8 @@ export interface EtlPreviewSummary {
   would_create: number;
   would_update: number;
   unchanged: number;
+  duplicates?: number;
+  conflicts?: { external_id: string; reason: string }[];
   by_type: Record<string, number>;
   by_language: Record<string, number>;
   errors: EtlPreviewError[];

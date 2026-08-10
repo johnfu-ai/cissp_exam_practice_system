@@ -30,6 +30,19 @@ export function useUploadDataset() {
   });
 }
 
+/** FR-IMP-02: paste Markdown questions → preview run (same shape as upload). */
+export function usePasteMarkdown() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { markdown: string; dataset_slug?: string }) =>
+      apiJson<EtlRun & { dataset_slug: string }>("/api/etl/paste", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.etl.datasets }),
+  });
+}
+
 export function useCreateRun() {
   return useMutation({
     mutationFn: (datasetSlug: string) =>

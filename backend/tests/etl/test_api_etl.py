@@ -61,7 +61,7 @@ def _seed(session):
 
 def _admin_headers(db_session, store, email="etladmin@example.com"):
     """Mint an Authorization header for a system_admin user (all perms)."""
-    user, _ = register_user(db_session, email=email, password="pw123456",
+    user, _ = register_user(db_session, email=email, password="pw12345678",
                             display_name="Etl", refresh_store=store)
     db_session.flush()
     sa = db_session.query(Role).filter_by(name=RoleName.system_admin).first()
@@ -149,7 +149,7 @@ def test_runs_forbidden_without_perm(client_and_store, db_session):
     c, store = client_and_store
     _seed(db_session)
     # learner with no question:import perm
-    user, _ = register_user(db_session, email="nop@e.com", password="pw123456",
+    user, _ = register_user(db_session, email="nop@e.com", password="pw12345678",
                             display_name="N", refresh_store=store)
     db_session.flush()
     token = create_access_token(user_id=user.id, org_id=user.default_organization_id,

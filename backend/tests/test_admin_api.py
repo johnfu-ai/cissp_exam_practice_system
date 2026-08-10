@@ -71,7 +71,7 @@ def _headers(db, store, email, role=RoleName.individual_learner, perms=None):
     """Register a user, set its org-membership role, mint a JWT. Returns
     (headers, user) so callers can read default_organization_id for seeding."""
     user, _ = register_user(
-        db, email=email, password="pw123456", display_name="U", refresh_store=store,
+        db, email=email, password="pw12345678", display_name="U", refresh_store=store,
     )
     db.flush()
     r = db.query(Role).filter_by(name=role).first()
@@ -148,7 +148,7 @@ def test_users_list_200(client):
 def test_users_get_update_status_and_roles_200(client):
     c, store, db = client
     h, _ = _headers(db, store, email="adm1@x.com", role=RoleName.system_admin)
-    target, _ = register_user(db, email="tgt@x.com", password="pw123456",
+    target, _ = register_user(db, email="tgt@x.com", password="pw12345678",
                               display_name="T", refresh_store=store)
     db.flush()
     # get
@@ -191,7 +191,7 @@ def test_users_cross_org_404(client):
     c, store, db = client
     h, _ = _headers(db, store, email="oa@x.com",
                     role=RoleName.org_admin, perms=ORG_ADMIN_PERMS)
-    target, _ = register_user(db, email="o2user@x.com", password="pw123456",
+    target, _ = register_user(db, email="o2user@x.com", password="pw12345678",
                               display_name="O2", refresh_store=store)
     db.flush()
     assert c.get(f"/api/admin/users/{target.id}", headers=h).status_code == 404
@@ -297,7 +297,7 @@ def test_cat_params_invalid_params_422(client):
 def test_quality_dashboard_200(client):
     c, store, db = client
     h, _ = _headers(db, store, email="q-admin@x.com", role=RoleName.system_admin)
-    actor, _ = register_user(db, email="q-actor@x.com", password="pw123456",
+    actor, _ = register_user(db, email="q-actor@x.com", password="pw12345678",
                              display_name="QA", refresh_store=store)
     db.flush()
     org = db.query(Organization).filter_by(id=actor.default_organization_id).one()
@@ -315,7 +315,7 @@ def test_quality_dashboard_200(client):
 def test_quality_feedback_list_and_resolve(client):
     c, store, db = client
     h, _ = _headers(db, store, email="f-admin@x.com", role=RoleName.system_admin)
-    actor, _ = register_user(db, email="f-actor@x.com", password="pw123456",
+    actor, _ = register_user(db, email="f-actor@x.com", password="pw12345678",
                              display_name="FA", refresh_store=store)
     db.flush()
     org = db.query(Organization).filter_by(id=actor.default_organization_id).one()
@@ -503,7 +503,7 @@ def test_language_coverage_org_scoped(client):
     _question(db, org_a, admin_a, stem="a-en")
     _bilingual_question(db, org_a, admin_a, stem="a-bi")
     # second org (org B) with its own questions — must be invisible to org_admin A
-    admin_b, _ = register_user(db, email="lc-ob@x.com", password="pw123456",
+    admin_b, _ = register_user(db, email="lc-ob@x.com", password="pw12345678",
                                display_name="OB", refresh_store=store)
     db.flush()
     org_b = db.query(Organization).filter_by(id=admin_b.default_organization_id).one()
@@ -543,11 +543,11 @@ def test_admin_reset_password_known_pw(client):
     _, target = _headers(db, store, email="reset-target2@x.com",
                          role=RoleName.individual_learner, perms=LEARNER_PERMS)
     r = c.post(f"/api/admin/users/{target.id}/reset-password",
-               headers=h_admin, json={"new_password": "newpw123"})
+               headers=h_admin, json={"new_password": "newpw12345"})
     assert r.status_code == 200, r.text
     assert r.json() == {"ok": True}
     assert c.post("/api/auth/login", json={"email": "reset-target2@x.com",
-                  "password": "newpw123"}).status_code == 200
+                  "password": "newpw12345"}).status_code == 200
 
 
 def test_admin_reset_password_403_without_perm(client):

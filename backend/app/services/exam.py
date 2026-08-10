@@ -322,6 +322,7 @@ def create_cat_session(
         "cat_params": _current_cat_params_or_default(session),
         "disclaimer": cat_engine.DISCLAIMER,
         "language_mode": mode,
+        "candidate_pool": candidates,
     }
     es = ExamSession(
         user_id=actor_id,
@@ -611,10 +612,13 @@ def _submit_cat_answer(
         cfg["next_question_id"] = None
     else:
         bp = session.get(ExamBlueprint, es.blueprint_id)
-        candidates = _cat_candidate_pool(
-            session, org_id=es.organization_id, blueprint=bp,
-            mode=cfg.get("language_mode", "en"),
-        )
+        candidates = cfg.get("candidate_pool")
+        if not candidates:
+            candidates = _cat_candidate_pool(
+                session, org_id=es.organization_id, blueprint=bp,
+                mode=cfg.get("language_mode", "en"),
+            )
+            cfg["candidate_pool"] = candidates
         rng = random.Random()
         next_id = cat_engine.select_next_item(
             candidates, new_ability, cfg.get("domain_targets", {}),

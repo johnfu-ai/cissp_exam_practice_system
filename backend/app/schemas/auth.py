@@ -1,11 +1,15 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, EmailStr, Field
+
+from app.core.password_policy import validate_password
+
+StrongPassword = Annotated[str, AfterValidator(validate_password)]
 
 
 class RegisterIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: StrongPassword = Field(max_length=128)
     display_name: str | None = Field(default=None, max_length=255)
 
 
@@ -35,12 +39,12 @@ class ResetPasswordRequestIn(BaseModel):
 
 class ResetPasswordConfirmIn(BaseModel):
     token: str
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: StrongPassword = Field(max_length=128)
 
 
 class PasswordChangeIn(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: StrongPassword = Field(max_length=128)
 
 
 class UserOut(BaseModel):

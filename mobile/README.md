@@ -25,7 +25,7 @@ flutter run --dart-define=API_BASE_URL=http://localhost:8000
 flutter run --dart-define=API_BASE_URL=http://<host-lan-ip>:8000
 ```
 
-Default login after seed: `admin@example.com` / `admin` (dev only). Prefer registering a learner account for day-to-day use.
+Default login after seed: `admin@example.com` / `Adminadmin1` (dev only). Prefer registering a learner account for day-to-day use.
 
 ## Test
 
@@ -33,7 +33,21 @@ Default login after seed: `admin@example.com` / `admin` (dev only). Prefer regis
 flutter analyze
 # Pure unit tests (preferred on WSL — avoids flutter_tester WebSocket issues):
 dart test -p vm test/
+# Widget / golden updates (when adding screenshots):
+flutter test --update-goldens
 ```
+
+## Android release signing
+
+Copy `android/key.properties.example` → `android/key.properties` and point `storeFile` at your upload keystore. Without it, release builds fall back to debug signing. See `docs/ops/production-runbook.md`.
+
+## Dart API client drift
+
+`packages/cissp_api` is hand-maintained against `openapi/openapi.json`. After backend OpenAPI changes:
+
+1. Export: `cd backend && python -m app.scripts.export_openapi ../openapi/openapi.json`
+2. Update Dart models/client in `packages/cissp_api` to match
+3. Verify: `bash scripts/check_dart_api_drift.sh` from repo root
 
 ## Architecture
 

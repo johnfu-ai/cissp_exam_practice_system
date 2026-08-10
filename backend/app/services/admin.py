@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import Integer, case, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password
+from app.core.security import RefreshTokenStore, hash_password
 from app.db.queries import not_deleted
 from app.dependencies import CurrentUser
 from app.models.admin import AuditLog, CatParamsVersion
@@ -199,18 +199,23 @@ def set_user_roles(session, *, current, user_id, role_names: list[RoleName]):
     return _user_out(session, user, org_id)
 
 
-def admin_reset_password(session, *, current, user_id, new_password: str | None):
+def admin_reset_password(session, *, current, user_id, new_password: str | None,
+                         refresh_store: RefreshTokenStore):
     """Admin-assisted password reset (the forgotten-password path for
     self-hosted deployments without email). Permission-gated + org-scoped via
     ``get_user`` (cross-org -> NotFound). If ``new_password`` is None a random
     one is generated and returned so the admin can relay it out-of-band.
     Audited as ``password_reset`` with actor = the admin."""
+    from app.services.auth import invalidate_user_sessions
+
     user = session.get(User, user_id)
     if user is None:
         raise NotFound("user not found")
     get_user(session, current=current, user_id=user_id)  # scope check -> NotFound
-    pw = new_password or secrets.token_urlsafe(12)
+    # Ensure generated passwords satisfy the strengthened policy (≥10, letter+digit).
+    pw = new_password or (secrets.token_urlsafe(12) + "a1")
     user.password_hash = hash_password(pw)
+    invalidate_user_sessions(user, refresh_store=refresh_store)
     session.flush()
     log_audit(session, action=AuditAction.password_reset, actor_id=current.user.id,
               organization_id=current.org_id, entity_type="user",

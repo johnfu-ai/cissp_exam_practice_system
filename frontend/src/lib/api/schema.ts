@@ -404,6 +404,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/etl/paste": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Paste Markdown
+         * @description FR-IMP-02: interactive Markdown paste → materialize as questions.json → preview.
+         */
+        post: operations["paste_markdown_api_etl_paste_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/etl/runs/{run_id}": {
         parameters: {
             query?: never;
@@ -2244,6 +2264,13 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /** PasteIn */
+        PasteIn: {
+            /** Markdown */
+            markdown: string;
+            /** Dataset Slug */
+            dataset_slug?: string | null;
+        };
         /** PerOptionExplanation */
         PerOptionExplanation: {
             /** Order Index */
@@ -2538,7 +2565,7 @@ export interface components {
              * @default random
              * @enum {string}
              */
-            order_mode: "random" | "sequential" | "easy_to_hard";
+            order_mode: "random" | "sequential" | "easy_to_hard" | "weak_first";
             /** Language Mode */
             language_mode?: ("en" | "zh" | "bilingual") | null;
             /** Domain Id */
@@ -2547,6 +2574,8 @@ export interface components {
             book_id?: string | null;
             /** Chapter Ids */
             chapter_ids?: string[];
+            /** Knowledge Point Id */
+            knowledge_point_id?: string | null;
             /** Question Type */
             question_type?: string | null;
             /** Difficulty */
@@ -3491,6 +3520,39 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["Body_upload_dataset_api_etl_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    paste_markdown_api_etl_paste_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasteIn"];
             };
         };
         responses: {

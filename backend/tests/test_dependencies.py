@@ -31,7 +31,7 @@ def _build_app(db_session, refresh_store):
 
 
 def _make_user(db_session, refresh_store, email="dep@example.com"):
-    user, _ = register_user(db_session, email=email, password="pw123456",
+    user, _ = register_user(db_session, email=email, password="pw12345678",
                             display_name="Dep", refresh_store=refresh_store)
     db_session.flush()
     # grant system_admin role on the personal org for the admin test
@@ -68,7 +68,7 @@ def test_valid_token_returns_user(db_session, session_with_roles):
 def test_require_permission_denies_without_perm(db_session, session_with_roles):
     refresh_store = InMemoryRefreshTokenStore()
     # plain learner (no admin perms)
-    user, _ = register_user(db_session, email="learner@example.com", password="pw123456",
+    user, _ = register_user(db_session, email="learner@example.com", password="pw12345678",
                             display_name="L", refresh_store=refresh_store)
     db_session.flush()
     token = create_access_token(user_id=user.id, org_id=user.default_organization_id,

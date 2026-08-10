@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/exam", tags=["exam"])
 _INTERNAL_CONFIG_KEYS = {
     "question_ids", "next_question_id", "seen",
     "domain_targets", "domain_answered", "cat_params",
+    "candidate_pool",
 }
 
 

@@ -784,16 +784,17 @@ def test_report_summary_system_admin_global(session_with_roles):
 # ---- P0 #1: admin-assisted password reset ----
 
 def test_admin_reset_password_known_pw_audited(session_with_roles):
-    from app.core.security import verify_password
+    from app.core.security import InMemoryRefreshTokenStore, verify_password
     db = session_with_roles
     o1 = _org(db, "reset-o1")
     target = _user(db, "reset-t@x.com", o1)
     cur = _current(db, o1)
+    store = InMemoryRefreshTokenStore()
     out = svc.admin_reset_password(db, current=cur, user_id=target.id,
-                                   new_password="newpw123")
+                                   new_password="newpw12345", refresh_store=store)
     db.flush()
     assert out == {"ok": True}
-    assert verify_password("newpw123", target.password_hash)
+    assert verify_password("newpw12345", target.password_hash)
     logs = db.query(AuditLog).filter_by(
         action="password_reset", entity_id=str(target.id)).all()
     assert len(logs) == 1
@@ -802,13 +803,14 @@ def test_admin_reset_password_known_pw_audited(session_with_roles):
 
 
 def test_admin_reset_password_generates_random_when_omitted(session_with_roles):
-    from app.core.security import verify_password
+    from app.core.security import InMemoryRefreshTokenStore, verify_password
     db = session_with_roles
     o1 = _org(db, "reset-o2")
     target = _user(db, "reset-t2@x.com", o1)
     cur = _current(db, o1)
+    store = InMemoryRefreshTokenStore()
     out = svc.admin_reset_password(db, current=cur, user_id=target.id,
-                                   new_password=None)
+                                   new_password=None, refresh_store=store)
     db.flush()
     assert out.get("ok") is True
     assert out.get("password")  # generated
@@ -816,20 +818,24 @@ def test_admin_reset_password_generates_random_when_omitted(session_with_roles):
 
 
 def test_admin_reset_password_cross_org_not_found(session_with_roles):
+    from app.core.security import InMemoryRefreshTokenStore
     db = session_with_roles
     o1, o2 = _org(db, "reset-o3"), _org(db, "reset-o4")
     target = _user(db, "reset-x@x.com", o2)
     cur = _current(db, o1)  # org_admin of o1
+    store = InMemoryRefreshTokenStore()
     with pytest.raises(svc.NotFound):
         svc.admin_reset_password(db, current=cur, user_id=target.id,
-                                 new_password="newpw123")
+                                 new_password="newpw12345", refresh_store=store)
 
 
 def test_admin_reset_password_unknown_user_not_found(session_with_roles):
     import uuid as _uuid
+    from app.core.security import InMemoryRefreshTokenStore
     db = session_with_roles
     o1 = _org(db, "reset-o5")
     cur = _current(db, o1)
+    store = InMemoryRefreshTokenStore()
     with pytest.raises(svc.NotFound):
         svc.admin_reset_password(db, current=cur, user_id=_uuid.uuid4(),
-                                 new_password="newpw123")
+                                 new_password="newpw12345", refresh_store=store)

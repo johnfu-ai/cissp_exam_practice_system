@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, String, UniqueConstraint, text
+from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import (
@@ -48,6 +49,10 @@ class User(UUIDPrimaryKey, TimestampMixin, Base):
     )
     interface_language: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=text("'en'")
+    )
+    # Access tokens with iat < this timestamp are rejected (password change/reset).
+    tokens_invalid_before: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

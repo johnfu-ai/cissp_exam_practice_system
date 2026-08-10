@@ -13,7 +13,7 @@ import { Field } from "@/components/field";
 import { useT } from "@/lib/i18n/provider";
 
 const DEV_ADMIN_EMAIL = "admin@example.com";
-const DEV_ADMIN_PASSWORD = "admin";
+const DEV_ADMIN_PASSWORD = "Adminadmin1";
 
 function LoginForm() {
   const router = useRouter();

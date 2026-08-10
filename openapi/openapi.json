@@ -739,6 +739,51 @@
         ]
       }
     },
+    "/api/etl/paste": {
+      "post": {
+        "tags": [
+          "etl"
+        ],
+        "summary": "Paste Markdown",
+        "description": "FR-IMP-02: interactive Markdown paste → materialize as questions.json → preview.",
+        "operationId": "paste_markdown_api_etl_paste_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
     "/api/etl/runs/{run_id}": {
       "get": {
         "tags": [
@@ -5644,7 +5689,7 @@
               {
                 "type": "string",
                 "maxLength": 128,
-                "minLength": 8
+                "minLength": 10
               },
               {
                 "type": "null"
@@ -7495,7 +7540,6 @@
           "new_password": {
             "type": "string",
             "maxLength": 128,
-            "minLength": 8,
             "title": "New Password"
           }
         },
@@ -7505,6 +7549,30 @@
           "new_password"
         ],
         "title": "PasswordChangeIn"
+      },
+      "PasteIn": {
+        "properties": {
+          "markdown": {
+            "type": "string",
+            "title": "Markdown"
+          },
+          "dataset_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Slug"
+          }
+        },
+        "type": "object",
+        "required": [
+          "markdown"
+        ],
+        "title": "PasteIn"
       },
       "PerOptionExplanation": {
         "properties": {
@@ -8027,7 +8095,6 @@
           "password": {
             "type": "string",
             "maxLength": 128,
-            "minLength": 8,
             "title": "Password"
           },
           "display_name": {
@@ -8161,7 +8228,6 @@
           "new_password": {
             "type": "string",
             "maxLength": 128,
-            "minLength": 8,
             "title": "New Password"
           }
         },

@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 API="${API_BASE_URL:-http://localhost:8000}"
 EMAIL="${SMOKE_EMAIL:-admin@example.com}"
-PASSWORD="${SMOKE_PASSWORD:-admin}"
+PASSWORD="${SMOKE_PASSWORD:-Adminadmin1}"
 
 echo "==> GET $API/health"
 curl -sf "$API/health" | grep -q '"status":"ok"'
