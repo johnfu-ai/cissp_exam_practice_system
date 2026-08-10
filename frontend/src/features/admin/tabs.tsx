@@ -23,7 +23,7 @@ import { enumLabel } from "@/features/shared/enum-label";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
-import { fmtDate, fmtPct } from "@/features/analytics/format";
+import { fmtDate, fmtPct } from "@/features/shared/format";
 import type { AdminClass, RoleName } from "@/lib/api/types";
 
 const ROLES: RoleName[] = ["individual_learner", "instructor", "content_editor", "org_admin", "system_admin"];

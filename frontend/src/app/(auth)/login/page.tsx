@@ -18,7 +18,7 @@ const DEV_ADMIN_PASSWORD = "admin";
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/practice";
+  const next = params.get("next") || "/";
   const setAuth = useAuthStore((s) => s.setAuth);
   const setHydrated = useAuthStore((s) => s.setHydrated);
   const t = useT();

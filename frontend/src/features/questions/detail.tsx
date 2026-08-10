@@ -26,7 +26,7 @@ import { enumLabel } from "@/features/shared/enum-label";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
-import { fmtDate } from "@/features/analytics/format";
+import { fmtDate } from "@/features/shared/format";
 import {
   statusLabel, statusVariant, availableActions,
   feedbackTypeLabel, feedbackStatusLabel,

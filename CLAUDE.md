@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current State
 
+**Flutter learner client (PRD v1.3, 2026-08-10)** — `mobile/` is a single Dart/Flutter codebase targeting Android, iOS, and Windows (CISSP Compass). It covers auth, dashboard/analytics, practice (+ resume), review subsets, fixed + CAT exams (report/review/history), and settings (interface language + content language). Visual source: `assets/ui_images/flutter-ui-01..16-*-3platform.png`. Shared contract: `openapi/openapi.json` (relocated from `frontend/openapi.json`; frontend `gen:api` + CI drift checks updated). Auth for native: access token in memory; refresh from `Set-Cookie` persisted via `flutter_secure_storage` and sent as body fallback on `/api/auth/refresh` (no backend auth change). CAT language toggle is pure local state (`CatRunnerState.copyWithLanguage`) and must never call `/next`. **Next.js is admin-only**: learner routes (`/dashboard`, `/practice`, `/review`, `/exam`, `/analytics`) and their feature modules were removed; sidebar is manage links + settings + logout; users without admin-portal permissions land on `/access-required`. Design/plan: `docs/superpowers/specs/2026-08-10-flutter-learner-design.md`, `docs/superpowers/plans/2026-08-10-flutter-learner.md`. Flutter 3.32.8; unit tests via `dart test -p vm test/` (24+); CI jobs for analyze/tests + Android/Windows/iOS builds.
+
 **Sub-project A (Foundations & data model) is implemented and runnable.** The full stack starts with `docker compose up -d --build` and is verified healthy: backend `/health` returns `{"status":"ok","db":"ok","redis":"ok"}`, the frontend home page renders that status, the Alembic initial migration creates 26 tables, and the idempotent seed populates the personal org, the 2024-04-15 blueprint, 8 CISSP domains, 5 roles, and the permission matrix.
 
 What exists now: backend (FastAPI + SQLAlchemy 2.x + Alembic), 27 ORM models across 6 bounded contexts, `/health` endpoint, **auth & RBAC** (`/api/auth/{register,login,refresh,logout,me,password,reset-password/request,reset-password/confirm}` + admin `POST /api/admin/users/{id}/reset-password`; JWT access + opaque refresh tokens in Redis, single-use Redis-backed password-reset tokens, bcrypt passwords, login lockout, permission-based `require_permission` dependency), **ETL import pipeline** (`/api/etl/*` preview/commit/rollback/run two-phase lifecycle, seeded osg10 dataset + chapter→domain mappings), **question bank CRUD + lifecycle** (`/api/questions` create/read/update/delete, `/api/questions/{id}/review` state machine submit/approve/request_changes/archive/restore, `/api/questions/{id}/revisions` history with pre-edit snapshots, `/api/questions/{id}/feedback` correction feedback, plus read-only `/api/{domains,books,knowledge-points}` taxonomy API), **taxonomy admin** (`/api/admin/blueprints` + `/domains` CRUD with set-current and refuse-delete-on-reference guards; `/api/books` + `/chapters` tenant-scoped CRUD; `/api/knowledge-points` tree CRUD with cycle prevention; `/api/admin/knowledge-points/{id}/domains` KP↔domain bindings; `/api/tags` CRUD — all write routes gated by `admin:manage_taxonomy`, read routes by `question:read`, service layer in `app/services/taxonomy_admin.py` with `ValidationError`/`NotFound`/`ConflictError` mapped to 422/404/409), **practice API** (`/api/practice/sessions` create + scoped delivery + answer judging from snapshot + pause/resume + finish summary with per-domain breakdown + wrong-question list; `/api/practice/questions/{id}/state` bookmarks/flags/notes; service layer `app/services/practice.py` with ValidationError/NotFound/ConflictError → 422/404/409; all gated by `practice:read`), **fixed exam API** (`/api/exam/sessions` create with domain-weighted auto-assembly from the current ExamBlueprint, timed feedback-free delivery with lazy auto-submit, revisable answers judged from snapshot, `/api/exam/sessions/{id}/finish` + `/report` (scaled score/pass/accuracy/per-domain/time/wrong-question list), `/api/exam/sessions/{id}/review` unified post-exam review, `/api/exam/history` trend; service layer `app/services/exam.py` with ValidationError/NotFound/ConflictError → 422/404/409; all gated by `exam:read`), **CAT exam API** (`/api/exam/sessions` with `{"kind":"cat"}` creates a rule-driven adaptive exam reusing ExamSession (`session_kind=cat`) + the `config` JSONB column; pure engine `app/services/cat_engine.py` (simplified ability estimation — NOT full 3PL IRT, which is Phase 5: `update_ability`/`sem`/`decide_termination`/`select_first_item`/`select_next_item`/`scaled_score`/`readiness_level`/`DISCLAIMER`); CAT answers are non-revisable/non-skippable/forward-only via position check with NO upsert (differs from fixed exam); medium-difficulty start, ability-matched next item with domain-weight coverage + knowledge-point/source anti-cluster; termination at min/max items, time-up (lazy auto-submit), or ability-estimate convergence (early-stop ≥100); `/api/exam/sessions/{id}/next` CAT-only delivery (409 for fixed); report carries ability estimate/CI/SEM/readiness_level/disclaimer (study tool, ≠ ISC2 official scoring — FR-CAT-10); `finish`/`report`/`review`/`history` branched on session kind, ability-based scoring for CAT; `_INTERNAL_CONFIG_KEYS` stripped from session serialization), **personal learning analytics** (`/api/analytics/*` dashboard/domains/trend/weak-areas/error-types/recommendation/report — personal-scoped aggregations over practice+exam answers merged in Python, mastery derived from accuracy, weak-area threshold accuracy<0.6 & answered≥3, 30/90-day trend (422 otherwise), weekly review recommendation with mastered-exclusion, single-call `/report` composition; new `ErrorType` enum (5 types) + nullable `UserQuestionState.error_type` column exposed via the existing `PUT /api/practice/questions/{id}/state`; graceful degradation for empty users / missing blueprint (200, not 422); service layer `app/services/analytics.py`; all gated by `practice:read`), **admin backoffice** (`/api/admin/*` user + class management FR-ADMIN-03, CAT-param versioning FR-ADMIN-04, content-quality queue FR-ADMIN-05, audit-log viewer FR-ADMIN-06, operational reports FR-ADMIN-07; thin router `app/api/admin.py` delegating to `app/services/admin.py` with `AdminError`/`ValidationError`/`NotFound`/`ConflictError` → 422/404/409; org-scoped for org_admin / global for system_admin via `_admin_org_scope`; audit-on-every-mutation; three new tables `CatParamsVersion`/`Class`/`ClassMembership`; new `admin:view_reports` permission; `exam.py` snapshots the current `CatParamsVersion` into CAT session `config["cat_params"]` at creation with `cat_engine.DEFAULT_PARAMS` fallback — NFR-DATA-01; permission codes: users/classes=`admin:manage_users`, cat-params=`admin:manage_taxonomy`, quality=`question:publish`, audit=`admin:view_audit`, reports=`admin:view_reports`; cross-org target lookup → 404, cross-org `org_id` param → 422; `window_days` ∈ {30,90} else 422), idempotent seed (bootstraps a `system_admin` user), migration + model + auth + etl + question + taxonomy-admin + practice + exam + cat + analytics + admin tests (427 passing); frontend (Next.js 16 with login/register/logout pages, Zustand auth store, typed API client with silent refresh). **The full PRD functional backend scope (FR-* through FR-ADMIN-07) is implemented and merged to `master` — 104 endpoints across 8 routers, 427 backend tests, zero migration drift.**
@@ -50,14 +52,25 @@ The PRD remains the source of truth for scope. Read it before designing later su
 
 ## Tech Stack (actual)
 
-- **Frontend**: Next.js 16 (App Router, Turbopack), React 19, TypeScript, Tailwind CSS v3, shadcn/ui (Radix primitives) + `class-variance-authority`, DM Sans via `next/font/google`. Server components by default; only add `'use client'` where interactivity is needed.
+- **Learner client**: Flutter 3.32 / Dart 3.8 (Riverpod, GoRouter, Dio, flutter_secure_storage, ARB l10n) — Android, iOS, Windows only (`mobile/`).
+- **Admin frontend**: Next.js 16 (App Router, Turbopack), React 19, TypeScript, Tailwind CSS v3, shadcn/ui (Radix primitives) + `class-variance-authority`, DM Sans via `next/font/google`. Server components by default; only add `'use client'` where interactivity is needed. Admin-only after PRD v1.3.
 - **Backend**: FastAPI 0.138 (Starlette 1.x), SQLAlchemy 2.x (`DeclarativeBase` + mixins), Alembic migrations, Pydantic Settings.
 - **Database / Cache**: PostgreSQL 16, Redis 7 (sessions, rate limiting, CAT transient state).
-- Versions are pinned: see `backend/requirements.txt` and `frontend/package.json`. Docker images use Python 3.13-slim and Node 24-slim (local dev may use newer runtimes).
+- **API contract**: `openapi/openapi.json` (exported from FastAPI; consumed by frontend `openapi-typescript` and Flutter `cissp_api` package).
+- Versions are pinned: see `backend/requirements.txt`, `frontend/package.json`, `mobile/pubspec.yaml`. Docker images use Python 3.13-slim and Node 24-slim (local dev may use newer runtimes).
 
 ## Commands
 
-Frontend (`frontend/`):
+Learner (`mobile/`):
+```bash
+flutter pub get && flutter gen-l10n
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000   # Android emulator
+flutter run --dart-define=API_BASE_URL=http://localhost:8000  # Windows / iOS sim
+flutter analyze
+dart test -p vm test/   # unit tests (preferred on WSL)
+```
+
+Admin frontend (`frontend/`):
 ```bash
 npm install
 npm run dev            # port 3000
@@ -66,6 +79,7 @@ npm run lint           # ESLint
 npm run test           # Vitest
 npm run test:watch
 npm test -- eyebrow    # single test file (substring match)
+npm run gen:api        # from ../openapi/openapi.json
 ```
 
 Backend (`backend/`):
@@ -78,6 +92,7 @@ pytest tests/ -k "test_name"                 # single test
 alembic upgrade head                         # apply migrations
 alembic revision --autogenerate -m "desc"    # create migration
 python -m app.db.seed                        # idempotent seed (safe to re-run)
+python -m app.scripts.export_openapi ../openapi/openapi.json
 ```
 
 Docker (full stack):

@@ -3,11 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  BookOpen,
-  Repeat,
-  GraduationCap,
-  BarChart3,
   Upload,
   FileText,
   FolderTree,
@@ -21,18 +16,9 @@ import { useT } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-type NavKey = "dashboard" | "practice" | "review" | "exam" | "analytics";
+// Admin portal only — learner UX lives in the Flutter app under `mobile/`.
 type ManageKey = "import" | "questions" | "taxonomy";
 
-const NAV: { href: string; key: NavKey; icon: typeof LayoutDashboard }[] = [
-  { href: "/dashboard", key: "dashboard", icon: LayoutDashboard },
-  { href: "/practice", key: "practice", icon: BookOpen },
-  { href: "/review", key: "review", icon: Repeat },
-  { href: "/exam", key: "exam", icon: GraduationCap },
-  { href: "/analytics", key: "analytics", icon: BarChart3 },
-];
-
-// Management links, each shown only when the user holds the required permission.
 const MANAGE: { href: string; key: ManageKey; icon: typeof Upload; perm: string }[] = [
   { href: "/import", key: "import", icon: Upload, perm: "question:import" },
   { href: "/questions", key: "questions", icon: FileText, perm: "question:read" },
@@ -75,19 +61,8 @@ export function AppSidebar() {
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r bg-card">
       <div className="px-5 py-4 text-lg font-semibold tracking-tight">{t("brand")}</div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3">
-        {NAV.map(({ href, key, icon: Icon }) => {
-          const active = pathname.startsWith(href);
-          return (
-            <Link key={href} href={href} className={linkClass(active)}>
-              <Icon className="h-4 w-4" />
-              {t(`nav.${key}`)}
-            </Link>
-          );
-        })}
-
         {showManage && (
           <div>
-            <div className="my-2 h-px bg-border" />
             <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
               {t("nav.manage")}
             </div>
