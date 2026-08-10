@@ -88,8 +88,8 @@
 - [x] Run backend pytest subset + frontend tests + flutter tests
 - [x] Fix review findings
 - [x] Commit P1 completeness
-- [ ] `git push -u origin HEAD`
-- [ ] Optionally `gh release` / tag — only if green
+- [x] `git push -u origin HEAD` (`42a5873` on `origin/master`)
+- [ ] Optionally `gh release` / tag — skipped (no release requested)
 
 ---
 
