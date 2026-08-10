@@ -417,6 +417,51 @@ class AppLocalizationsZh extends AppLocalizations {
   String get practiceMastered => '已掌握';
 
   @override
+  String get practiceQuestioned => '有疑问';
+
+  @override
+  String get practiceMapping => '知识点映射';
+
+  @override
+  String get practiceHistory => '历史作答';
+
+  @override
+  String get practiceRelated => '相关题目';
+
+  @override
+  String get practiceHistoryCorrect => '正确';
+
+  @override
+  String get practiceHistoryIncorrect => '错误';
+
+  @override
+  String get practiceDifficulty => '难度';
+
+  @override
+  String get practiceAnyDifficulty => '任意难度';
+
+  @override
+  String get practiceQuestionType => '题型';
+
+  @override
+  String get practiceAnyQuestionType => '任意题型';
+
+  @override
+  String get practiceTag => '标签';
+
+  @override
+  String get practiceAnyTag => '任意标签';
+
+  @override
+  String get questionTypeSingle => '单选';
+
+  @override
+  String get questionTypeMultiple => '多选';
+
+  @override
+  String get questionTypeTrueFalse => '判断';
+
+  @override
   String get practiceNote => '笔记';
 
   @override
@@ -468,6 +513,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get orderEasyToHard => '由易到难';
+
+  @override
+  String get orderWeakFirst => '弱项优先';
 
   @override
   String get errorConceptUnclear => '概念不清';

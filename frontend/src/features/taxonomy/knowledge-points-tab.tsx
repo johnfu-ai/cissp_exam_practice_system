@@ -3,18 +3,21 @@
 import { useState } from "react";
 import {
   useKnowledgePoints, useCreateKnowledgePoint, useUpdateKnowledgePoint, useDeleteKnowledgePoint,
+  useKpDomains, useBindKpDomain, useUnbindKpDomain,
 } from "@/lib/api/taxonomy-admin";
+import { useDomains } from "@/lib/api/taxonomy";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Loading } from "@/components/loading";
 import { ErrorState } from "@/components/error-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toast } from "@/components/ui/sonner";
 import { ApiError } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
-import { Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
@@ -118,7 +121,7 @@ export function KnowledgePointsTab() {
         <CardContent className="space-y-1 p-4">
           {rows.length === 0 && <p className="text-sm text-muted-foreground">{t("taxonomyKps.noKps")}</p>}
           {rows.map(({ kp, depth }) => (
-            <div key={kp.id} className={`flex items-center gap-2 ${DEPTH_PL[depth] ?? DEPTH_PL[DEPTH_PL.length - 1]}`}>
+            <div key={kp.id} className={DEPTH_PL[depth] ?? DEPTH_PL[DEPTH_PL.length - 1]}>
               <KpRow
                 kp={kp}
                 onSave={(newName) => update.mutate({ id: kp.id, body: { name: newName, parent_id: kp.parent_id } }, { onError: (e) => err(e, t("taxonomyKps.couldNotRename")) })}
@@ -149,11 +152,82 @@ export function KnowledgePointsTab() {
 function KpRow({ kp, onSave, onDelete }: { kp: KnowledgePoint; onSave: (name: string) => void; onDelete: () => void }) {
   const t = useT();
   const [name, setName] = useState(kp.name);
+  const [domainsOpen, setDomainsOpen] = useState(false);
   return (
-    <div className="flex flex-1 items-center gap-2 py-1">
-      <Input className="flex-1" value={name} onChange={(e) => setName(e.target.value)} />
-      <Button size="sm" variant="outline" disabled={name === kp.name} onClick={() => onSave(name)}>{t("taxonomyKps.save")}</Button>
-      <Button size="sm" variant="ghost" className="text-destructive" onClick={onDelete}><Trash2 className="h-4 w-4" /></Button>
+    <div className="space-y-1 py-1">
+      <div className="flex flex-1 items-center gap-2">
+        <Input className="flex-1" value={name} onChange={(e) => setName(e.target.value)} />
+        <Button size="sm" variant="outline" disabled={name === kp.name} onClick={() => onSave(name)}>{t("taxonomyKps.save")}</Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-expanded={domainsOpen}
+          onClick={() => setDomainsOpen((o) => !o)}
+        >
+          {domainsOpen ? <ChevronDown className="mr-1 h-4 w-4" /> : <ChevronRight className="mr-1 h-4 w-4" />}
+          {t("taxonomyKps.domains")}
+        </Button>
+        <Button size="sm" variant="ghost" className="text-destructive" onClick={onDelete}><Trash2 className="h-4 w-4" /></Button>
+      </div>
+      {domainsOpen && <KpDomainBindings kpId={kp.id} />}
+    </div>
+  );
+}
+
+export function KpDomainBindings({ kpId }: { kpId: string }) {
+  const t = useT();
+  const allDomains = useDomains();
+  const bound = useKpDomains(kpId);
+  const bind = useBindKpDomain();
+  const unbind = useUnbindKpDomain();
+
+  if (allDomains.isLoading || bound.isLoading) {
+    return <p className="pl-2 text-xs text-muted-foreground">{t("taxonomyKps.domainsLoading")}</p>;
+  }
+  if (allDomains.isError || bound.isError) {
+    return <p className="pl-2 text-xs text-destructive">{t("taxonomyKps.domainsLoadFailed")}</p>;
+  }
+
+  const boundIds = new Set((bound.data ?? []).map((d) => d.id));
+  const busy = bind.isPending || unbind.isPending;
+
+  return (
+    <div
+      className="ml-2 grid gap-2 rounded-md border bg-muted/30 p-3 sm:grid-cols-2"
+      data-testid={`kp-domains-${kpId}`}
+    >
+      <p className="sm:col-span-2 text-xs text-muted-foreground">{t("taxonomyKps.domainsHint")}</p>
+      {(allDomains.data ?? []).map((d) => {
+        const checked = boundIds.has(d.id);
+        const id = `kp-${kpId}-domain-${d.id}`;
+        return (
+          <label key={d.id} htmlFor={id} className="flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox
+              id={id}
+              checked={checked}
+              disabled={busy}
+              onCheckedChange={(next) => {
+                if (next === checked) return;
+                if (next) {
+                  bind.mutate(
+                    { kpId, domainId: d.id },
+                    { onError: (e) => err(e, t("taxonomyKps.couldNotBind")) },
+                  );
+                } else {
+                  unbind.mutate(
+                    { kpId, domainId: d.id },
+                    { onError: (e) => err(e, t("taxonomyKps.couldNotUnbind")) },
+                  );
+                }
+              }}
+            />
+            <span>{d.number}. {d.name}</span>
+          </label>
+        );
+      })}
+      {(allDomains.data ?? []).length === 0 && (
+        <p className="sm:col-span-2 text-xs text-muted-foreground">{t("taxonomyKps.noDomains")}</p>
+      )}
     </div>
   );
 }

@@ -20,9 +20,9 @@
 
 ### Task 0: Commit gap-closure baseline
 
-- [ ] Stage gap-closure code + docs (exclude build artifacts)
-- [ ] Commit with message focused on closing §14 client gaps
-- [ ] Run `dart test -p vm test/` and `npm test` smoke if time allows
+- [x] Stage gap-closure code + docs (exclude build artifacts)
+- [x] Commit with message focused on closing §14 client gaps
+- [x] Run `dart test -p vm test/` and `npm test` smoke if time allows
 
 **Files:** existing WT from gap-closure plan; `docs/superpowers/{specs,plans}/2026-08-10-prd-apps-gap-closure*`
 
@@ -30,33 +30,33 @@
 
 ### Task 1: Backend `weak_first` + `knowledge_point_id` (TDD)
 
-- [ ] Add failing tests in `backend/tests/test_practice_api.py` (or service tests):
+- [x] Add failing tests in `backend/tests/test_practice_api.py` (or service tests):
   - create session with `order_mode=weak_first` prefers previously wrong questions
   - create session with `knowledge_point_id` only returns mapped questions
-- [ ] Extend `OrderMode` + `SessionCreateIn.knowledge_point_id` in `backend/app/schemas/practice.py`
-- [ ] Implement filter + ordering in `backend/app/services/practice.py`
-- [ ] Export OpenAPI if schema changed: `python -m app.scripts.export_openapi ../openapi/openapi.json`
-- [ ] Regenerate Dart/TS clients if project scripts require it (or hand-update `cissp_api` models)
+- [x] Extend `OrderMode` + `SessionCreateIn.knowledge_point_id` in `backend/app/schemas/practice.py`
+- [x] Implement filter + ordering in `backend/app/services/practice.py`
+- [x] Export OpenAPI if schema changed: `python -m app.scripts.export_openapi ../openapi/openapi.json`
+- [x] Regenerate Dart/TS clients if project scripts require it (or hand-update `cissp_api` models)
 
 ---
 
 ### Task 2: Upload size limit (NFR-SEC-08 partial, TDD)
 
-- [ ] Failing test: upload > max → 413
-- [ ] Settings `max_upload_bytes` (default 5_242_880)
-- [ ] Enforce in interactive import route / dependency
-- [ ] Pass tests
+- [x] Failing test: upload > max → 413
+- [x] Settings `max_upload_bytes` (default 5_242_880)
+- [x] Enforce in interactive import route / dependency
+- [x] Pass tests
 
 ---
 
 ### Task 3: Flutter ANS-05/06/08 + PRAC-04/06
 
-- [ ] Practice create form: difficulty, question_type, tag dropdown; order includes `weak_first`; optional KP if tags/KPs APIs available
-- [ ] Post-submit panel: mapping labels + history list
-- [ ] `is_questioned` chip wired to state API
-- [ ] Related questions list via `relatedQuestions`
-- [ ] ARB en/zh strings + `flutter gen-l10n`
-- [ ] Unit/widget tests where seams exist
+- [x] Practice create form: difficulty, question_type, tag dropdown; order includes `weak_first`; optional KP if tags/KPs APIs available
+- [x] Post-submit panel: mapping labels + history list
+- [x] `is_questioned` chip wired to state API
+- [x] Related questions list via `relatedQuestions`
+- [x] ARB en/zh strings + `flutter gen-l10n`
+- [x] Unit/widget tests where seams exist
 
 **Files:** `mobile/lib/features/practice/practice_screens.dart`, `mobile/lib/design/*`, `mobile/lib/l10n/*.arb`, `mobile/packages/cissp_api` if needed
 
@@ -64,11 +64,11 @@
 
 ### Task 4: Admin ETL mappings + KP domain bindings
 
-- [ ] API helpers in `frontend/src/lib/api/` if missing
-- [ ] UI: mappings CRUD panel (taxonomy page or import)
-- [ ] UI: KP ↔ domain bind/unbind on taxonomy KP tab
-- [ ] Vitest coverage for helpers / critical UI actions
-- [ ] Locale keys en/zh
+- [x] API helpers in `frontend/src/lib/api/` if missing
+- [x] UI: mappings CRUD panel (taxonomy page or import)
+- [x] UI: KP ↔ domain bind/unbind on taxonomy KP tab
+- [x] Vitest coverage for helpers / critical UI actions
+- [x] Locale keys en/zh
 
 **Files:** `frontend/src/features/taxonomy/*`, `frontend/src/lib/api/*`, `frontend/src/locales/{en,zh}.ts`
 
@@ -76,18 +76,18 @@
 
 ### Task 5: E2E acceptance
 
-- [ ] `backend/tests/test_e2e_acceptance.py` — practice/exam/CAT/analytics happy paths
-- [ ] `scripts/e2e_smoke.sh` — docker health + login + practice create
-- [ ] Document in README
+- [x] `backend/tests/test_e2e_acceptance.py` — practice/exam/CAT/analytics happy paths
+- [x] `scripts/e2e_smoke.sh` — docker health + login + practice create
+- [x] Document in README
 
 ---
 
 ### Task 6: README + artifacts + review + publish
 
-- [ ] Update root README (links, E2E, prod/backup, drift script)
-- [ ] Run backend pytest subset + frontend tests + flutter tests
-- [ ] Fix review findings
-- [ ] Commit P1 completeness
+- [x] Update root README (links, E2E, prod/backup, drift script)
+- [x] Run backend pytest subset + frontend tests + flutter tests
+- [x] Fix review findings
+- [x] Commit P1 completeness
 - [ ] `git push -u origin HEAD`
 - [ ] Optionally `gh release` / tag — only if green
 

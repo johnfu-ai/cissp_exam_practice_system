@@ -388,6 +388,22 @@ export interface EtlDataset {
   languages: string[];
 }
 
+/** Chapter→domain mapping used by ETL (FR-ETL-15). Not a book Chapter row. */
+export interface ChapterDomainMapping {
+  id: string;
+  dataset_slug: string;
+  chapter_number: number;
+  chapter_title: string;
+  domain_id: string | null;
+}
+
+export interface MappingInput {
+  dataset_slug: string;
+  chapter_number: number;
+  chapter_title: string;
+  domain_id?: string | null;
+}
+
 export type EtlRunPhase = "preview" | "committed" | "rolled_back";
 
 export interface EtlPreviewError {

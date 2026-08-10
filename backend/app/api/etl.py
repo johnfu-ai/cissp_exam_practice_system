@@ -1,7 +1,6 @@
 """ETL HTTP API. Permission-gated via app.dependencies."""
 
 import os
-import shutil
 import uuid
 from pathlib import Path
 
@@ -97,8 +96,28 @@ async def upload_dataset(
         if old.suffix != ext:
             old.unlink()
     target = target_dir / f"questions{ext}"
-    with target.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+    # Write to a sibling temp file first so a rejected oversized upload cannot
+    # truncate an existing dataset on disk (NFR-SEC-08 / re-upload safety).
+    tmp = target_dir / f".questions{ext}.{uuid.uuid4().hex}.partial"
+    max_bytes = settings.max_upload_bytes
+    written = 0
+    try:
+        with tmp.open("wb") as out:
+            while True:
+                chunk = file.file.read(64 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"upload exceeds max size of {max_bytes} bytes",
+                    )
+                out.write(chunk)
+        tmp.replace(target)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
     ds = session.execute(select(EtlDataset).filter_by(slug=slug)).scalar_one_or_none()
     if ds is None:

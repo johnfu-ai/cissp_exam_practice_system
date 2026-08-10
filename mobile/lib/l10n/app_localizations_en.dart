@@ -429,6 +429,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get practiceMastered => 'Mastered';
 
   @override
+  String get practiceQuestioned => 'Have a question';
+
+  @override
+  String get practiceMapping => 'Topic mapping';
+
+  @override
+  String get practiceHistory => 'Past attempts';
+
+  @override
+  String get practiceRelated => 'Related questions';
+
+  @override
+  String get practiceHistoryCorrect => 'Correct';
+
+  @override
+  String get practiceHistoryIncorrect => 'Incorrect';
+
+  @override
+  String get practiceDifficulty => 'Difficulty';
+
+  @override
+  String get practiceAnyDifficulty => 'Any difficulty';
+
+  @override
+  String get practiceQuestionType => 'Question type';
+
+  @override
+  String get practiceAnyQuestionType => 'Any type';
+
+  @override
+  String get practiceTag => 'Tag';
+
+  @override
+  String get practiceAnyTag => 'Any tag';
+
+  @override
+  String get questionTypeSingle => 'Single choice';
+
+  @override
+  String get questionTypeMultiple => 'Multiple choice';
+
+  @override
+  String get questionTypeTrueFalse => 'True / false';
+
+  @override
   String get practiceNote => 'Note';
 
   @override
@@ -480,6 +525,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get orderEasyToHard => 'Easy to hard';
+
+  @override
+  String get orderWeakFirst => 'Weak first';
 
   @override
   String get errorConceptUnclear => 'Concept unclear';

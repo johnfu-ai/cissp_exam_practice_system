@@ -8405,7 +8405,8 @@
             "enum": [
               "random",
               "sequential",
-              "easy_to_hard"
+              "easy_to_hard",
+              "weak_first"
             ],
             "title": "Order Mode",
             "default": "random"
@@ -8457,6 +8458,18 @@
             },
             "type": "array",
             "title": "Chapter Ids"
+          },
+          "knowledge_point_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Point Id"
           },
           "question_type": {
             "anyOf": [

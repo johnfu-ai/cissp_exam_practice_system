@@ -185,6 +185,37 @@ export function useDeleteKnowledgePoint() {
   });
 }
 
+// --- KP ↔ domain bindings (FR-TAX-04/05) ---
+
+export function useKpDomains(kpId: string | null) {
+  return useQuery({
+    queryKey: kpId ? qk.kpDomains(kpId) : ["knowledge-points", "none", "domains"],
+    queryFn: () => apiJson<Domain[]>(`/api/admin/knowledge-points/${kpId}/domains`),
+    enabled: !!kpId,
+  });
+}
+
+export function useBindKpDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kpId, domainId }: { kpId: string; domainId: string }) =>
+      apiJson<Domain>(`/api/admin/knowledge-points/${kpId}/domains`, {
+        method: "POST",
+        body: JSON.stringify({ domain_id: domainId }),
+      }),
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: qk.kpDomains(v.kpId) }),
+  });
+}
+
+export function useUnbindKpDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kpId, domainId }: { kpId: string; domainId: string }) =>
+      apiJson(`/api/admin/knowledge-points/${kpId}/domains/${domainId}`, { method: "DELETE" }),
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: qk.kpDomains(v.kpId) }),
+  });
+}
+
 // --- Tags ---
 export function useCreateTag() {
   const qc = useQueryClient();

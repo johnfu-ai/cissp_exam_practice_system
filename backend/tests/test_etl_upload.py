@@ -367,6 +367,30 @@ def test_upload_rejects_unsupported_file_type(client, tmp_path, monkeypatch):
     assert resp.status_code == 422
 
 
+def test_upload_rejects_oversized_file(client, tmp_path, monkeypatch):
+    """NFR-SEC-08 (partial): uploads larger than max_upload_bytes → 413."""
+    from app.api import etl as etl_api
+    c, store, db = client
+    monkeypatch.setattr(etl_api.settings, "etl_upload_root", str(tmp_path))
+    monkeypatch.setattr(etl_api.settings, "max_upload_bytes", 64)
+    _seed_blueprint_and_taxonomy(db)
+    h, _ = _headers(db, store)
+    # Seed an existing good file so a rejected re-upload must not wipe it.
+    existing = tmp_path / "too-big" / "questions.csv"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_bytes(b"stem,keep\n")
+    resp = c.post(
+        "/api/etl/upload",
+        files={"file": ("q.csv", b"x" * 128, "text/csv")},
+        data={"dataset_slug": "too-big"},
+        headers=h,
+    )
+    assert resp.status_code == 413
+    assert "max size" in resp.json()["detail"]
+    assert existing.read_bytes() == b"stem,keep\n"
+    assert list(existing.parent.glob(".questions*.partial")) == []
+
+
 def test_upload_requires_question_import_permission(client, tmp_path, monkeypatch):
     """A user whose DB role lacks question:import gets 403, not a preview.
 

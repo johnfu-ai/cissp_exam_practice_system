@@ -8,7 +8,10 @@ export const qk = {
   etl: {
     datasets: ["etl", "datasets"] as const,
     run: (id: string) => ["etl", "run", id] as const,
+    mappings: (datasetSlug?: string | null) =>
+      ["etl", "mappings", datasetSlug ?? "all"] as const,
   },
+  kpDomains: (kpId: string) => ["knowledge-points", kpId, "domains"] as const,
   questions: {
     list: (filters: Record<string, unknown>) => ["questions", "list", filters] as const,
     detail: (id: string) => ["questions", "detail", id] as const,

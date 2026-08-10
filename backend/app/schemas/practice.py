@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from app.models.enums import ErrorType
 
 Subset = Literal["all", "unpracticed", "wrong", "bookmarked", "needs_review"]
-OrderMode = Literal["random", "sequential", "easy_to_hard"]
+OrderMode = Literal["random", "sequential", "easy_to_hard", "weak_first"]
 LanguageMode = Literal["en", "zh", "bilingual"]
 
 
@@ -27,6 +27,7 @@ class SessionCreateIn(BaseModel):
     domain_id: uuid.UUID | None = None
     book_id: uuid.UUID | None = None
     chapter_ids: list[uuid.UUID] = Field(default_factory=list)
+    knowledge_point_id: uuid.UUID | None = None
     question_type: str | None = None
     difficulty: int | None = None
     tag_id: uuid.UUID | None = None

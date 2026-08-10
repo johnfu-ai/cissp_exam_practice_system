@@ -4,18 +4,21 @@ A CISSP exam preparation platform with a **Flutter learner client** (Android, iO
 a **Next.js admin portal**, and a **FastAPI** backend. Exam rules (domain weights, item counts,
 duration, passing line) live in data via `ExamBlueprint`, not hard-coded constants.
 
-> **Status (PRD v1.3).** Backend feature-complete (104 endpoints, 8 routers). Flutter learner
-> MVP covers auth, practice, review, fixed/CAT exams, analytics, and settings against the same
-> APIs. Next.js is **admin-only** (import, questions, taxonomy, admin, settings). Shared OpenAPI
+> **Status (PRD v1.3 + P1 completeness).** Backend feature-complete (104+ endpoints, 8 routers).
+> Flutter learner covers auth, practice (domain/book/chapter + difficulty/type/tag, `weak_first`),
+> answer metadata (mapping/history/related/`is_questioned`), review, fixed/CAT exams, analytics,
+> and settings. Next.js is **admin-only** (import with template/mapping, questions, taxonomy
+> including chapter→domain mappings + KP↔domain bindings, admin, settings). Shared OpenAPI
 > contract: [`openapi/openapi.json`](openapi/openapi.json).
 
 ## Features
 
 - **Flutter learner (CISSP Compass)** — one codebase for Android / iOS / Windows: practice,
   wrong/bookmark review, fixed + CAT mock exams, dashboard analytics, bilingual question
-  rendering, interface language en/zh.
-- **Next.js admin portal** — question bank editorial workflow, ETL import, taxonomy, users,
-  CAT params, quality queue, audit, reports.
+  rendering, interface language en/zh, desktop keyboard shortcuts.
+- **Next.js admin portal** — question bank editorial workflow, ETL import (template + field map),
+  taxonomy (incl. chapter→domain ETL mappings and KP↔domain bindings), users/classes, CAT params,
+  quality queue, audit, reports, language coverage.
 - **Auth & RBAC** — JWT access + opaque Redis refresh (httpOnly cookie + body fallback for
   native clients), bcrypt, lockout, permission gates.
 - **Practice / fixed exam / CAT** — snapshot-judged answers; CAT is a study tool with
@@ -120,14 +123,28 @@ docs/              # PRD + superpowers specs/plans
 
 ```bash
 cd backend && pytest
+cd backend && pytest tests/test_e2e_acceptance.py   # §14 API acceptance paths
 cd frontend && npm run test
 cd mobile && dart test -p vm test/
+./scripts/check_dart_api_drift.sh                   # OpenAPI ↔ Dart client drift
+# With docker compose up:
+./scripts/e2e_smoke.sh                              # health + login + practice smoke
+```
+
+### Production compose & backups
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+./scripts/backup.sh
+./scripts/restore.sh <dump.sql.gz>
 ```
 
 ## Documentation
 
 - PRD: [`docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md`](docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md)
-- Flutter design: [`docs/superpowers/specs/2026-08-10-flutter-learner-design.md`](docs/superpowers/specs/2026-08-10-flutter-learner-design.md)
+- Flutter learner: [`docs/superpowers/specs/2026-08-10-flutter-learner-design.md`](docs/superpowers/specs/2026-08-10-flutter-learner-design.md)
+- Dual-client gap closure: [`docs/superpowers/specs/2026-08-10-prd-apps-gap-closure-design.md`](docs/superpowers/specs/2026-08-10-prd-apps-gap-closure-design.md)
+- P1 completeness: [`docs/superpowers/specs/2026-08-10-prd-p1-completeness-design.md`](docs/superpowers/specs/2026-08-10-prd-p1-completeness-design.md)
 - Agent guidance: [`CLAUDE.md`](CLAUDE.md)
 
 ## Disclaimer

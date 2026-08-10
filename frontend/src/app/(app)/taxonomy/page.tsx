@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { BlueprintsTab } from "@/features/taxonomy/blueprints-tab";
 import { BooksTab } from "@/features/taxonomy/books-tab";
 import { KnowledgePointsTab } from "@/features/taxonomy/knowledge-points-tab";
+import { MappingsTab } from "@/features/taxonomy/mappings-tab";
 import { TagsTab } from "@/features/taxonomy/tags-tab";
 import { useT } from "@/lib/i18n/provider";
 
@@ -32,11 +33,13 @@ export default function TaxonomyPage() {
           <TabsList>
             <TabsTrigger value="blueprints">{t("taxonomy.tabBlueprints")}</TabsTrigger>
             <TabsTrigger value="books">{t("taxonomy.tabBooks")}</TabsTrigger>
+            <TabsTrigger value="mappings">{t("taxonomy.tabMappings")}</TabsTrigger>
             <TabsTrigger value="kps">{t("taxonomy.tabKps")}</TabsTrigger>
             <TabsTrigger value="tags">{t("taxonomy.tabTags")}</TabsTrigger>
           </TabsList>
           <TabsContent value="blueprints"><BlueprintsTab /></TabsContent>
           <TabsContent value="books"><BooksTab /></TabsContent>
+          <TabsContent value="mappings"><MappingsTab /></TabsContent>
           <TabsContent value="kps"><KnowledgePointsTab /></TabsContent>
           <TabsContent value="tags"><TagsTab /></TabsContent>
         </Tabs>

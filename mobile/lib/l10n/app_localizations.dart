@@ -902,6 +902,96 @@ abstract class AppLocalizations {
   /// **'Mastered'**
   String get practiceMastered;
 
+  /// No description provided for @practiceQuestioned.
+  ///
+  /// In en, this message translates to:
+  /// **'Have a question'**
+  String get practiceQuestioned;
+
+  /// No description provided for @practiceMapping.
+  ///
+  /// In en, this message translates to:
+  /// **'Topic mapping'**
+  String get practiceMapping;
+
+  /// No description provided for @practiceHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Past attempts'**
+  String get practiceHistory;
+
+  /// No description provided for @practiceRelated.
+  ///
+  /// In en, this message translates to:
+  /// **'Related questions'**
+  String get practiceRelated;
+
+  /// No description provided for @practiceHistoryCorrect.
+  ///
+  /// In en, this message translates to:
+  /// **'Correct'**
+  String get practiceHistoryCorrect;
+
+  /// No description provided for @practiceHistoryIncorrect.
+  ///
+  /// In en, this message translates to:
+  /// **'Incorrect'**
+  String get practiceHistoryIncorrect;
+
+  /// No description provided for @practiceDifficulty.
+  ///
+  /// In en, this message translates to:
+  /// **'Difficulty'**
+  String get practiceDifficulty;
+
+  /// No description provided for @practiceAnyDifficulty.
+  ///
+  /// In en, this message translates to:
+  /// **'Any difficulty'**
+  String get practiceAnyDifficulty;
+
+  /// No description provided for @practiceQuestionType.
+  ///
+  /// In en, this message translates to:
+  /// **'Question type'**
+  String get practiceQuestionType;
+
+  /// No description provided for @practiceAnyQuestionType.
+  ///
+  /// In en, this message translates to:
+  /// **'Any type'**
+  String get practiceAnyQuestionType;
+
+  /// No description provided for @practiceTag.
+  ///
+  /// In en, this message translates to:
+  /// **'Tag'**
+  String get practiceTag;
+
+  /// No description provided for @practiceAnyTag.
+  ///
+  /// In en, this message translates to:
+  /// **'Any tag'**
+  String get practiceAnyTag;
+
+  /// No description provided for @questionTypeSingle.
+  ///
+  /// In en, this message translates to:
+  /// **'Single choice'**
+  String get questionTypeSingle;
+
+  /// No description provided for @questionTypeMultiple.
+  ///
+  /// In en, this message translates to:
+  /// **'Multiple choice'**
+  String get questionTypeMultiple;
+
+  /// No description provided for @questionTypeTrueFalse.
+  ///
+  /// In en, this message translates to:
+  /// **'True / false'**
+  String get questionTypeTrueFalse;
+
   /// No description provided for @practiceNote.
   ///
   /// In en, this message translates to:
@@ -1003,6 +1093,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Easy to hard'**
   String get orderEasyToHard;
+
+  /// No description provided for @orderWeakFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'Weak first'**
+  String get orderWeakFirst;
 
   /// No description provided for @errorConceptUnclear.
   ///

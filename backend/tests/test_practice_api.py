@@ -309,3 +309,114 @@ def test_related_missing_question_404(client):
     h, _ = _headers(db, store)
     r = c.get(f"/api/practice/questions/{uuid.uuid4()}/related", headers=h)
     assert r.status_code == 404
+
+
+def test_knowledge_point_id_filter(client):
+    """FR-PRAC-04: create session scoped to a knowledge_point_id."""
+    from app.models.taxonomy import KnowledgePoint
+    from app.models.question import QuestionMapping
+
+    c, store, db = client
+    h, user = _headers(db, store, email="kpfilter@example.com")
+    kp_a = KnowledgePoint(name="KP-A")
+    kp_b = KnowledgePoint(name="KP-B")
+    db.add_all([kp_a, kp_b])
+    db.flush()
+    q1 = _seed_bilingual_question(db, user)
+    q2 = _seed_bilingual_question(db, user)
+    db.add(QuestionMapping(question_id=q1.id, knowledge_point_id=kp_a.id))
+    db.add(QuestionMapping(question_id=q2.id, knowledge_point_id=kp_b.id))
+    db.flush()
+
+    r = c.post(
+        "/api/practice/sessions",
+        json={"count": 10, "order_mode": "sequential",
+              "knowledge_point_id": str(kp_a.id)},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    ids = r.json()["config"]["question_ids"]
+    assert ids == [str(q1.id)]
+
+
+def test_weak_first_prefers_previously_wrong(client):
+    """FR-PRAC-06: weak_first orders previously missed questions ahead of others."""
+    from app.models.practice import PracticeAnswer, PracticeSession
+    from app.models.enums import PracticeSessionStatus
+
+    c, store, db = client
+    h, user = _headers(db, store, email="weakfirst@example.com")
+    q_ok = _seed_bilingual_question(db, user)
+    q_wrong = _seed_bilingual_question(db, user)
+    db.flush()
+
+    # Prior finished session with q_wrong answered incorrectly.
+    prior = PracticeSession(
+        user_id=user.id,
+        organization_id=user.default_organization_id,
+        status=PracticeSessionStatus.completed,
+        total_questions=1,
+        config={"question_ids": [str(q_wrong.id)]},
+    )
+    db.add(prior)
+    db.flush()
+    db.add(PracticeAnswer(
+        session_id=prior.id,
+        user_id=user.id,
+        question_id=q_wrong.id,
+        question_snapshot={"options": []},
+        options_snapshot=[],
+        user_answer={"selected": [1]},
+        is_correct=False,
+        time_spent_ms=100,
+    ))
+    db.flush()
+
+    r = c.post(
+        "/api/practice/sessions",
+        json={"count": 2, "order_mode": "weak_first"},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    ids = r.json()["config"]["question_ids"]
+    assert ids[0] == str(q_wrong.id)
+    assert set(ids) == {str(q_wrong.id), str(q_ok.id)}
+
+
+def test_answer_mapping_includes_display_names(client):
+    """FR-ANS-05: answer result mapping carries domain/KP display names."""
+    from app.models.taxonomy import ExamBlueprint, ExamDomain, KnowledgePoint
+    from app.models.question import QuestionMapping
+
+    c, store, db = client
+    h, user = _headers(db, store, email="mapnames@example.com")
+    bp = ExamBlueprint(
+        version_label="map-v1", effective_date="2026-04-15",
+        min_items=1, max_items=10, duration_minutes=30,
+        passing_score=700, max_score=1000, is_current=True,
+    )
+    db.add(bp)
+    db.flush()
+    dom = ExamDomain(blueprint_id=bp.id, number=1, name="Risk Mgmt", weight_pct=100)
+    kp = KnowledgePoint(name="Symmetric crypto")
+    db.add_all([dom, kp])
+    db.flush()
+    q = _seed_bilingual_question(db, user)
+    db.add(QuestionMapping(question_id=q.id, domain_id=dom.id, knowledge_point_id=kp.id))
+    db.flush()
+
+    sid = c.post(
+        "/api/practice/sessions",
+        json={"count": 1, "order_mode": "sequential"},
+        headers=h,
+    ).json()["id"]
+    a = c.post(
+        f"/api/practice/sessions/{sid}/answers",
+        json={"position": 0, "selected": [0],
+              "started_at": dt.datetime.now(dt.timezone.utc).isoformat()},
+        headers=h,
+    )
+    assert a.status_code == 200, a.text
+    mapping = a.json()["mapping"]
+    assert mapping["domain_name"] == "Risk Mgmt"
+    assert mapping["knowledge_point_name"] == "Symmetric crypto"

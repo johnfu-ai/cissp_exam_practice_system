@@ -16,14 +16,17 @@ import 'package:cissp_compass/design/legal_footer.dart';
 import 'package:cissp_compass/design/runner_shortcuts.dart';
 import 'package:cissp_compass/design/theme.dart';
 import 'package:cissp_compass/features/exam/format.dart';
+import 'package:cissp_compass/features/practice/answer_metadata.dart';
 import 'package:cissp_compass/features/practice/option_shuffle.dart';
 import 'package:cissp_compass/features/practice/runner_machine.dart';
 import 'package:cissp_compass/features/shared/option_list.dart';
 
 const _counts = [10, 25, 50, 100];
 const _subsets = ['all', 'unpracticed', 'wrong', 'bookmarked', 'needs_review'];
-const _orders = ['random', 'sequential', 'easy_to_hard'];
+const _orders = ['random', 'sequential', 'easy_to_hard', 'weak_first'];
 const _langModes = ['en', 'zh', 'bilingual'];
+const _questionTypes = ['single_choice', 'multiple_choice', 'true_false'];
+const _difficulties = [1, 2, 3, 4, 5];
 const _errorTypes = [
   'concept_unclear',
   'misread_stem',
@@ -47,6 +50,9 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
   String? _bookId;
   String? _chapterId;
   String? _languageMode;
+  int? _difficulty;
+  String? _questionType;
+  String? _tagId;
   bool _shuffleOptions = false;
   bool _starting = false;
   String? _error;
@@ -54,6 +60,7 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
   List<DomainOut> _domains = const [];
   List<BookOut> _books = const [];
   List<ChapterOut> _chapters = const [];
+  List<TagOut> _tags = const [];
   List<SessionOut> _resume = const [];
   bool _loadingMeta = true;
 
@@ -72,13 +79,18 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
     try {
       final domains = await api.domains();
       List<BookOut> books = const [];
+      List<TagOut> tags = const [];
       try {
         books = await api.books();
+      } catch (_) {}
+      try {
+        tags = await api.tags();
       } catch (_) {}
       if (mounted) {
         setState(() {
           _domains = domains;
           _books = books;
+          _tags = tags;
         });
       }
     } catch (_) {}
@@ -147,6 +159,9 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
       if (_domainId != null) 'domain_id': _domainId,
       if (_bookId != null) 'book_id': _bookId,
       if (_chapterId != null) 'chapter_ids': [_chapterId],
+      if (_difficulty != null) 'difficulty': _difficulty,
+      if (_questionType != null) 'question_type': _questionType,
+      if (_tagId != null) 'tag_id': _tagId,
       if (_languageMode != null) 'language_mode': _languageMode,
       if (_shuffleOptions) 'shuffle_options': true,
     };
@@ -174,7 +189,14 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
   String _orderLabel(AppLocalizations l10n, String o) => switch (o) {
         'sequential' => l10n.orderSequential,
         'easy_to_hard' => l10n.orderEasyToHard,
+        'weak_first' => l10n.orderWeakFirst,
         _ => l10n.orderRandom,
+      };
+
+  String _questionTypeLabel(AppLocalizations l10n, String t) => switch (t) {
+        'multiple_choice' => l10n.questionTypeMultiple,
+        'true_false' => l10n.questionTypeTrueFalse,
+        _ => l10n.questionTypeSingle,
       };
 
   String _langLabel(AppLocalizations l10n, String m) => switch (m) {
@@ -315,6 +337,65 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
             decoration: const InputDecoration(border: OutlineInputBorder()),
           ),
           const SizedBox(height: 16),
+          Text(l10n.practiceDifficulty, style: theme.textTheme.labelLarge),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<int?>(
+            value: _difficulty,
+            items: [
+              DropdownMenuItem<int?>(
+                value: null,
+                child: Text(l10n.practiceAnyDifficulty),
+              ),
+              for (final d in _difficulties)
+                DropdownMenuItem<int?>(
+                  value: d,
+                  child: Text('$d'),
+                ),
+            ],
+            onChanged: (v) => setState(() => _difficulty = v),
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 16),
+          Text(l10n.practiceQuestionType, style: theme.textTheme.labelLarge),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String?>(
+            value: _questionType,
+            items: [
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Text(l10n.practiceAnyQuestionType),
+              ),
+              for (final t in _questionTypes)
+                DropdownMenuItem<String?>(
+                  value: t,
+                  child: Text(_questionTypeLabel(l10n, t)),
+                ),
+            ],
+            onChanged: (v) => setState(() => _questionType = v),
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+          ),
+          if (_tags.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(l10n.practiceTag, style: theme.textTheme.labelLarge),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String?>(
+              value: _tagId,
+              items: [
+                DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text(l10n.practiceAnyTag),
+                ),
+                for (final t in _tags)
+                  DropdownMenuItem<String?>(
+                    value: t.id,
+                    child: Text(t.name),
+                  ),
+              ],
+              onChanged: (v) => setState(() => _tagId = v),
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+            ),
+          ],
+          const SizedBox(height: 16),
           Text(l10n.practiceLanguage, style: theme.textTheme.labelLarge),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
@@ -371,10 +452,13 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
   bool _bookmarked = false;
   bool _flagged = false;
   bool _mastered = false;
+  bool _questioned = false;
   String? _errorType;
   final _noteCtrl = TextEditingController();
   Timer? _tick;
   DateTime _now = DateTime.now();
+  List<RelatedQuestion> _related = const [];
+  bool _relatedLoading = false;
 
   @override
   void initState() {
@@ -464,7 +548,10 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
       _bookmarked = false;
       _flagged = false;
       _mastered = false;
+      _questioned = false;
       _errorType = null;
+      _related = const [];
+      _relatedLoading = false;
     });
     _ensureTicker();
   }
@@ -486,7 +573,8 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
     final l10n = AppLocalizations.of(context)!;
     setState(() => _busy = true);
     try {
-      final result = await ref.read(cisspApiProvider).submitPracticeAnswer(
+      final api = ref.read(cisspApiProvider);
+      final result = await api.submitPracticeAnswer(
         widget.sessionId,
         {
           'position': _position,
@@ -497,11 +585,25 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
       if (mounted) {
         setState(() => _runner = markSubmitted(_runner, result));
       }
+      unawaited(_loadRelated(api, delivery.questionId));
     } on DioException catch (e) {
       final err = ApiException.fromDio(e);
       _snack(err.status == 409 ? l10n.practiceAlreadyAnswered : err.message);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _loadRelated(CisspApi api, String questionId) async {
+    if (!mounted) return;
+    setState(() => _relatedLoading = true);
+    try {
+      final related = await api.relatedQuestions(questionId);
+      if (mounted) setState(() => _related = related);
+    } catch (_) {
+      if (mounted) setState(() => _related = const []);
+    } finally {
+      if (mounted) setState(() => _relatedLoading = false);
     }
   }
 
@@ -578,6 +680,9 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
         if (body.containsKey('is_mastered')) {
           _mastered = state.isMastered;
         }
+        if (body.containsKey('is_questioned')) {
+          _questioned = state.isQuestioned;
+        }
         if (body.containsKey('note')) {
           _noteCtrl.text = state.note ?? '';
         }
@@ -595,6 +700,51 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
         'time_pressure' => l10n.errorTimePressure,
         _ => l10n.errorConceptUnclear,
       };
+
+  String _mappingKindLabel(AppLocalizations l10n, String kind) => switch (kind) {
+        'chapter' => l10n.practiceChapter,
+        'knowledge_point' => l10n.practiceKeyPoints,
+        _ => l10n.practiceDomain,
+      };
+
+  List<Widget> _buildAnswerMetadata(
+    AppLocalizations l10n,
+    AnswerResult result,
+  ) {
+    final labels = mappingLabelsFrom(result.mapping);
+    final history = historyAttemptsFrom(result.history);
+    final widgets = <Widget>[];
+    if (labels.isNotEmpty) {
+      widgets.add(const SizedBox(height: 12));
+      widgets.add(
+        Text(l10n.practiceMapping, style: Theme.of(context).textTheme.titleSmall),
+      );
+      widgets.add(const SizedBox(height: 4));
+      for (final label in labels) {
+        // Taxonomy names stay untranslated (FR-I18N-05).
+        widgets.add(
+          Text('${_mappingKindLabel(l10n, label.kind)}: ${label.value}'),
+        );
+      }
+    }
+    if (history.isNotEmpty) {
+      widgets.add(const SizedBox(height: 12));
+      widgets.add(
+        Text(l10n.practiceHistory, style: Theme.of(context).textTheme.titleSmall),
+      );
+      widgets.add(const SizedBox(height: 4));
+      for (final h in history) {
+        final outcome = h.isCorrect
+            ? l10n.practiceHistoryCorrect
+            : l10n.practiceHistoryIncorrect;
+        final when = h.answeredAt == null
+            ? ''
+            : ' · ${formatRelativePast(h.answeredAt!, _now)}';
+        widgets.add(Text('$outcome$when'));
+      }
+    }
+    return widgets;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -737,6 +887,7 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
                 keyPointsLabel: l10n.practiceKeyPoints,
                 optionExplanationsLabel: l10n.practiceOptionExplanations,
               ),
+              ..._buildAnswerMetadata(l10n, result),
             ],
             const SizedBox(height: 16),
             Wrap(
@@ -757,6 +908,11 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
                   label: Text(l10n.practiceMastered),
                   selected: _mastered,
                   onSelected: (v) => _putState({'is_mastered': v}),
+                ),
+                FilterChip(
+                  label: Text(l10n.practiceQuestioned),
+                  selected: _questioned,
+                  onSelected: (v) => _putState({'is_questioned': v}),
                 ),
               ],
             ),
@@ -791,6 +947,28 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
               onSubmitted: (v) => _putState({'note': v}),
               onEditingComplete: () => _putState({'note': _noteCtrl.text}),
             ),
+            if (_relatedLoading || _related.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                l10n.practiceRelated,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              if (_relatedLoading)
+                Text(l10n.practiceLoading)
+              else
+                for (final rq in _related)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: BilingualText(
+                        text: rq.stem,
+                        mode: _languageMode,
+                        markdown: true,
+                      ),
+                    ),
+                  ),
+            ],
           ],
           const SizedBox(height: 24),
           if (!submitted)

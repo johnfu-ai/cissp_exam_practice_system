@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiJson } from "@/lib/api";
 import { qk } from "./keys";
-import type { EtlDataset, EtlRun } from "./types";
+import type { ChapterDomainMapping, EtlDataset, EtlRun, MappingInput } from "./types";
 
 export function useDatasets() {
   return useQuery({
@@ -63,5 +63,55 @@ export function useRollbackRun() {
     mutationFn: (runId: string) =>
       apiJson<EtlRun>(`/api/etl/runs/${runId}/rollback`, { method: "POST" }),
     onSuccess: (run) => qc.invalidateQueries({ queryKey: qk.etl.run(run.run_id) }),
+  });
+}
+
+// --- Chapter→domain mappings (FR-ETL-15) ---
+
+function invalidateMappings(qc: ReturnType<typeof useQueryClient>) {
+  return () => qc.invalidateQueries({ queryKey: ["etl", "mappings"] });
+}
+
+export function useMappings(datasetSlug?: string | null) {
+  const qs =
+    datasetSlug && datasetSlug.trim()
+      ? `?dataset_slug=${encodeURIComponent(datasetSlug.trim())}`
+      : "";
+  return useQuery({
+    queryKey: qk.etl.mappings(datasetSlug?.trim() || null),
+    queryFn: () => apiJson<ChapterDomainMapping[]>(`/api/etl/mappings${qs}`),
+  });
+}
+
+export function useCreateMapping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MappingInput) =>
+      apiJson<Pick<ChapterDomainMapping, "id" | "dataset_slug" | "chapter_number">>(
+        "/api/etl/mappings",
+        { method: "POST", body: JSON.stringify(body) },
+      ),
+    onSuccess: invalidateMappings(qc),
+  });
+}
+
+export function useUpdateMapping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: MappingInput }) =>
+      apiJson<{ id: string }>(`/api/etl/mappings/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: invalidateMappings(qc),
+  });
+}
+
+export function useDeleteMapping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiJson<{ deleted: string }>(`/api/etl/mappings/${id}`, { method: "DELETE" }),
+    onSuccess: invalidateMappings(qc),
   });
 }

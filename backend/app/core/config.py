@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # Dev defaults to the bind-mounted ``docs/questions`` so uploads sit next to
     # seeded datasets; prod should point this at a persistent volume.
     etl_upload_root: str = "docs/questions"
+    # NFR-SEC-08 (partial): max size for interactive CSV/XLSX/JSON uploads.
+    # Default 5 MiB. Malware scanning remains out of scope (no AV infra).
+    max_upload_bytes: int = 5_242_880
     # P2: SQLAlchemy connection-pool tuning. Defaults match psycopg's pool; prod
     # with N uvicorn workers multiplies these (workers*N connections). pool_recycle
     # stays under Postgres' default idle timeout so connections are never reused

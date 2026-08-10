@@ -85,6 +85,12 @@ def _candidate_question_ids(
                 QuestionMapping.tag_id == payload.tag_id
             )
         ))
+    if payload.knowledge_point_id is not None:
+        stmt = stmt.where(Question.id.in_(
+            select(QuestionMapping.question_id).where(
+                QuestionMapping.knowledge_point_id == payload.knowledge_point_id
+            )
+        ))
     if payload.question_type is not None:
         stmt = stmt.where(Question.question_type == payload.question_type)
     if payload.difficulty is not None:
@@ -141,7 +147,11 @@ def _apply_subset(
 
 
 def _order_questions(
-    session: Session, *, ids: list[uuid.UUID], order_mode: str
+    session: Session,
+    *,
+    ids: list[uuid.UUID],
+    order_mode: str,
+    user_id=None,
 ) -> list[uuid.UUID]:
     if not ids:
         return []
@@ -157,6 +167,66 @@ def _order_questions(
             .where(Question.id.in_(ids))
             .order_by(Question.difficulty.asc().nulls_last(), Question.created_at.asc())
         ).scalars().all())
+    if order_mode == "weak_first" and user_id is not None:
+        # Prefer previously missed / low mastery, then unpracticed, then remainder.
+        wrong_ids = set(
+            session.execute(
+                select(PracticeAnswer.question_id)
+                .where(
+                    PracticeAnswer.user_id == user_id,
+                    PracticeAnswer.question_id.in_(ids),
+                    PracticeAnswer.is_correct.is_(False),
+                )
+                .distinct()
+            ).scalars().all()
+        )
+        # Only explicit "learning" mastery counts as weak. Rows created by
+        # bookmark/flag/note default to not_started and must not jump the queue
+        # ahead of truly unpracticed items (FR-PRAC-06).
+        low_mastery = set(
+            session.execute(
+                select(UserQuestionState.question_id).where(
+                    UserQuestionState.user_id == user_id,
+                    UserQuestionState.question_id.in_(ids),
+                    UserQuestionState.mastery_level == MasteryLevel.learning,
+                )
+            ).scalars().all()
+        )
+        practiced = set(
+            session.execute(
+                select(PracticeAnswer.question_id)
+                .where(
+                    PracticeAnswer.user_id == user_id,
+                    PracticeAnswer.question_id.in_(ids),
+                )
+                .distinct()
+            ).scalars().all()
+        )
+        id_set = set(ids)
+        weak = [qid for qid in ids if qid in wrong_ids or qid in low_mastery]
+        unpracticed = [qid for qid in ids if qid not in practiced and qid not in set(weak)]
+        remainder = [
+            qid for qid in ids if qid not in set(weak) and qid not in set(unpracticed)
+        ]
+        # Preserve relative order within buckets via sequential created_at.
+        def _by_created(bucket: list[uuid.UUID]) -> list[uuid.UUID]:
+            if not bucket:
+                return []
+            return list(
+                session.execute(
+                    select(Question.id)
+                    .where(Question.id.in_(bucket))
+                    .order_by(Question.created_at.asc())
+                ).scalars().all()
+            )
+
+        ordered = _by_created(weak) + _by_created(unpracticed) + _by_created(remainder)
+        # Guard against any id lost to set math.
+        seen = set(ordered)
+        for qid in ids:
+            if qid in id_set and qid not in seen:
+                ordered.append(qid)
+        return ordered
     # sequential
     return list(session.execute(
         select(Question.id)
@@ -176,7 +246,10 @@ def create_session(
         session, user_id=actor_id, candidate_ids=candidate_ids, subset=payload.subset
     )
     ordered = _order_questions(
-        session, ids=candidate_ids, order_mode=payload.order_mode
+        session,
+        ids=candidate_ids,
+        order_mode=payload.order_mode,
+        user_id=actor_id,
     )
     ordered = ordered[: payload.count]
     if not ordered:
@@ -286,16 +359,37 @@ def _judge(snapshot: dict, selected: list[int]) -> tuple[bool, list[int]]:
 
 
 def _mapping_out(session: Session, question_id) -> dict:
-    m = session.execute(
+    """Aggregate mapping rows and resolve display names for FR-ANS-05.
+
+    QuestionMapping stores domain/chapter/knowledge-point as separate rows;
+    `.first()` would miss names when the first row is e.g. a tag-only link.
+    """
+    from app.models.question import Chapter
+    from app.models.taxonomy import ExamDomain, KnowledgePoint
+
+    rows = session.execute(
         select(QuestionMapping).where(QuestionMapping.question_id == question_id)
-    ).scalars().first()
-    out: dict = {}
-    if m is not None:
-        out["domain_id"] = str(m.domain_id) if m.domain_id else None
-        out["chapter_id"] = str(m.chapter_id) if m.chapter_id else None
-        out["knowledge_point_id"] = (
-            str(m.knowledge_point_id) if m.knowledge_point_id else None
-        )
+    ).scalars().all()
+    domain_id = next((r.domain_id for r in rows if r.domain_id), None)
+    chapter_id = next((r.chapter_id for r in rows if r.chapter_id), None)
+    kp_id = next((r.knowledge_point_id for r in rows if r.knowledge_point_id), None)
+    out: dict = {
+        "domain_id": str(domain_id) if domain_id else None,
+        "chapter_id": str(chapter_id) if chapter_id else None,
+        "knowledge_point_id": str(kp_id) if kp_id else None,
+    }
+    if domain_id is not None:
+        domain = session.get(ExamDomain, domain_id)
+        if domain is not None:
+            out["domain_name"] = domain.name
+    if chapter_id is not None:
+        chapter = session.get(Chapter, chapter_id)
+        if chapter is not None:
+            out["chapter_title"] = chapter.title
+    if kp_id is not None:
+        kp = session.get(KnowledgePoint, kp_id)
+        if kp is not None:
+            out["knowledge_point_name"] = kp.name
     return out
 
 
