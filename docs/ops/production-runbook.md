@@ -45,8 +45,24 @@ Terminated at the in-stack Caddy service (`deploy/Caddyfile`): automatic HTTPS f
 
 - `GET /live` — liveness (always 200 if process up)
 - `GET /ready` / `/health` — readiness (503 if DB/Redis down)
-- `GET /metrics` — Prometheus counters (set `PROMETHEUS_MULTIPROC_DIR` when `UVICORN_WORKERS>1`)
+- `GET /metrics` — Prometheus counters (set `PROMETHEUS_MULTIPROC_DIR` when `UVICORN_WORKERS>1`); reachable only inside the compose network (prod) or via `docker compose exec backend curl -s localhost:8000/metrics`
 - `X-Request-ID` — echoed on every response; search structured JSON logs by that id
+
+## Monitoring & alerting
+
+`docker-compose.monitoring.yml` is an overlay that runs Prometheus + Alertmanager + Grafana **inside the compose network** (so they reach the unpublished `/metrics`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  -f docker-compose.monitoring.yml up -d
+```
+
+UIs bind to `127.0.0.1` on the host (SSH-tunnel access, never public): Prometheus `:9090`, Alertmanager `:9093`, Grafana `:3001` (login `admin` / `$GRAFANA_ADMIN_PASSWORD`, default `admin-change-me` — set a real one).
+
+- **Scrape**: backend `/metrics` every 15s, 30d retention.
+- **Alert rules** (`deploy/monitoring/alerts.yml`): `BackendDown` (scrape down 2m, critical), `BackendHighErrorRate` (5xx > 2% for 10m, critical), `BackendHighLatencyP95` (p95 > 1s for 10m, warning), `BackendNoSuccessfulScrape` (10m total loss, critical).
+- **Delivery**: Alertmanager is drop-by-default — alerts show in its UI but go nowhere until you add a receiver (Slack/Feishu/email webhook) in `deploy/monitoring/alertmanager.yml` and restart the service. Do this before you rely on the alerts.
+- **Dashboard**: "CISSP Backend" is auto-provisioned in Grafana (request rate, 5xx ratio, p50/p95 latency, top routes).
 
 ## Backups
 

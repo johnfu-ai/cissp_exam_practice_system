@@ -1,0 +1,23 @@
+# Prometheus scrape + rule config (monitoring item #6).
+# Scrapes the backend's /metrics over the compose network — backend:8000 is
+# intentionally NOT published in prod, so monitoring lives inside the network.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: cissp-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

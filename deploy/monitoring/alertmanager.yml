@@ -1,0 +1,27 @@
+# Alertmanager delivery config (monitoring item #6).
+#
+# By default alerts are received and visible at 127.0.0.1:9093 but go NOWHERE
+# (the 'null' receiver). To actually get paged, add your channel under
+# `receivers` and point the route at it, e.g. Slack/Feishu/DingTalk webhook:
+#
+#   receivers:
+#     - name: ops-webhook
+#       webhook_configs:
+#         - url: https://hooks.slack.com/services/XXX/YYY/ZZZ
+#           send_resolved: true
+#   route:
+#     receiver: ops-webhook
+#
+# or email via SMTP (global.smtp_*). Restart with:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml restart alertmanager
+route:
+  receiver: drop
+  group_by: [alertname]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  # Drop-by-default receiver: alerts arrive and are visible in the UI but are
+  # not delivered anywhere until you add a real receiver above.
+  - name: drop
