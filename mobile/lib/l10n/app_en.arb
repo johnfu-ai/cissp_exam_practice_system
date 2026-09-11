@@ -3,7 +3,6 @@
   "appTitle": "CISSP Compass",
   "brandName": "CISSP Compass",
   "brandTagline": "Master cybersecurity certification",
-
   "navHome": "Home",
   "navPractice": "Practice",
   "navReview": "Review",
@@ -11,7 +10,6 @@
   "navAnalytics": "Analytics",
   "navSettings": "Settings",
   "navLogout": "Log out",
-
   "commonSave": "Save",
   "commonCancel": "Cancel",
   "commonSubmit": "Submit",
@@ -25,14 +23,14 @@
   "commonOfN": "of {n}",
   "@commonOfN": {
     "placeholders": {
-      "n": {"type": "int"}
+      "n": {
+        "type": "int"
+      }
     }
   },
-
   "langEn": "English",
   "langZh": "中文",
   "langBilingual": "Both",
-
   "authLogin": "Log in",
   "authLoggingIn": "Logging in…",
   "authRegister": "Register",
@@ -66,10 +64,8 @@
   "authResetFailed": "Reset failed. The token may be invalid or expired.",
   "authBackToLogin": "Back to log in",
   "authConfirmPassword": "Confirm password",
-
   "legalTrademark": "CISSP® and ISC2® are registered trademarks of ISC2, Inc.",
   "legalNotOfficial": "This product is an independent study tool and is not an official ISC2 exam platform, nor is it affiliated with or endorsed by ISC2.",
-
   "dashboardEyebrow": "Overview",
   "dashboardTitle": "Dashboard",
   "dashboardDescription": "Your CISSP study overview at a glance.",
@@ -84,14 +80,20 @@
   "dashboardStreakDays": "{n}d",
   "@dashboardStreakDays": {
     "placeholders": {
-      "n": {"type": "int"}
+      "n": {
+        "type": "int"
+      }
     }
   },
   "dashboardCorrectOf": "{c}/{a} correct",
   "@dashboardCorrectOf": {
     "placeholders": {
-      "c": {"type": "int"},
-      "a": {"type": "int"}
+      "c": {
+        "type": "int"
+      },
+      "a": {
+        "type": "int"
+      }
     }
   },
   "dashboardPracticeTitle": "Practice",
@@ -107,7 +109,6 @@
   "dashboardLoading": "Loading your dashboard…",
   "dashboardLoadFailed": "Could not load your dashboard.",
   "dashboardTodayRec": "Today's recommendation",
-
   "analyticsEyebrow": "Insights",
   "analyticsTitle": "Analytics",
   "analyticsDescription": "Detailed breakdown of your performance over time.",
@@ -123,7 +124,6 @@
   "analyticsColDomain": "Domain",
   "analyticsColAccuracy": "Accuracy",
   "analyticsColAnswered": "Answered",
-
   "practiceTitle": "Practice",
   "practiceDescription": "Build and resume scoped practice sessions.",
   "practiceNewSession": "New session",
@@ -184,8 +184,12 @@
   "practiceQuestionOf": "Question {current} of {total}",
   "@practiceQuestionOf": {
     "placeholders": {
-      "current": {"type": "int"},
-      "total": {"type": "int"}
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
     }
   },
   "subsetAll": "All",
@@ -202,7 +206,6 @@
   "errorMemoryLapse": "Memory lapse",
   "errorOptionConfusion": "Option confusion",
   "errorTimePressure": "Time pressure",
-
   "reviewTitle": "Review",
   "reviewDescription": "Re-practice wrong, bookmarked, and flagged questions.",
   "reviewWrong": "Wrong questions",
@@ -213,7 +216,6 @@
   "reviewFlaggedDesc": "Re-practice questions flagged for review.",
   "reviewStart": "Start review session",
   "reviewCouldNotStart": "No matching questions, or could not start.",
-
   "examTitle": "Mock exams",
   "examDescription": "Train your exam pace with fixed-length and adaptive (CAT) mock exams.",
   "examNew": "New exam",
@@ -249,11 +251,14 @@
   "examQuestionOf": "Question {current} of {total}",
   "@examQuestionOf": {
     "placeholders": {
-      "current": {"type": "int"},
-      "total": {"type": "int"}
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
     }
   },
-
   "settingsTitle": "Settings",
   "settingsDescription": "Manage your language and content preferences.",
   "settingsInterfaceTitle": "Interface language",
@@ -269,5 +274,18 @@
   "settingsPasswordChanged": "Password changed.",
   "settingsPasswordMismatch": "Passwords do not match.",
   "settingsPasswordIncorrect": "Current password is incorrect.",
-  "settingsUpdating": "Updating…"
+  "settingsUpdating": "Updating…",
+  "settingsGoalsTitle": "Study goals",
+  "settingsGoalsDesc": "Set your exam date and a daily answer goal — progress shows on your dashboard.",
+  "settingsExamDateValue": "Exam: {date}",
+  "settingsExamDateUnset": "Set exam date",
+  "settingsExamDateClear": "Clear",
+  "settingsDailyGoal": "Daily goal",
+  "settingsGoalLess": "Fewer",
+  "settingsGoalMore": "More",
+  "settingsGoalSet": "Set 20/day",
+  "dashboardTodayGoal": "Today",
+  "dashboardTodayGoalValue": "{done}/{goal}",
+  "dashboardToExam": "Exam",
+  "dashboardDaysToExam": "{count, plural, =1{1 day} other{{count} days}}"
 }

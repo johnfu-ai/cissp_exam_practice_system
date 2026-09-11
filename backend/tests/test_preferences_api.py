@@ -182,3 +182,51 @@ def test_put_preferences_rejects_empty_body(auth_client):
         headers=_auth(token),
     )
     assert r.status_code == 422
+
+
+# --- FR-USER-06 learner goals ------------------------------------------------ #
+
+def test_set_and_read_goals(auth_client):
+    token = _register(auth_client, email="goal@example.com")
+    r = auth_client.put(
+        "/api/users/me/preferences",
+        headers=_auth(token),
+        json={"exam_target_date": "2026-11-01", "daily_goal_answers": 20},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["exam_target_date"] == "2026-11-01"
+    assert body["daily_goal_answers"] == 20
+
+    r = auth_client.get("/api/users/me/preferences", headers=_auth(token))
+    assert r.json()["daily_goal_answers"] == 20
+
+    # /me surfaces them too (the settings screen reads initial values there).
+    r = auth_client.get("/api/auth/me", headers=_auth(token))
+    assert r.json()["exam_target_date"] == "2026-11-01"
+
+
+def test_explicit_null_clears_goals_absent_field_keeps_them(auth_client):
+    token = _register(auth_client, email="goal2@example.com")
+    h = _auth(token)
+    auth_client.put("/api/users/me/preferences", headers=h,
+                    json={"daily_goal_answers": 30})
+    # Absent field: unchanged.
+    r = auth_client.put("/api/users/me/preferences", headers=h,
+                        json={"language_mode": "zh"})
+    assert r.json()["daily_goal_answers"] == 30
+    # Explicit null: cleared.
+    r = auth_client.put("/api/users/me/preferences", headers=h,
+                        json={"daily_goal_answers": None})
+    assert r.json()["daily_goal_answers"] is None
+
+
+def test_goal_validation_422(auth_client):
+    token = _register(auth_client, email="goal3@example.com")
+    h = _auth(token)
+    assert auth_client.put("/api/users/me/preferences", headers=h,
+                           json={"daily_goal_answers": 0}).status_code == 422
+    assert auth_client.put("/api/users/me/preferences", headers=h,
+                           json={"daily_goal_answers": 501}).status_code == 422
+    assert auth_client.put("/api/users/me/preferences", headers=h,
+                           json={"exam_target_date": "not-a-date"}).status_code == 422

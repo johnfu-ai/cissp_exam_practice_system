@@ -35,6 +35,8 @@ class UserOut {
   final List<String> perms;
   final String languageMode;
   final String interfaceLanguage;
+  final DateTime? examTargetDate;
+  final int? dailyGoalAnswers;
 
   const UserOut({
     required this.id,
@@ -44,6 +46,8 @@ class UserOut {
     this.perms = const [],
     this.languageMode = 'en',
     this.interfaceLanguage = 'en',
+    this.examTargetDate,
+    this.dailyGoalAnswers,
   });
 
   factory UserOut.fromJson(JsonMap json) => UserOut(
@@ -54,6 +58,10 @@ class UserOut {
         perms: (json['perms'] as List? ?? const []).cast<String>(),
         languageMode: (json['language_mode'] as String?) ?? 'en',
         interfaceLanguage: (json['interface_language'] as String?) ?? 'en',
+        examTargetDate: json['exam_target_date'] == null
+            ? null
+            : DateTime.parse(json['exam_target_date'] as String),
+        dailyGoalAnswers: json['daily_goal_answers'] as int?,
       );
 }
 
@@ -81,10 +89,21 @@ class TokenOut {
 class Preferences {
   final String languageMode;
   final String interfaceLanguage;
-  const Preferences({required this.languageMode, required this.interfaceLanguage});
+  final DateTime? examTargetDate;
+  final int? dailyGoalAnswers;
+  const Preferences({
+    required this.languageMode,
+    required this.interfaceLanguage,
+    this.examTargetDate,
+    this.dailyGoalAnswers,
+  });
   factory Preferences.fromJson(JsonMap json) => Preferences(
         languageMode: json['language_mode'] as String,
         interfaceLanguage: json['interface_language'] as String,
+        examTargetDate: json['exam_target_date'] == null
+            ? null
+            : DateTime.parse(json['exam_target_date'] as String),
+        dailyGoalAnswers: json['daily_goal_answers'] as int?,
       );
 }
 
@@ -438,6 +457,9 @@ class DashboardOut {
   final int studyTimeMs;
   final int streakDays;
   final String? lastActiveAt;
+  final int answersToday;
+  final int? dailyGoalAnswers;
+  final int? daysToExam;
   const DashboardOut({
     required this.practicedQuestions,
     required this.totalAnswered,
@@ -446,6 +468,9 @@ class DashboardOut {
     required this.studyTimeMs,
     required this.streakDays,
     this.lastActiveAt,
+    this.answersToday = 0,
+    this.dailyGoalAnswers,
+    this.daysToExam,
   });
   factory DashboardOut.fromJson(JsonMap json) => DashboardOut(
         practicedQuestions: json['practiced_questions'] as int,
@@ -455,6 +480,9 @@ class DashboardOut {
         studyTimeMs: json['study_time_ms'] as int,
         streakDays: json['streak_days'] as int,
         lastActiveAt: json['last_active_at'] as String?,
+        answersToday: (json['answers_today'] as int?) ?? 0,
+        dailyGoalAnswers: json['daily_goal_answers'] as int?,
+        daysToExam: json['days_to_exam'] as int?,
       );
 }
 

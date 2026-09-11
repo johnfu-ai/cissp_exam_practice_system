@@ -3,7 +3,6 @@
   "appTitle": "CISSP Compass",
   "brandName": "CISSP Compass",
   "brandTagline": "掌握网络安全认证",
-
   "navHome": "首页",
   "navPractice": "练习",
   "navReview": "复习",
@@ -11,7 +10,6 @@
   "navAnalytics": "分析",
   "navSettings": "设置",
   "navLogout": "退出登录",
-
   "commonSave": "保存",
   "commonCancel": "取消",
   "commonSubmit": "提交",
@@ -23,11 +21,9 @@
   "commonErrorTitle": "出错了",
   "commonContinue": "继续",
   "commonOfN": "共 {n}",
-
   "langEn": "English",
   "langZh": "中文",
   "langBilingual": "双语",
-
   "authLogin": "登录",
   "authLoggingIn": "登录中…",
   "authRegister": "注册",
@@ -61,10 +57,8 @@
   "authResetFailed": "重置失败，令牌可能无效或已过期。",
   "authBackToLogin": "返回登录",
   "authConfirmPassword": "确认密码",
-
   "legalTrademark": "CISSP® 和 ISC2® 是 ISC2, Inc. 的注册商标。",
   "legalNotOfficial": "本产品为独立学习工具，并非官方 ISC2 考试平台，亦未获得 ISC2 关联或认可。",
-
   "dashboardEyebrow": "概览",
   "dashboardTitle": "仪表盘",
   "dashboardDescription": "一目了然查看你的 CISSP 学习概况。",
@@ -91,7 +85,6 @@
   "dashboardLoading": "正在加载仪表盘…",
   "dashboardLoadFailed": "无法加载仪表盘。",
   "dashboardTodayRec": "今日建议",
-
   "analyticsEyebrow": "洞察",
   "analyticsTitle": "学习分析",
   "analyticsDescription": "按时间维度查看你的表现明细。",
@@ -107,7 +100,6 @@
   "analyticsColDomain": "领域",
   "analyticsColAccuracy": "正确率",
   "analyticsColAnswered": "已答",
-
   "practiceTitle": "练习",
   "practiceDescription": "创建或恢复定向练习会话。",
   "practiceNewSession": "新会话",
@@ -168,8 +160,12 @@
   "practiceQuestionOf": "第 {current} / {total} 题",
   "@practiceQuestionOf": {
     "placeholders": {
-      "current": {"type": "int"},
-      "total": {"type": "int"}
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
     }
   },
   "subsetAll": "全部",
@@ -186,7 +182,6 @@
   "errorMemoryLapse": "记忆模糊",
   "errorOptionConfusion": "选项混淆",
   "errorTimePressure": "时间压力",
-
   "reviewTitle": "复习",
   "reviewDescription": "再练错题、收藏与标记题目。",
   "reviewWrong": "错题",
@@ -197,7 +192,6 @@
   "reviewFlaggedDesc": "再练标记待复习的题目。",
   "reviewStart": "开始复习会话",
   "reviewCouldNotStart": "没有匹配题目，或无法开始。",
-
   "examTitle": "模拟考试",
   "examDescription": "固定卷与自适应（CAT）模考，训练考试节奏。",
   "examNew": "新模考",
@@ -233,11 +227,14 @@
   "examQuestionOf": "第 {current} / {total} 题",
   "@examQuestionOf": {
     "placeholders": {
-      "current": {"type": "int"},
-      "total": {"type": "int"}
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
     }
   },
-
   "settingsTitle": "设置",
   "settingsDescription": "管理界面语言与题目内容语言。",
   "settingsInterfaceTitle": "界面语言",
@@ -253,5 +250,18 @@
   "settingsPasswordChanged": "密码已修改。",
   "settingsPasswordMismatch": "两次密码不一致。",
   "settingsPasswordIncorrect": "当前密码不正确。",
-  "settingsUpdating": "更新中…"
+  "settingsUpdating": "更新中…",
+  "settingsGoalsTitle": "学习目标",
+  "settingsGoalsDesc": "设置考试日期和每日答题目标，进度会显示在仪表盘上。",
+  "settingsExamDateValue": "考试：{date}",
+  "settingsExamDateUnset": "设置考试日期",
+  "settingsExamDateClear": "清除",
+  "settingsDailyGoal": "每日目标",
+  "settingsGoalLess": "减少",
+  "settingsGoalMore": "增加",
+  "settingsGoalSet": "设为每天 20 题",
+  "dashboardTodayGoal": "今日",
+  "dashboardTodayGoalValue": "{done}/{goal}",
+  "dashboardToExam": "距考试",
+  "dashboardDaysToExam": "{count} 天"
 }

@@ -54,6 +54,12 @@ def _headers(db_session, store, email="analytics@example.com",
     return {"Authorization": f"Bearer {token}"}
 
 
+def _date_in_days(days: int) -> str:
+    from datetime import date, timedelta
+
+    return (date.today() + timedelta(days=days)).isoformat()
+
+
 def _seed_current_bp(db, *, n_domains=8, version="analytics-v1"):
     """A current ExamBlueprint with ``n_domains`` ExamDomain rows."""
     bp = ExamBlueprint(
@@ -195,3 +201,27 @@ def test_endpoints_require_auth(client):
         "/api/analytics/report",
     ):
         assert c.get(path).status_code == 401, path
+
+
+def test_dashboard_carries_goal_progress(client):
+    """FR-USER-06: dashboard reports answers_today, the daily goal, and days
+    to the exam target date."""
+    c, store, db = client
+    h = _headers(db, store, email="goalprogress@example.com")
+
+    # No goals set -> absent-by-default fields.
+    j = c.get("/api/analytics/dashboard", headers=h).json()
+    assert j["answers_today"] == 0
+    assert j["daily_goal_answers"] is None
+    assert j["days_to_exam"] is None
+
+    # Set a target 10 days out + a goal of 20.
+    r = c.put(
+        "/api/users/me/preferences",
+        headers=h,
+        json={"daily_goal_answers": 20, "exam_target_date": _date_in_days(10)},
+    )
+    assert r.status_code == 200, r.text
+    j = c.get("/api/analytics/dashboard", headers=h).json()
+    assert j["daily_goal_answers"] == 20
+    assert j["days_to_exam"] == 10

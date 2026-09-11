@@ -7692,6 +7692,31 @@
               }
             ],
             "title": "Interface Language"
+          },
+          "exam_target_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Target Date"
+          },
+          "daily_goal_answers": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 500.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Goal Answers"
           }
         },
         "type": "object",
@@ -7706,6 +7731,29 @@
           "interface_language": {
             "type": "string",
             "title": "Interface Language"
+          },
+          "exam_target_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Target Date"
+          },
+          "daily_goal_answers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Goal Answers"
           }
         },
         "type": "object",
@@ -9299,6 +9347,29 @@
             "type": "string",
             "title": "Interface Language",
             "default": "en"
+          },
+          "exam_target_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Target Date"
+          },
+          "daily_goal_answers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Goal Answers"
           }
         },
         "type": "object",

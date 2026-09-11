@@ -30,7 +30,17 @@ def put_prefs(
     session: Session = Depends(get_session),
     current: CurrentUser = Depends(get_current_user),
 ) -> PreferencesOut:
-    if body.language_mode is None and body.interface_language is None:
+    # model_fields_set distinguishes "field absent" (leave unchanged) from
+    # "field explicitly null" (clear the goal) for the nullable goal fields.
+    sent = body.model_fields_set
+    goal_date = body.exam_target_date if "exam_target_date" in sent else ...
+    goal_count = body.daily_goal_answers if "daily_goal_answers" in sent else ...
+    if (
+        body.language_mode is None
+        and body.interface_language is None
+        and goal_date is ...
+        and goal_count is ...
+    ):
         raise HTTPException(status_code=422, detail="no preferences provided")
     try:
         out = svc.set_preferences(
@@ -38,6 +48,8 @@ def put_prefs(
             current.user,
             language_mode=body.language_mode,
             interface_language=body.interface_language,
+            exam_target_date=goal_date,
+            daily_goal_answers=goal_count,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

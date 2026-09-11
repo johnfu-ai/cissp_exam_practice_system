@@ -710,4 +710,49 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsUpdating => '更新中…';
+
+  @override
+  String get settingsGoalsTitle => '学习目标';
+
+  @override
+  String get settingsGoalsDesc => '设置考试日期和每日答题目标，进度会显示在仪表盘上。';
+
+  @override
+  String settingsExamDateValue(Object date) {
+    return '考试：$date';
+  }
+
+  @override
+  String get settingsExamDateUnset => '设置考试日期';
+
+  @override
+  String get settingsExamDateClear => '清除';
+
+  @override
+  String get settingsDailyGoal => '每日目标';
+
+  @override
+  String get settingsGoalLess => '减少';
+
+  @override
+  String get settingsGoalMore => '增加';
+
+  @override
+  String get settingsGoalSet => '设为每天 20 题';
+
+  @override
+  String get dashboardTodayGoal => '今日';
+
+  @override
+  String dashboardTodayGoalValue(Object done, Object goal) {
+    return '$done/$goal';
+  }
+
+  @override
+  String get dashboardToExam => '距考试';
+
+  @override
+  String dashboardDaysToExam(num count) {
+    return '$count 天';
+  }
 }

@@ -1483,6 +1483,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Updating…'**
   String get settingsUpdating;
+
+  /// No description provided for @settingsGoalsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Study goals'**
+  String get settingsGoalsTitle;
+
+  /// No description provided for @settingsGoalsDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Set your exam date and a daily answer goal — progress shows on your dashboard.'**
+  String get settingsGoalsDesc;
+
+  /// No description provided for @settingsExamDateValue.
+  ///
+  /// In en, this message translates to:
+  /// **'Exam: {date}'**
+  String settingsExamDateValue(Object date);
+
+  /// No description provided for @settingsExamDateUnset.
+  ///
+  /// In en, this message translates to:
+  /// **'Set exam date'**
+  String get settingsExamDateUnset;
+
+  /// No description provided for @settingsExamDateClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get settingsExamDateClear;
+
+  /// No description provided for @settingsDailyGoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Daily goal'**
+  String get settingsDailyGoal;
+
+  /// No description provided for @settingsGoalLess.
+  ///
+  /// In en, this message translates to:
+  /// **'Fewer'**
+  String get settingsGoalLess;
+
+  /// No description provided for @settingsGoalMore.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get settingsGoalMore;
+
+  /// No description provided for @settingsGoalSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Set 20/day'**
+  String get settingsGoalSet;
+
+  /// No description provided for @dashboardTodayGoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get dashboardTodayGoal;
+
+  /// No description provided for @dashboardTodayGoalValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{done}/{goal}'**
+  String dashboardTodayGoalValue(Object done, Object goal);
+
+  /// No description provided for @dashboardToExam.
+  ///
+  /// In en, this message translates to:
+  /// **'Exam'**
+  String get dashboardToExam;
+
+  /// No description provided for @dashboardDaysToExam.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 day} other{{count} days}}'**
+  String dashboardDaysToExam(num count);
 }
 
 class _AppLocalizationsDelegate

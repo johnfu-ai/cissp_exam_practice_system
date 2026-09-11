@@ -729,4 +729,56 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsUpdating => 'Updating…';
+
+  @override
+  String get settingsGoalsTitle => 'Study goals';
+
+  @override
+  String get settingsGoalsDesc =>
+      'Set your exam date and a daily answer goal — progress shows on your dashboard.';
+
+  @override
+  String settingsExamDateValue(Object date) {
+    return 'Exam: $date';
+  }
+
+  @override
+  String get settingsExamDateUnset => 'Set exam date';
+
+  @override
+  String get settingsExamDateClear => 'Clear';
+
+  @override
+  String get settingsDailyGoal => 'Daily goal';
+
+  @override
+  String get settingsGoalLess => 'Fewer';
+
+  @override
+  String get settingsGoalMore => 'More';
+
+  @override
+  String get settingsGoalSet => 'Set 20/day';
+
+  @override
+  String get dashboardTodayGoal => 'Today';
+
+  @override
+  String dashboardTodayGoalValue(Object done, Object goal) {
+    return '$done/$goal';
+  }
+
+  @override
+  String get dashboardToExam => 'Exam';
+
+  @override
+  String dashboardDaysToExam(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days',
+      one: '1 day',
+    );
+    return '$_temp0';
+  }
 }

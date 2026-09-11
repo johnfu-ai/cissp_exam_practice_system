@@ -94,12 +94,22 @@ class CisspApi {
   Future<Preferences> putPreferences({
     String? languageMode,
     String? interfaceLanguage,
+    DateTime? examTargetDate,
+    bool updateExamTargetDate = false,
+    int? dailyGoalAnswers,
+    bool updateDailyGoal = false,
   }) async {
     final r = await dio.put<JsonMap>(
       '/api/users/me/preferences',
       data: {
         if (languageMode != null) 'language_mode': languageMode,
         if (interfaceLanguage != null) 'interface_language': interfaceLanguage,
+        // The update* flags send the goal fields even when null, which the
+        // API treats as "clear the goal" (absent field = leave unchanged).
+        if (updateExamTargetDate)
+          'exam_target_date':
+              examTargetDate?.toIso8601String().substring(0, 10),
+        if (updateDailyGoal) 'daily_goal_answers': dailyGoalAnswers,
       },
     );
     return Preferences.fromJson(r.data!);

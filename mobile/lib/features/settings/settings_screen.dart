@@ -67,6 +67,83 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _saveGoals({DateTime? examTargetDate, int? dailyGoalAnswers}) async {
+    final api = ref.read(cisspApiProvider);
+    final user = ref.read(authSessionProvider).user;
+    try {
+      if (examTargetDate != null) {
+        await api.putPreferences(
+          updateExamTargetDate: true,
+          examTargetDate: examTargetDate,
+        );
+      }
+      if (dailyGoalAnswers != null) {
+        await api.putPreferences(
+          updateDailyGoal: true,
+          dailyGoalAnswers: dailyGoalAnswers,
+        );
+      }
+      if (user != null) {
+        await ref.read(authSessionProvider.notifier).setUser(
+              copyUser(
+                user,
+                examTargetDate:
+                    examTargetDate ?? user.examTargetDate, // null = keep
+                dailyGoalAnswers:
+                    dailyGoalAnswers ?? user.dailyGoalAnswers,
+              ),
+            );
+      }
+    } catch (e, s) {
+      logError(e, s, 'settings:saveGoals');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.commonErrorTitle)),
+        );
+      }
+      return;
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.settingsSaved)),
+      );
+      setState(() {});
+    }
+  }
+
+  Future<void> _clearExamDate() async {
+    final api = ref.read(cisspApiProvider);
+    final user = ref.read(authSessionProvider).user;
+    try {
+      await api.putPreferences(updateExamTargetDate: true, examTargetDate: null);
+      if (user != null) {
+        // Explicit null clears the local copy too (see copyUser sentinel).
+        await ref.read(authSessionProvider.notifier).setUser(
+              copyUser(user, examTargetDate: null),
+            );
+      }
+    } catch (e, s) {
+      logError(e, s, 'settings:clearExamDate');
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _pickExamDate() async {
+    final user = ref.read(authSessionProvider).user;
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate:
+          (user?.examTargetDate != null && user!.examTargetDate!.isAfter(now))
+              ? user.examTargetDate
+              : now.add(const Duration(days: 30)),
+      firstDate: now.subtract(const Duration(days: 365)),
+      lastDate: now.add(const Duration(days: 365 * 3)),
+    );
+    if (picked == null) return;
+    await _saveGoals(examTargetDate: picked);
+  }
+
   Future<void> _changePassword() async {
     final l10n = AppLocalizations.of(context)!;
     if (_next.text != _confirm.text) {
@@ -179,6 +256,81 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(l10n.settingsGoalsTitle,
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(l10n.settingsGoalsDesc,
+                    style: const TextStyle(color: AppColors.muted)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _pickExamDate,
+                        child: Text(
+                          auth.user?.examTargetDate != null
+                              ? l10n.settingsExamDateValue(
+                                  _fmtDate(auth.user!.examTargetDate!))
+                              : l10n.settingsExamDateUnset,
+                        ),
+                      ),
+                    ),
+                    if (auth.user?.examTargetDate != null) ...[
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: _clearExamDate,
+                        child: Text(l10n.settingsExamDateClear),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text('${l10n.settingsDailyGoal}: '),
+                    IconButton(
+                      tooltip: l10n.settingsGoalLess,
+                      onPressed: ((auth.user?.dailyGoalAnswers ?? 0) - 5) >= 1
+                          ? () => _saveGoals(
+                              dailyGoalAnswers:
+                                  (auth.user?.dailyGoalAnswers ?? 20) - 5)
+                          : null,
+                      icon: const Icon(Icons.remove_circle_outline),
+                    ),
+                    Text(
+                      '${auth.user?.dailyGoalAnswers ?? '—'}',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    IconButton(
+                      tooltip: l10n.settingsGoalMore,
+                      onPressed: ((auth.user?.dailyGoalAnswers ?? 0) + 5) <= 500
+                          ? () => _saveGoals(
+                              dailyGoalAnswers:
+                                  (auth.user?.dailyGoalAnswers ?? 0) + 5)
+                          : null,
+                      icon: const Icon(Icons.add_circle_outline),
+                    ),
+                    if (auth.user?.dailyGoalAnswers == null)
+                      TextButton(
+                        onPressed: () => _saveGoals(dailyGoalAnswers: 20),
+                        child: Text(l10n.settingsGoalSet),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(l10n.settingsChangePasswordTitle,
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 4),
@@ -237,10 +389,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
+String _fmtDate(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+class _Unset {
+  const _Unset();
+}
+
+const _unset = _Unset();
+
+/// Copy a [UserOut], overriding provided fields. Goal fields accept an
+/// explicit `null` to CLEAR them (absent = keep), mirroring the API's
+/// model_fields_set semantics.
 UserOut copyUser(
   UserOut u, {
   String? languageMode,
   String? interfaceLanguage,
+  Object? examTargetDate = _unset,
+  Object? dailyGoalAnswers = _unset,
 }) {
   return UserOut(
     id: u.id,
@@ -250,5 +416,10 @@ UserOut copyUser(
     perms: u.perms,
     languageMode: languageMode ?? u.languageMode,
     interfaceLanguage: interfaceLanguage ?? u.interfaceLanguage,
+    examTargetDate:
+        examTargetDate == _unset ? u.examTargetDate : examTargetDate as DateTime?,
+    dailyGoalAnswers: dailyGoalAnswers == _unset
+        ? u.dailyGoalAnswers
+        : dailyGoalAnswers as int?,
   );
 }

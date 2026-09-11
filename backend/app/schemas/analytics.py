@@ -12,6 +12,10 @@ class DashboardOut(BaseModel):
     study_time_ms: int
     streak_days: int
     last_active_at: datetime | None
+    # FR-USER-06 learner-goal progress (defaults keep old responses valid).
+    answers_today: int = 0
+    daily_goal_answers: int | None = None
+    days_to_exam: int | None = None
 
 
 class DomainMasteryOut(BaseModel):

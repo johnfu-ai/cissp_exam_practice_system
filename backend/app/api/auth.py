@@ -119,6 +119,8 @@ def _user_out(session, user, org_id) -> UserOut:
         perms=load_user_perms(session, user.id, org_id),
         language_mode=getattr(user, "language_mode", "en") or "en",
         interface_language=getattr(user, "interface_language", "en") or "en",
+        exam_target_date=getattr(user, "exam_target_date", None),
+        daily_goal_answers=getattr(user, "daily_goal_answers", None),
     )
 
 

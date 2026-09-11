@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, EmailStr, Field
@@ -55,16 +56,25 @@ class UserOut(BaseModel):
     perms: list[str]
     language_mode: str = "en"
     interface_language: str = "en"
+    exam_target_date: date | None = None
+    daily_goal_answers: int | None = None
 
 
 class PreferencesIn(BaseModel):
     language_mode: Literal["en", "zh", "bilingual"] | None = None
     interface_language: Literal["en", "zh"] | None = None
+    # FR-USER-06 learner goals. A field explicitly sent as null CLEARS the
+    # goal; an absent field leaves it unchanged (see model_fields_set use in
+    # the route).
+    exam_target_date: date | None = None
+    daily_goal_answers: int | None = Field(default=None, ge=1, le=500)
 
 
 class PreferencesOut(BaseModel):
     language_mode: str
     interface_language: str
+    exam_target_date: date | None = None
+    daily_goal_answers: int | None = None
 
 
 class TokenOut(BaseModel):

@@ -133,6 +133,18 @@ class DashboardScreen extends ConsumerWidget {
                     label: l10n.dashboardStreak,
                     value: l10n.dashboardStreakDays(d.streakDays),
                   ),
+                  // FR-USER-06 goal progress (hidden until the learner sets a goal).
+                  if (d.dailyGoalAnswers != null)
+                    _StatChip(
+                      label: l10n.dashboardTodayGoal,
+                      value: l10n.dashboardTodayGoalValue(
+                          d.answersToday, d.dailyGoalAnswers!),
+                    ),
+                  if (d.daysToExam != null)
+                    _StatChip(
+                      label: l10n.dashboardToExam,
+                      value: l10n.dashboardDaysToExam(d.daysToExam!),
+                    ),
                 ],
               ),
               if (data.domains.isNotEmpty) ...[

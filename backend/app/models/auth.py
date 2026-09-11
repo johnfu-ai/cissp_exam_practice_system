@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint, text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import (
@@ -50,6 +50,10 @@ class User(UUIDPrimaryKey, TimestampMixin, Base):
     interface_language: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=text("'en'")
     )
+    # FR-USER-06 learner goals: optional exam target date + daily practice
+    # goal. Nullable = not set (the client hides the goal UI affordances).
+    exam_target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    daily_goal_answers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Access tokens with iat < this timestamp are rejected (password change/reset).
     tokens_invalid_before: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

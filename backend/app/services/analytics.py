@@ -169,13 +169,22 @@ def dashboard(session: Session, *, user_id, rows=None) -> DashboardOut:
 
     Empty user -> all-zero / None response (never raises).
     ``rows`` may pass a precomputed answer-row list to avoid re-fetching (#13).
+    Also carries FR-USER-06 goal progress: answers so far today vs the daily
+    goal, and days until the exam target date (negative = past).
     """
+    from app.models.auth import User
+
     rows = rows if rows is not None else _answer_rows(session, user_id)
     total = len(rows)
     correct = sum(1 for r in rows if r[1])
     study = sum((r[2] or 0) for r in rows)
     last = max((r[3] for r in rows), default=None)
     days = {r[3].astimezone(timezone.utc).date() for r in rows}
+    today = datetime.now(timezone.utc).date()
+    answers_today = sum(1 for r in rows if (r[3].astimezone(timezone.utc).date() if r[3] else None) == today)
+    user = session.get(User, user_id)
+    goal = getattr(user, "daily_goal_answers", None) if user else None
+    target = getattr(user, "exam_target_date", None) if user else None
     return DashboardOut(
         practiced_questions=len({r[0] for r in rows}),
         total_answered=total,
@@ -184,6 +193,9 @@ def dashboard(session: Session, *, user_id, rows=None) -> DashboardOut:
         study_time_ms=study,
         streak_days=_streak(days),
         last_active_at=last,
+        answers_today=answers_today,
+        daily_goal_answers=goal,
+        days_to_exam=(target - today).days if target is not None else None,
     )
 
 
