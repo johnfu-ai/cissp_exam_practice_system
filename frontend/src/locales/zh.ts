@@ -279,6 +279,9 @@ export const zh: typeof en = {
   questionsList: {
     searchPlaceholder: "搜索题干…",
     search: "搜索",
+    exportCsv: "导出 CSV",
+    exportJson: "导出 JSON",
+    exportFailed: "导出失败",
     anyStatus: "任意状态",
     anyType: "任意题型",
     anyDomain: "任意 domain",

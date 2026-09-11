@@ -2905,6 +2905,70 @@
         }
       }
     },
+    "/api/questions/export": {
+      "get": {
+        "tags": [
+          "questions"
+        ],
+        "summary": "Export Questions",
+        "description": "Export the question bank (FR-IMP-09).\n\nCSV mirrors the PRD §10.1 import template (round-trips into\n/api/etl/upload); JSON carries full structured records. Gated by\nquestion:import because it includes answer keys and licensed content.",
+        "operationId": "export_questions_api_questions_export_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(csv|json)$",
+              "default": "csv",
+              "title": "Format"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/questions/language-coverage": {
       "get": {
         "tags": [

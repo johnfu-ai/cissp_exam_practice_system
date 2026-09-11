@@ -562,3 +562,204 @@ def list_feedback(session: Session, *, question_id) -> list[QuestionFeedback]:
             .order_by(QuestionFeedback.created_at.desc())
         ).scalars().all()
     )
+
+
+# --- export (FR-IMP-09) ------------------------------------------------------ #
+
+# Columns of the PRD §10.1 import template, so exports round-trip into
+# `/api/etl/upload` imports unchanged.
+EXPORT_COLUMNS = [
+    "question_text", "question_text_zh", "question_type",
+    "option_a", "option_a_zh",
+    "option_b", "option_b_zh",
+    "option_c", "option_c_zh",
+    "option_d", "option_d_zh",
+    "option_e", "option_e_zh",
+    "option_f", "option_f_zh",
+    "correct_answers", "explanation", "explanation_zh",
+    "difficulty", "license_status",
+    "domain", "knowledge_points", "tags",
+    "book", "edition", "chapter", "source",
+]
+_LETTERS = ("a", "b", "c", "d", "e", "f")
+
+
+def export_questions(
+    session: Session,
+    *,
+    org_id,
+    status=None,
+) -> tuple[list[dict], list[dict]]:
+    """Export the org's live question bank (FR-IMP-09).
+
+    Returns ``(template_rows, full_records)``: the first shaped exactly like
+    the PRD §10.1 CSV import template (round-trippable), the second carrying
+    the full structured detail (ids, statuses, mappings) for JSON export.
+    Everything is batch-loaded — one query per table, no per-question N+1.
+    """
+    from app.models.question import Book, Chapter
+    from app.models.taxonomy import ExamDomain, KnowledgePoint, Tag
+
+    stmt = select(Question).where(
+        Question.organization_id == org_id, not_deleted(Question)
+    ).order_by(Question.created_at)
+    if status is not None:
+        stmt = stmt.where(Question.status == status)
+    questions = list(session.execute(stmt).scalars().all())
+    if not questions:
+        return [], []
+    qids = [q.id for q in questions]
+
+    trans_by_q: dict = {}
+    for t in session.execute(
+        select(QuestionTranslation).where(QuestionTranslation.question_id.in_(qids))
+    ).scalars().all():
+        trans_by_q.setdefault(t.question_id, {})[t.language] = t
+
+    opts_by_q: dict = {}
+    for o in session.execute(
+        select(QuestionOption)
+        .where(QuestionOption.question_id.in_(qids))
+        .order_by(QuestionOption.question_id, QuestionOption.order_index)
+    ).scalars().all():
+        opts_by_q.setdefault(o.question_id, []).append(o)
+
+    map_by_q: dict = {}
+    for m in session.execute(
+        select(QuestionMapping).where(QuestionMapping.question_id.in_(qids))
+    ).scalars().all():
+        map_by_q.setdefault(m.question_id, []).append(m)
+
+    domain_names = {
+        d.id: (d.number, d.name)
+        for d in session.execute(select(ExamDomain)).scalars().all()
+    }
+    kp_names = {
+        k.id: k.name
+        for k in session.execute(select(KnowledgePoint)).scalars().all()
+    }
+    tag_names = {
+        t.id: t.name
+        for t in session.execute(select(Tag)).scalars().all()
+    }
+    chapters = {
+        c.id: c
+        for c in session.execute(select(Chapter)).scalars().all()
+    }
+    books = {
+        b.id: b
+        for b in session.execute(select(Book)).scalars().all()
+    }
+
+    def _opt_text(trans, order_index: int) -> str:
+        for o in ((trans.options or []) if trans else []):
+            if o.get("order_index") == order_index:
+                return o.get("content") or ""
+        return ""
+
+    def _opt_explanation(trans, order_index: int) -> str:
+        for o in ((trans.options or []) if trans else []):
+            if o.get("order_index") == order_index:
+                return o.get("explanation") or ""
+        return ""
+
+    template_rows: list[dict] = []
+    full_records: list[dict] = []
+    for q in questions:
+        en = trans_by_q.get(q.id, {}).get("en")
+        zh = trans_by_q.get(q.id, {}).get("zh")
+        options = opts_by_q.get(q.id, [])
+        mappings = map_by_q.get(q.id, [])
+
+        correct = [
+            _LETTERS[o.order_index].upper()
+            for o in options
+            if o.is_correct and 0 <= o.order_index < len(_LETTERS)
+        ]
+        domain_id = next((m.domain_id for m in mappings if m.domain_id), None)
+        chapter = chapters.get(
+            next((m.chapter_id for m in mappings if m.chapter_id), None)
+        )
+        book = books.get(chapter.book_id) if chapter else None
+        kp = "; ".join(
+            kp_names[m.knowledge_point_id]
+            for m in mappings
+            if m.knowledge_point_id and m.knowledge_point_id in kp_names
+        )
+        tags = "; ".join(
+            tag_names[m.tag_id]
+            for m in mappings
+            if m.tag_id and m.tag_id in tag_names
+        )
+
+        row = {col: "" for col in EXPORT_COLUMNS}
+        row["question_text"] = en.stem if en else ""
+        row["question_text_zh"] = zh.stem if zh else ""
+        row["question_type"] = q.question_type.value if q.question_type else "single_choice"
+        for o in options:
+            if 0 <= o.order_index < len(_LETTERS):
+                letter = _LETTERS[o.order_index]
+                row[f"option_{letter}"] = _opt_text(en, o.order_index)
+                row[f"option_{letter}_zh"] = _opt_text(zh, o.order_index)
+        row["correct_answers"] = ",".join(correct)
+        row["explanation"] = (en.correct_answer_rationale if en else "") or ""
+        row["explanation_zh"] = (zh.correct_answer_rationale if zh else "") or ""
+        row["difficulty"] = str(q.difficulty) if q.difficulty is not None else ""
+        row["license_status"] = q.license_status.value if q.license_status else ""
+        row["domain"] = str(domain_names[domain_id][0]) if domain_id in domain_names else ""
+        row["knowledge_points"] = kp
+        row["tags"] = tags
+        row["book"] = book.title if book else ""
+        row["edition"] = book.edition or "" if book else ""
+        row["chapter"] = chapter.title if chapter else ""
+        row["source"] = q.source or ""
+        template_rows.append(row)
+
+        def _lang(t):
+            if t is None:
+                return None
+            return {
+                "stem": t.stem,
+                "rationale": t.correct_answer_rationale,
+                "key_points": t.key_point_summary,
+                "options": [
+                    {
+                        "order_index": o.order_index,
+                        "content": _opt_text(t, o.order_index),
+                        "explanation": _opt_explanation(t, o.order_index),
+                        "is_correct": o.is_correct,
+                    }
+                    for o in options
+                ],
+            }
+
+        full_records.append({
+            "id": str(q.id),
+            "question_type": q.question_type.value if q.question_type else None,
+            "status": q.status.value if q.status else None,
+            "difficulty": q.difficulty,
+            "available_languages": list(q.available_languages or []),
+            "source": q.source,
+            "license_status": q.license_status.value if q.license_status else None,
+            "correct_answers": correct,
+            "translations": {"en": _lang(en), "zh": _lang(zh)},
+            "mappings": {
+                "domain": domain_names.get(domain_id, (None, None))[1],
+                "chapter": chapter.title if chapter else None,
+                "book": book.title if book else None,
+                "knowledge_points": [
+                    kp_names[m.knowledge_point_id]
+                    for m in mappings
+                    if m.knowledge_point_id and m.knowledge_point_id in kp_names
+                ],
+                "tags": [
+                    tag_names[m.tag_id]
+                    for m in mappings
+                    if m.tag_id and m.tag_id in tag_names
+                ],
+            },
+            "created_at": q.created_at.isoformat() if q.created_at else None,
+            "updated_at": q.updated_at.isoformat() if q.updated_at else None,
+        })
+
+    return template_rows, full_records

@@ -282,6 +282,9 @@ export const en = {
   questionsList: {
     searchPlaceholder: "Search stem…",
     search: "Search",
+    exportCsv: "Export CSV",
+    exportJson: "Export JSON",
+    exportFailed: "Export failed",
     anyStatus: "Any status",
     anyType: "Any type",
     anyDomain: "Any domain",

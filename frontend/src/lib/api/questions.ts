@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiJson } from "@/lib/api";
+import { apiFetch, apiJson, ApiError } from "@/lib/api";
 import { qk } from "./keys";
 import type {
   QuestionDetail,
@@ -113,4 +113,24 @@ export function useCreateFeedback(id: string) {
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.questions.feedback(id) }),
   });
+}
+
+/** FR-IMP-09: download the question-bank export (csv|json) as a browser file. */
+export async function downloadQuestionExport(format: "csv" | "json"): Promise<void> {
+  const resp = await apiFetch(`/api/questions/export?format=${format}`);
+  if (!resp.ok) throw new ApiError(resp.status, await resp.text());
+  const blob = await resp.blob();
+  const disposition = resp.headers.get("content-disposition") ?? "";
+  const match = /filename="?([^";]+)"?/.exec(disposition);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = match?.[1] ?? `cissp-questions.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

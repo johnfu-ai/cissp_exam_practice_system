@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuestions } from "@/lib/api/questions";
+import { useQuestions, downloadQuestionExport } from "@/lib/api/questions";
 import { useDomains } from "@/lib/api/taxonomy";
 import { useLanguageCoverage } from "@/lib/api/admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -142,6 +142,27 @@ export function QuestionList() {
                 <SelectItem value="zh">{t("questionsList.missingZh")}</SelectItem>
               </SelectContent>
             </Select>
+
+            <div className="ms-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  downloadQuestionExport("csv").catch(() => alert(t("questionsList.exportFailed")))
+                }
+              >
+                {t("questionsList.exportCsv")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  downloadQuestionExport("json").catch(() => alert(t("questionsList.exportFailed")))
+                }
+              >
+                {t("questionsList.exportJson")}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -12,6 +12,7 @@ vi.mock("@/lib/api/etl", () => ({
   useCommitRun: () => ({ mutate: vi.fn(), isPending: false }),
   useRollbackRun: () => ({ mutate: vi.fn(), isPending: false }),
   useUploadDataset: () => ({ mutate: uploadMutate, isPending: false }),
+  usePasteMarkdown: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 // sonner toasts render into a portal; stub them so the test never depends on it.
@@ -33,9 +34,15 @@ describe("ImportWizard upload (#35)", () => {
     uploadMutate.mockReset();
   });
 
+  // The wizard also renders a Markdown-paste card with its own "Dataset
+  // name" field; the upload card renders first, so [0] is the upload input.
+  function uploadDatasetName() {
+    return screen.getAllByLabelText("Dataset name")[0];
+  }
+
   it("renders the upload card with dataset-name + file inputs and the button", () => {
     wrap(<ImportWizard />);
-    expect(screen.getByLabelText("Dataset name")).toBeInTheDocument();
+    expect(uploadDatasetName()).toBeInTheDocument();
     expect(screen.getByLabelText("CSV, XLSX, or JSON")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload & preview" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Download CSV template" })).toBeEnabled();
@@ -49,7 +56,7 @@ describe("ImportWizard upload (#35)", () => {
 
   it("uploads slug + file when both are provided", () => {
     wrap(<ImportWizard />);
-    fireEvent.change(screen.getByLabelText("Dataset name"), {
+    fireEvent.change(uploadDatasetName(), {
       target: { value: "my-batch" },
     });
     const file = new File(["question_text\n"], "q.csv", { type: "text/csv" });
@@ -64,7 +71,7 @@ describe("ImportWizard upload (#35)", () => {
 
   it("trims the dataset slug before uploading", () => {
     wrap(<ImportWizard />);
-    fireEvent.change(screen.getByLabelText("Dataset name"), {
+    fireEvent.change(uploadDatasetName(), {
       target: { value: "  spaced  " },
     });
     const file = new File(["x\n"], "q.json", { type: "application/json" });

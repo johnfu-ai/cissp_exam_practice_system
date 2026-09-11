@@ -5,6 +5,7 @@ after a successful service call; service exceptions map to HTTP statuses:
 ``NotFound`` -> 404, ``ValidationError`` -> 422, ``IllegalTransition`` -> 409.
 """
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -168,6 +169,63 @@ def list_questions(
         ],
         "total": total, "page": page, "size": size,
     }
+
+
+@router.get("/export")
+def export_questions(
+    format: str = Query("csv", pattern="^(csv|json)$"),
+    status: str | None = None,
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("question:import")),
+):
+    """Export the question bank (FR-IMP-09).
+
+    CSV mirrors the PRD §10.1 import template (round-trips into
+    /api/etl/upload); JSON carries full structured records. Gated by
+    question:import because it includes answer keys and licensed content.
+    """
+    import csv
+    import io
+    from datetime import datetime, timezone
+
+    from app.models.enums import QuestionStatus
+    from fastapi.responses import Response as RawResponse
+
+    status_enum = None
+    if status is not None:
+        try:
+            status_enum = QuestionStatus(status)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"unknown status: {status}")
+
+    template_rows, full_records = svc.export_questions(
+        session, org_id=current.org_id, status=status_enum
+    )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    if format == "json":
+        payload = json.dumps(
+            {"exported_at": datetime.now(timezone.utc).isoformat(), "items": full_records},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return RawResponse(
+            content=payload,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="cissp-questions-{stamp}.json"'
+            },
+        )
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=svc.EXPORT_COLUMNS, extrasaction="raise")
+    writer.writeheader()
+    writer.writerows(template_rows)
+    return RawResponse(
+        content=buf.getvalue().encode("utf-8-sig"),  # BOM so Excel opens UTF-8 CSV cleanly
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="cissp-questions-{stamp}.csv"'
+        },
+    )
 
 
 @router.post("", response_model=QuestionOut, status_code=200)
