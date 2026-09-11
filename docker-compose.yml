@@ -60,6 +60,11 @@ services:
 
   backend:
     build: ./backend
+    # Explicit shared tag: `migrate` builds the same image so a single
+    # `docker compose build backend` updates BOTH services (without this,
+    # backend would get the default cissp_exam_practice_system-backend tag and
+    # migrate would keep running a stale build).
+    image: cissp_exam-backend
     environment:
       APP_ENV: dev
       DATABASE_URL: postgresql+psycopg://cissp:${POSTGRES_PASSWORD:-cissp}@postgres:5432/cissp
@@ -119,7 +124,9 @@ services:
   # Tier 2 #25: on-demand Postgres backup. Run with
   #   docker compose --profile backup run --rm backup
   # or via a host crontab for daily backups (PRD §7.3). Keeps the 30 most
-  # recent gzipped dumps in the `backups` volume. See scripts/restore.sh.
+  # recent dumps in the `backups` volume: custom-format DB dumps (pg_restore-
+  # able) plus a tar of the uploaded ETL datasets (upload_data volume).
+  # Verify restores with scripts/restore-drill.sh (monthly).
   backup:
     image: postgres:16
     profiles: ["backup"]
@@ -130,14 +137,23 @@ services:
       PGDATABASE: cissp
     volumes:
       - backups:/backups
+      - upload_data:/uploads:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
         ts=$$(date -u +%Y%m%dT%H%M%SZ)
-        out=/backups/cissp-$$ts.sql.gz
-        pg_dump --format=plain | gzip > "$$out"
-        ls -1t /backups/cissp-*.sql.gz 2>/dev/null | tail -n +31 | xargs -r rm -f
+        out=/backups/cissp-$$ts.dump
+        pg_dump --format=custom --file="$$out"
+        [ -s "$$out" ] || { echo "backup FAILED: dump is empty"; exit 1; }
+        if [ -d /uploads ] && [ -n "$$(ls -A /uploads 2>/dev/null)" ]; then
+          tar -czf /backups/uploads-$$ts.tar.gz -C /uploads .
+          echo "uploads archived: /backups/uploads-$$ts.tar.gz"
+        else
+          echo "uploads dir empty; archive skipped"
+        fi
+        ls -1t /backups/cissp-*.dump 2>/dev/null | tail -n +31 | xargs -r rm -f
+        ls -1t /backups/uploads-*.tar.gz 2>/dev/null | tail -n +31 | xargs -r rm -f
         echo "backup written: $$out"
     depends_on:
       postgres:

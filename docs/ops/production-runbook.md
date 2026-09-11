@@ -67,13 +67,22 @@ UIs bind to `127.0.0.1` on the host (SSH-tunnel access, never public): Prometheu
 ## Backups
 
 ```bash
-# daily (host crontab)
-0 2 * * * cd /path/to/repo && bash scripts/backup.sh
-# restore drill
-bash scripts/restore.sh /path/to/backups/cissp_YYYYMMDD.sql.gz
+# daily (host crontab): custom-format DB dump + tar of the upload_data volume,
+# keeps the 30 most recent of each, FAILS LOUDLY on an empty dump.
+7 2 * * * cd /path/to/repo && bash scripts/backup.sh >> /var/log/cissp-backup.log 2>&1
+
+# monthly restore drill (first of the month): restores the latest backup into
+# a THROWAWAY database, verifies core tables + users + alembic version, drops
+# it, and never touches the live DB.
+17 3 1 * * cd /path/to/repo && bash scripts/restore-drill.sh >> /var/log/cissp-drill.log 2>&1
+
+# real restore (DESTRUCTIVE — see the warnings inside the script):
+bash scripts/restore.sh cissp-YYYYMMDDTHHMMSSZ.dump
 ```
 
-Verify restore on a staging DB before relying on it. Redis AOF survives restarts; still treat Redis as ephemeral for tokens (users re-login after full wipe).
+Recovery objectives with this setup: **RPO ≈ 24h** (daily crontab — tighten by running `backup.sh` more often), **RTO ≈ minutes** (`docker compose stop backend migrate` → drop/recreate DB → `restore.sh` → `docker compose run --rm migrate` → start). A backup is only real after a restore has been exercised — that is what the drill cron proves monthly. Uploaded ETL datasets (`upload_data` volume) are tarred alongside each dump; restore them with `tar -xzf uploads-*.tar.gz -C <upload_data mount>`.
+
+Redis AOF survives restarts; still treat Redis as ephemeral for tokens (users re-login after full wipe).
 
 ## Password reset email
 
