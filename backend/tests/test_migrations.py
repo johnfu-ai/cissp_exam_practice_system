@@ -88,6 +88,28 @@ def test_no_autogenerate_drift(mig_engine):
     assert diff == [], f"Migration drift detected: {diff}"
 
 
+def test_stem_trgm_index_exists(mig_engine):
+    """Perf item #5: the pg_trgm GIN index backing the admin stem search
+    (``stem ILIKE '%term%'``) must exist after upgrade — a future migration
+    must not silently drop it, and operators upgrading an old DB get it."""
+    with mig_engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT indexname FROM pg_indexes "
+                "WHERE tablename = 'question_translations'"
+            )
+        ).scalars().all()
+    assert "ix_question_translations_stem_trgm" in rows, (
+        f"trgm index missing; question_translations indexes: {rows}"
+    )
+    # The extension itself must be installed (the index depends on it).
+    with mig_engine.connect() as conn:
+        ext = conn.execute(
+            text("SELECT extname FROM pg_extension WHERE extname = 'pg_trgm'")
+        ).scalar()
+    assert ext == "pg_trgm"
+
+
 def test_drift_guard_actually_detects_a_change(mig_engine):
     """Test-of-the-test (#22): prove the no-autogenerate-drift guard surfaces a
     real divergence. The real guard runs ``compare_metadata(ctx, Base.metadata)``;

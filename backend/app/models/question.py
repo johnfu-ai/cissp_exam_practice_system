@@ -134,6 +134,15 @@ class QuestionTranslation(UUIDPrimaryKey, TimestampMixin, Base):
     __tablename__ = "question_translations"
     __table_args__ = (
         UniqueConstraint("question_id", "language", name="uq_question_translations_qid_lang"),
+        # Trigram GIN index so the admin stem search (`stem ILIKE '%term%'`,
+        # services/question.py::list_questions) is index-backed instead of a
+        # leading-wildcard sequential scan.
+        Index(
+            "ix_question_translations_stem_trgm",
+            "stem",
+            postgresql_using="gin",
+            postgresql_ops={"stem": "gin_trgm_ops"},
+        ),
     )
 
     question_id: Mapped[uuid.UUID] = mapped_column(

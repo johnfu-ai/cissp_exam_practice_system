@@ -55,6 +55,41 @@ def _drop_create_db() -> None:
         conn.execute(text(f"DROP DATABASE IF EXISTS {TEST_DB_NAME}"))
         conn.execute(text(f"CREATE DATABASE {TEST_DB_NAME}"))
     admin.dispose()
+    _ensure_pg_trgm()
+
+
+def _ensure_pg_trgm(eng=None) -> None:
+    """create_all builds the schema from model metadata, which includes the
+    trigram GIN index on question_translations.stem — that index requires the
+    pg_trgm extension (in production the a9b8c7d6e5f4 migration installs it).
+    Raises a clear, actionable error when the role cannot install it, because
+    every subsequent create_all would fail with a confusing operator-class
+    error otherwise."""
+    owns = eng is None
+    if owns:
+        eng = create_engine(TEST_DATABASE_URL, isolation_level="AUTOCOMMIT")
+    try:
+        with eng.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            # CREATE EXTENSION is transactional — commit or the pooled
+            # connection's implicit rollback undoes it.
+            conn.commit()
+    except OperationalError as exc:
+        with eng.connect() as conn:
+            installed = conn.execute(
+                text("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")
+            ).scalar()
+        if installed:
+            return  # already present; CREATE failed on a harmless notice path
+        raise RuntimeError(
+            "The test schema needs the pg_trgm extension (the trigram index on "
+            "question_translations.stem), and the test DB role cannot install "
+            "it. Ask the operator to run once: "
+            "psql -U postgres -c \"CREATE EXTENSION pg_trgm;\" on the test DB."
+        ) from exc
+    finally:
+        if owns:
+            eng.dispose()
 
 
 def _drop_db() -> None:
@@ -68,6 +103,7 @@ def _reset_schema(eng) -> None:
     """The no-CREATEDB fallback: drop and recreate every table on an existing
     (pre-created) test DB so each session starts from a clean schema. The test
     DB must already exist; if it doesn't, raise a clear, actionable error."""
+    _ensure_pg_trgm(eng)
     try:
         Base.metadata.drop_all(eng)
     except OperationalError as exc:
