@@ -1,5 +1,11 @@
 import os
 
+# Must be set BEFORE any app import instantiates Settings: the whole test
+# session hammers /api/* from a single testclient "IP", which would trip the
+# general rate limiter (#8). Dedicated middleware tests construct their own
+# app with an explicit limiter instead.
+os.environ.setdefault("API_RATE_LIMIT_PER_MINUTE", "0")
+
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError

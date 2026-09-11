@@ -49,8 +49,10 @@ def auth_client(db_session, session_with_roles):
     sent: list[dict] = []
 
     class FakeMailer:
-        def send(self, *, to, subject, body_text):
-            sent.append({"to": to, "subject": subject, "body": body_text})
+        def send(self, *, to, subject, body_text, body_html=None):
+            sent.append(
+                {"to": to, "subject": subject, "body": body_text, "html": body_html}
+            )
 
     app.dependency_overrides[get_session] = lambda: (yield db_session)
     app.dependency_overrides[get_refresh_store] = lambda: refresh_store

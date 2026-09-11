@@ -252,11 +252,28 @@ def reset_password_request(
         try:
             mailer.send(
                 to=body.email.lower().strip(),
-                subject="Password reset",
+                subject="CISSP Compass — password reset / 密码重置",
                 body_text=(
                     "Use this link to reset your password (expires soon):\n\n"
                     f"{link}\n\n"
-                    "If you did not request this, ignore this email.\n"
+                    "If you did not request this, ignore this email.\n\n"
+                    "使用以下链接重置密码（即将过期）。如果这不是您发起的请求，请忽略本邮件。\n"
+                ),
+                body_html=(
+                    "<div style=\"font-family:-apple-system,'Segoe UI',Roboto,"
+                    "sans-serif;max-width:480px;margin:0 auto;color:#1d1d1f\">"
+                    "<h2 style=\"color:#007AFF\">CISSP Compass</h2>"
+                    "<p>Use the button below to reset your password. "
+                    "The link expires soon.</p>"
+                    "<p><a href=\"" + link + "\" style=\"display:inline-block;"
+                    "background:#007AFF;color:#fff;padding:10px 18px;"
+                    "border-radius:8px;text-decoration:none\">Reset password</a></p>"
+                    "<p style=\"color:#6e6e73;font-size:13px\">"
+                    "If you did not request this, ignore this email.</p>"
+                    "<hr style=\"border:none;border-top:1px solid #e5e5ea\">"
+                    "<p>点击上方按钮重置密码，链接即将过期。"
+                    "如果这不是您发起的请求，请忽略本邮件。</p>"
+                    "</div>"
                 ),
             )
         except Exception:

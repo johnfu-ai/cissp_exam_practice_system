@@ -13,11 +13,25 @@ logger = logging.getLogger(__name__)
 
 
 class Mailer(Protocol):
-    def send(self, *, to: str, subject: str, body_text: str) -> None: ...
+    def send(
+        self,
+        *,
+        to: str,
+        subject: str,
+        body_text: str,
+        body_html: str | None = None,
+    ) -> None: ...
 
 
 class NullMailer:
-    def send(self, *, to: str, subject: str, body_text: str) -> None:
+    def send(
+        self,
+        *,
+        to: str,
+        subject: str,
+        body_text: str,
+        body_html: str | None = None,
+    ) -> None:
         logger.info("mail skipped (no smtp_host): to=%s subject=%s", to, subject)
 
 
@@ -39,12 +53,24 @@ class SmtpMailer:
         self._from = mail_from
         self._use_tls = use_tls
 
-    def send(self, *, to: str, subject: str, body_text: str) -> None:
+    def send(
+        self,
+        *,
+        to: str,
+        subject: str,
+        body_text: str,
+        body_html: str | None = None,
+    ) -> None:
         msg = EmailMessage()
         msg["Subject"] = subject
         msg["From"] = self._from
         msg["To"] = to
         msg.set_content(body_text)
+        if body_html:
+            # multipart/alternative: text part above, rendered HTML part added
+            # last so HTML-preferring clients show it and everyone else falls
+            # back to the plain text.
+            msg.add_alternative(body_html, subtype="html")
         with smtplib.SMTP(self._host, self._port, timeout=15) as smtp:
             if self._use_tls:
                 smtp.starttls()

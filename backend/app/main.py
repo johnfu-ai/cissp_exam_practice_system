@@ -127,6 +127,11 @@ def create_app() -> FastAPI:
     )
     # Per-request observability: request ID + metrics + access log (Tier 2 #26).
     app.add_middleware(RequestContextMiddleware)
+    # General per-IP /api/* rate limit (#8). Added BEFORE SecurityHeaders so
+    # the outermost header middleware still stamps the 429 responses.
+    from app.core.rate_limit import ApiRateLimitMiddleware
+
+    app.add_middleware(ApiRateLimitMiddleware)
     # Added last -> outermost, so security headers land on every response
     # (including CORS preflight).
     app.add_middleware(SecurityHeadersMiddleware)

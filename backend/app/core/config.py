@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     log_level: str = "info"
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.0
+    # General per-IP rate limit across /api/* (edge hardening #8). Generous
+    # abuse backstop, NOT capacity management; 0 disables (tests do).
+    api_rate_limit_per_minute: int = 600
     # Password-reset email (empty smtp_host = NullMailer / no send).
     smtp_host: str = ""
     smtp_port: int = 587

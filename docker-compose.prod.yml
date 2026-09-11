@@ -55,6 +55,14 @@ services:
       FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-172.16.0.0/12}"
       # Reset emails link back to the public origin through Caddy.
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://${CADDY_DOMAIN}}
+      # SMTP passthrough so password-reset mail actually works in prod
+      # (empty SMTP_HOST = NullMailer = no self-serve reset — see runbook).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
       # Tier 2 #26: Sentry (no-op without SENTRY_DSN).
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}

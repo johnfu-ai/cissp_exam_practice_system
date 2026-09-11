@@ -86,7 +86,13 @@ Redis AOF survives restarts; still treat Redis as ephemeral for tokens (users re
 
 ## Password reset email
 
-When `SMTP_HOST` is set, `POST /api/auth/reset-password/request` emails `{APP_PUBLIC_URL}/forgot-password?token=…`. Production never returns the token in the JSON body. Without SMTP, self-serve reset is unavailable — use admin `POST /api/admin/users/{id}/reset-password`.
+When `SMTP_HOST` is set (prod compose passes `SMTP_HOST/PORT/USER/PASSWORD/FROM/USE_TLS` through), `POST /api/auth/reset-password/request` emails a bilingual text+HTML `{APP_PUBLIC_URL}/forgot-password?token=…` message. Production never returns the token in the JSON body. Without SMTP, self-serve reset is unavailable — use admin `POST /api/admin/users/{id}/reset-password`.
+
+## Rate limits
+
+- **Auth endpoints** (register/login/reset): 30 req/min/IP (see `login_rate_limit`) — credential-stuffing backstop.
+- **All other `/api/*`**: general per-IP limit, default **600 req/min** (`API_RATE_LIMIT_PER_MINUTE`, 0 disables). Generous abuse backstop for scrapers/runaway clients — not capacity management; a classroom behind NAT stays well under it. Exceeding returns 429 + `Retry-After: 60`. Health endpoints and CORS preflights are exempt.
+- 429s are logged (structured warning with client IP) and counted in `/metrics` like any other response.
 
 Dev default admin password after seed: `Adminadmin1` (override with `SEED_ADMIN_PASSWORD`).
 
