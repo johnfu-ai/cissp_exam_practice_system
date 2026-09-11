@@ -821,3 +821,101 @@ def language_coverage(session, *, current) -> dict:
         "neither": neither,
         "total": en_only + zh_only + both + neither,
     }
+
+
+# ---- FR-ANA-08: class cohort report ---- #
+
+def class_report(session: Session, *, current, class_id, window_days: int = 30) -> "ClassReportOut":
+    """Per-student learning report for a class over the last ``window_days``.
+
+    Aggregates practice + exam answers (one UNION ALL round-trip, in-Python
+    rollup consistent with the analytics service) and counts distinct exam
+    sessions answered in. ``window_days`` ∈ {30, 90} like report_summary.
+    """
+    from app.schemas.admin import ClassReportMemberOut, ClassReportOut
+
+    if window_days not in _REPORT_WINDOWS:
+        raise ValidationError("window_days must be 30 or 90")
+    cls = _scoped_class(session, current, class_id)
+    members = list(
+        session.execute(
+            select(User)
+            .join(ClassMembership, ClassMembership.user_id == User.id)
+            .where(ClassMembership.class_id == cls.id)
+            .order_by(User.email)
+        ).scalars().all()
+    )
+    member_ids = [u.id for u in members]
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+    rows: list = []
+    if member_ids:
+        pa = select(
+            PracticeAnswer.user_id,
+            PracticeAnswer.is_correct,
+            PracticeAnswer.time_spent_ms,
+            PracticeAnswer.answered_at,
+        ).where(
+            PracticeAnswer.user_id.in_(member_ids),
+            PracticeAnswer.answered_at >= cutoff,
+        )
+        ea = select(
+            ExamAnswer.user_id,
+            ExamAnswer.is_correct,
+            ExamAnswer.time_spent_ms,
+            ExamAnswer.answered_at,
+        ).where(
+            ExamAnswer.user_id.in_(member_ids),
+            ExamAnswer.answered_at >= cutoff,
+        )
+        rows = list(session.execute(pa.union_all(ea)).all())
+
+    # Per-user rollup: counts, time, last active, distinct exam sessions
+    # (session ids come from the exam answers' rows via a second cheap query
+    # below to keep the UNION shape stable).
+    stats: dict = {
+        u.id: {"answered": 0, "correct": 0, "time_ms": 0, "last": None}
+        for u in members
+    }
+    for uid, is_correct, tms, answered_at in rows:
+        s = stats.get(uid)
+        if s is None:
+            continue
+        s["answered"] += 1
+        if is_correct:
+            s["correct"] += 1
+        s["time_ms"] += tms or 0
+        if answered_at is not None and (s["last"] is None or answered_at > s["last"]):
+            s["last"] = answered_at
+    exam_sessions: dict = {u.id: set() for u in members}
+    if member_ids:
+        for uid, sid in session.execute(
+            select(ExamAnswer.user_id, ExamAnswer.session_id).where(
+                ExamAnswer.user_id.in_(member_ids),
+                ExamAnswer.answered_at >= cutoff,
+            )
+        ).all():
+            exam_sessions.get(uid, set()).add(sid)
+
+    return ClassReportOut(
+        class_id=cls.id,
+        class_name=cls.name,
+        window_days=window_days,
+        members=[
+            ClassReportMemberOut(
+                user_id=u.id,
+                email=u.email,
+                display_name=u.display_name,
+                answered=stats[u.id]["answered"],
+                correct=stats[u.id]["correct"],
+                accuracy=(
+                    round(stats[u.id]["correct"] / stats[u.id]["answered"], 4)
+                    if stats[u.id]["answered"]
+                    else 0.0
+                ),
+                study_time_ms=stats[u.id]["time_ms"],
+                exam_sessions=len(exam_sessions.get(u.id, set())),
+                last_active_at=stats[u.id]["last"],
+            )
+            for u in members
+        ],
+    )

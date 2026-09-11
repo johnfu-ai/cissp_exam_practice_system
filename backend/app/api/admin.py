@@ -34,6 +34,7 @@ from app.schemas.admin import (
     ClassIn,
     ClassOut,
     ClassMemberOut,
+    ClassReportOut,
     FeedbackOut,
     FeedbackResolveIn,
     LowAccuracyQuestionOut,
@@ -239,6 +240,22 @@ def list_class_members(
 ):
     try:
         return svc.list_class_members(session, current=current, class_id=class_id)
+    except svc.AdminError as e:
+        raise _exc(e)
+
+
+@router.get("/classes/{class_id}/report", response_model=ClassReportOut)
+def class_report(
+    class_id: uuid.UUID,
+    window_days: int = Query(30),
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("admin:view_reports")),
+):
+    """FR-ANA-08: per-student learning report for a class (30/90-day window)."""
+    try:
+        return svc.class_report(
+            session, current=current, class_id=class_id, window_days=window_days
+        )
     except svc.AdminError as e:
         raise _exc(e)
 

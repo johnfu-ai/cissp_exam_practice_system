@@ -4982,6 +4982,65 @@
         }
       }
     },
+    "/api/admin/classes/{class_id}/report": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Class Report",
+        "description": "FR-ANA-08: per-student learning report for a class (30/90-day window).",
+        "operationId": "class_report_api_admin_classes__class_id__report_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "class_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Class Id"
+            }
+          },
+          {
+            "name": "window_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Window Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassReportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/classes/{class_id}/members/{user_id}": {
       "delete": {
         "tags": [
@@ -6572,6 +6631,105 @@
           "member_count"
         ],
         "title": "ClassOut"
+      },
+      "ClassReportMemberOut": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "answered": {
+            "type": "integer",
+            "title": "Answered"
+          },
+          "correct": {
+            "type": "integer",
+            "title": "Correct"
+          },
+          "accuracy": {
+            "type": "number",
+            "title": "Accuracy"
+          },
+          "study_time_ms": {
+            "type": "integer",
+            "title": "Study Time Ms"
+          },
+          "exam_sessions": {
+            "type": "integer",
+            "title": "Exam Sessions"
+          },
+          "last_active_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Active At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "email",
+          "answered",
+          "correct",
+          "accuracy",
+          "study_time_ms",
+          "exam_sessions"
+        ],
+        "title": "ClassReportMemberOut"
+      },
+      "ClassReportOut": {
+        "properties": {
+          "class_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Class Id"
+          },
+          "class_name": {
+            "type": "string",
+            "title": "Class Name"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ClassReportMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "class_id",
+          "class_name",
+          "window_days",
+          "members"
+        ],
+        "title": "ClassReportOut"
       },
       "CreateRunIn": {
         "properties": {

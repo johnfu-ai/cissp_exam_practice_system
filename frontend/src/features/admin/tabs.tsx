@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   useAdminUsers, useSetUserStatus, useSetUserRoles, useAdminResetPassword,
   useClasses, useCreateClass, useDeleteClass, useClassMembers,
+  useClassReport,
   useAddClassMember, useRemoveClassMember,
   useCatParams, useCreateCatParams, useSetCurrentCatParams,
   useQualityDashboard, useQualityFeedback, useResolveFeedback, useLowAccuracy,
@@ -24,7 +25,7 @@ import { enumLabel } from "@/features/shared/enum-label";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
-import { fmtDate, fmtPct } from "@/features/shared/format";
+import { fmtDate, fmtPct, fmtDurationMinutes } from "@/features/shared/format";
 import type { AdminClass, AdminUser, RoleName } from "@/lib/api/types";
 
 const ROLES: RoleName[] = ["individual_learner", "instructor", "content_editor", "org_admin", "system_admin"];
@@ -196,9 +197,12 @@ export function ClassesTab() {
 function ClassCard({ cls, onDelete }: { cls: AdminClass; onDelete: () => void }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [windowDays, setWindowDays] = useState<30 | 90>(30);
   const [memberEmail, setMemberEmail] = useState("");
   const [adding, setAdding] = useState(false);
   const members = useClassMembers(cls.id, open);
+  const report = useClassReport(cls.id, windowDays, reportOpen);
   const addMember = useAddClassMember();
   const removeMember = useRemoveClassMember();
 
@@ -240,7 +244,8 @@ function ClassCard({ cls, onDelete }: { cls: AdminClass; onDelete: () => void })
           <p className="text-xs text-muted-foreground">{t("adminTab.nMembers", { n: cls.member_count })}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setOpen((o) => !o)}>{open ? t("adminTab.hide") : t("adminTab.members")}</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setReportOpen((o) => !o); if (open) setOpen(false); }}>{reportOpen ? t("adminTab.hide") : t("adminTab.report")}</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setOpen((o) => !o); if (reportOpen) setReportOpen(false); }}>{open ? t("adminTab.hide") : t("adminTab.members")}</Button>
           <Button variant="ghost" size="sm" className="text-destructive" onClick={onDelete}>{t("adminTab.delete")}</Button>
         </div>
       </CardHeader>
@@ -285,6 +290,57 @@ function ClassCard({ cls, onDelete }: { cls: AdminClass; onDelete: () => void })
               </Button>
             </div>
           ))}
+        </CardContent>
+      )}
+      {reportOpen && (
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            {[30, 90].map((w) => (
+              <Button
+                key={w}
+                size="sm"
+                variant={windowDays === w ? "default" : "outline"}
+                onClick={() => setWindowDays(w as 30 | 90)}
+              >
+                {t("adminTab.reportWindow", { days: w })}
+              </Button>
+            ))}
+          </div>
+          {report.isLoading && <p className="text-sm text-muted-foreground">{t("adminTab.loading")}</p>}
+          {report.isError && <ErrorState message={t("adminTab.loadFailed")} onRetry={() => report.refetch()} />}
+          {report.data && report.data.members.length === 0 && (
+            <p className="text-sm text-muted-foreground">{t("adminTab.noMembers")}</p>
+          )}
+          {report.data && report.data.members.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="px-2 py-1 font-medium">{t("adminTab.colMember")}</th>
+                    <th className="px-2 py-1 font-medium">{t("adminTab.colAnswered")}</th>
+                    <th className="px-2 py-1 font-medium">{t("adminTab.colAccuracy")}</th>
+                    <th className="px-2 py-1 font-medium">{t("adminTab.colStudyTime")}</th>
+                    <th className="px-2 py-1 font-medium">{t("adminTab.colExams")}</th>
+                    <th className="px-2 py-1 font-medium">{t("adminTab.colLastActive")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.data.members.map((m) => (
+                    <tr key={m.user_id} className="border-b last:border-0">
+                      <td className="px-2 py-1">{m.email}{m.display_name ? ` · ${m.display_name}` : ""}</td>
+                      <td className="px-2 py-1">{m.answered}</td>
+                      <td className="px-2 py-1">{Math.round(m.accuracy * 100)}%</td>
+                      <td className="px-2 py-1">{fmtDurationMinutes(m.study_time_ms)}</td>
+                      <td className="px-2 py-1">{m.exam_sessions}</td>
+                      <td className="px-2 py-1">
+                        {m.last_active_at ? new Date(m.last_active_at).toLocaleDateString() : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       )}
     </Card>

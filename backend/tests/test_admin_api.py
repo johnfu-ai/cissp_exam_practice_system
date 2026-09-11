@@ -39,6 +39,11 @@ from app.models.enums import (
     TextFormat,
     UserStatus,
 )
+from app.models.practice import (
+    PracticeAnswer,
+    PracticeSession,
+    PracticeSessionStatus,
+)
 from app.models.question import (
     Question,
     QuestionFeedback,
@@ -571,3 +576,74 @@ def test_admin_reset_password_404_cross_org(client):
     r = c.post(f"/api/admin/users/{target.id}/reset-password",
                headers=h_orgadmin, json={})
     assert r.status_code == 404
+
+
+# ---- FR-ANA-08: class cohort report ---- #
+
+def _member_with_answers(db, admin, email, n_correct, n_total):
+    """Create an org member + practice answers (n_correct of n_total, just now)."""
+    learner_role = db.query(Role).filter_by(name=RoleName.individual_learner).one()
+    u = User(email=email, status=UserStatus.active,
+             default_organization_id=admin.default_organization_id)
+    db.add(u); db.flush()
+    db.add(OrganizationMembership(user_id=u.id,
+          organization_id=admin.default_organization_id, role_id=learner_role.id))
+    ps = PracticeSession(organization_id=admin.default_organization_id, user_id=u.id,
+                         status=PracticeSessionStatus.in_progress)
+    db.add(ps); db.flush()
+    for i in range(n_total):
+        q = Question(organization_id=admin.default_organization_id,
+                     question_type=QuestionType.single_choice,
+                     status=QuestionStatus.published,
+                     available_languages=["en"], difficulty=3)
+        db.add(q); db.flush()
+        db.add(PracticeAnswer(
+            session_id=ps.id,
+            user_id=u.id, question_id=q.id,
+            is_correct=(i < n_correct), time_spent_ms=10_000,
+            answered_at=dt.datetime.now(dt.timezone.utc),
+            question_snapshot={}, options_snapshot=[],
+            user_answer={"selected": [0]},
+        ))
+    db.flush()
+    return u
+
+
+def test_class_report(client):
+    c, store, db = client
+    h, admin = _headers(db, store, email="cr-admin@x.com", role=RoleName.system_admin)
+    cid = c.post("/api/admin/classes", json={"name": "Sec R"}, headers=h).json()["id"]
+    good = _member_with_answers(db, admin, "good@x.com", n_correct=8, n_total=10)
+    idle = _member_with_answers(db, admin, "idle@x.com", n_correct=0, n_total=0)
+    for uid in (good.id, idle.id):
+        assert c.post(f"/api/admin/classes/{cid}/members",
+                      json={"user_id": str(uid)}, headers=h).status_code == 204
+
+    r = c.get(f"/api/admin/classes/{cid}/report", headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["class_name"] == "Sec R"
+    assert body["window_days"] == 30
+    by_email = {m["email"]: m for m in body["members"]}
+    assert by_email["good@x.com"]["answered"] == 10
+    assert by_email["good@x.com"]["correct"] == 8
+    assert abs(by_email["good@x.com"]["accuracy"] - 0.8) < 1e-9
+    assert by_email["good@x.com"]["study_time_ms"] == 100_000
+    assert by_email["good@x.com"]["last_active_at"] is not None
+    assert by_email["idle@x.com"]["answered"] == 0
+    assert by_email["idle@x.com"]["accuracy"] == 0.0
+
+
+def test_class_report_window_validation_and_permission(client):
+    c, store, db = client
+    h, _ = _headers(db, store, email="cr2-admin@x.com", role=RoleName.system_admin)
+    cid = c.post("/api/admin/classes", json={"name": "Sec R2"}, headers=h).json()["id"]
+    assert c.get(f"/api/admin/classes/{cid}/report?window_days=7",
+                 headers=h).status_code == 422
+    assert c.get(f"/api/admin/classes/{cid}/report?window_days=90",
+                 headers=h).status_code == 200
+    # Learners (no admin:view_reports) must not read cohort reports.
+    h_learner, _ = _headers(db, store, email="cr-learner@x.com",
+                            role=RoleName.individual_learner)
+    assert c.get(f"/api/admin/classes/{cid}/report",
+                 headers=h_learner).status_code == 403

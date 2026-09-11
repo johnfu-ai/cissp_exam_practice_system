@@ -24,6 +24,8 @@ export const qk = {
     users: (q: Record<string, unknown>) => ["admin", "users", q] as const,
     classes: ["admin", "classes"] as const,
     classMembers: (id: string) => ["admin", "classes", id, "members"] as const,
+    classReport: (id: string, windowDays: number) =>
+      ["admin", "classes", id, "report", windowDays] as const,
     catParams: ["admin", "cat-params"] as const,
     qualityDashboard: ["admin", "quality", "dashboard"] as const,
     feedback: (q: Record<string, unknown>) => ["admin", "quality", "feedback", q] as const,

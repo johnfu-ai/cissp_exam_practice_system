@@ -7,6 +7,7 @@ import type {
   AdminUser,
   AdminClass,
   ClassMember,
+  ClassReport,
   CatParamsVersion,
   CatParamsInput,
   QualityDashboard,
@@ -77,6 +78,18 @@ export function useClassMembers(id: string, enabled = true) {
   return useQuery({
     queryKey: qk.admin.classMembers(id),
     queryFn: () => apiJson<ClassMember[]>(`/api/admin/classes/${id}/members`),
+    enabled,
+  });
+}
+
+/** FR-ANA-08: per-student cohort report (30/90-day window). */
+export function useClassReport(id: string, windowDays: 30 | 90, enabled = true) {
+  return useQuery({
+    queryKey: qk.admin.classReport(id, windowDays),
+    queryFn: () =>
+      apiJson<ClassReport>(
+        `/api/admin/classes/${id}/report?window_days=${windowDays}`,
+      ),
     enabled,
   });
 }

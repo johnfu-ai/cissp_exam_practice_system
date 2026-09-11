@@ -157,3 +157,24 @@ class ReportSummaryOut(BaseModel):
     used_question_count: int
     question_bank_usage_pct: float
     top_error_questions: list[LowAccuracyQuestionOut]
+
+
+# ---- FR-ANA-08: class cohort report ---- #
+
+class ClassReportMemberOut(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    display_name: str | None = None
+    answered: int
+    correct: int
+    accuracy: float
+    study_time_ms: int
+    exam_sessions: int
+    last_active_at: datetime | None = None
+
+
+class ClassReportOut(BaseModel):
+    class_id: uuid.UUID
+    class_name: str
+    window_days: int
+    members: list[ClassReportMemberOut]

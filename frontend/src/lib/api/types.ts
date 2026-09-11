@@ -611,6 +611,25 @@ export interface ClassMember {
   display_name: string | null;
 }
 
+export interface ClassReportMember {
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  answered: number;
+  correct: number;
+  accuracy: number;
+  study_time_ms: number;
+  exam_sessions: number;
+  last_active_at: string | null;
+}
+
+export interface ClassReport {
+  class_id: string;
+  class_name: string;
+  window_days: number;
+  members: ClassReportMember[];
+}
+
 export interface CatParamsVersion {
   id: string;
   version_label: string;

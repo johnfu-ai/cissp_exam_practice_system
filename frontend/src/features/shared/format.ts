@@ -11,3 +11,11 @@ export function fmtDate(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return "—";
   return d.toISOString().slice(0, 10);
 }
+
+export function fmtDurationMinutes(ms: number): string {
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return rem ? `${hours}h ${rem}m` : `${hours}h`;
+}
