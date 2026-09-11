@@ -250,8 +250,9 @@ def test_personal_report_answer_rows_fetched_once(db_session, engine):
 
     with _count_selects(engine) as c:
         analytics.personal_report(session=db_session, user_id=actor.id, blueprint=bp)
-    # _answer_rows runs exactly once -> one practice_answers SELECT + one
-    # exam_answers SELECT. The old code re-fetched ~7x (14 answer SELECTs).
-    assert c["answer"] == 2, f"expected 2 answer-table SELECTs, got {c['answer']}"
+    # _answer_rows runs exactly once as a single UNION ALL statement (one
+    # SELECT touching both practice_answers and exam_answers — the 2026-08-10
+    # SQL union change). The old code re-fetched ~7x (14 answer SELECTs).
+    assert c["answer"] == 1, f"expected 1 combined answer-table SELECT, got {c['answer']}"
     # overall bounded (old code was ~30 SELECTs).
     assert c["n"] <= 20, f"expected <=20 SELECTs, got {c['n']}"
