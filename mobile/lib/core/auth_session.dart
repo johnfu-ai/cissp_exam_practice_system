@@ -2,6 +2,7 @@ import 'package:cissp_api/cissp_api.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/api_provider.dart';
 import 'package:cissp_compass/core/errors.dart';
 import 'package:cissp_compass/core/refresh_gate.dart';
@@ -94,7 +95,8 @@ class AuthSession extends StateNotifier<AuthState> {
         state = state.copyWith(hydrated: true, clearUser: true, clearAccess: true);
         return;
       }
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'auth_session:hydrate');
       await _tokens.clearRefreshToken();
       state = state.copyWith(hydrated: true, clearUser: true, clearAccess: true);
       return;
@@ -133,8 +135,9 @@ class AuthSession extends StateNotifier<AuthState> {
     final access = state.accessToken;
     try {
       await _api.logout(refreshToken: refresh, accessToken: access);
-    } catch (_) {
+    } catch (e, s) {
       // Best-effort server logout.
+      logError(e, s, 'auth_session:logout');
     }
     await _tokens.clearRefreshToken();
     state = state.copyWith(clearUser: true, clearAccess: true);
@@ -164,7 +167,8 @@ class AuthSession extends StateNotifier<AuthState> {
       await _tokens.clearRefreshToken();
       state = state.copyWith(clearUser: true, clearAccess: true);
       return null;
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'auth_session:refresh');
       await _tokens.clearRefreshToken();
       state = state.copyWith(clearUser: true, clearAccess: true);
       return null;

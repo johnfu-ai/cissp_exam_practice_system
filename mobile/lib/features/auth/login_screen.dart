@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cissp_compass/l10n/app_localizations.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/errors.dart';
 import 'package:cissp_compass/core/providers.dart';
 import 'package:cissp_compass/design/legal_footer.dart';
@@ -52,7 +53,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           _error = e.message;
         }
       });
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'login:submit');
       setState(() => _error = AppLocalizations.of(context)!.authNetworkError);
     } finally {
       if (mounted) setState(() => _busy = false);

@@ -1,33 +1,46 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cissp_compass/app.dart';
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/providers.dart';
 import 'package:cissp_compass/core/storage.dart';
 import 'package:cissp_compass/locale_controller.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Route framework + uncaught platform errors into the crash reporter
+  // (default: debug log; attach Sentry/Crashlytics before runApp — see
+  // core/crash_reporting.dart).
+  CrashReporter.installGlobalHandlers();
 
-  final shared = await SharedPreferences.getInstance();
-  final prefs = SharedPrefsStore(shared);
-  final cachedLang = await prefs.getInterfaceLanguage() ?? 'en';
+  await runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  final container = ProviderContainer(
-    overrides: [
-      prefsStoreProvider.overrideWithValue(prefs),
-      initialLocaleProvider.overrideWithValue(cachedLang),
-    ],
-  );
+    final shared = await SharedPreferences.getInstance();
+    final prefs = SharedPrefsStore(shared);
+    final cachedLang = await prefs.getInterfaceLanguage() ?? 'en';
 
-  // Restore session before first frame so redirect sees hydrated auth.
-  await container.read(authSessionProvider.notifier).hydrate();
+    final container = ProviderContainer(
+      overrides: [
+        prefsStoreProvider.overrideWithValue(prefs),
+        initialLocaleProvider.overrideWithValue(cachedLang),
+      ],
+    );
 
-  runApp(
-    UncontrolledProviderScope(
-      container: container,
-      child: const CisspApp(),
-    ),
-  );
+    // Restore session before first frame so redirect sees hydrated auth.
+    await container.read(authSessionProvider.notifier).hydrate();
+
+    runApp(
+      UncontrolledProviderScope(
+        container: container,
+        child: const CisspApp(),
+      ),
+    );
+  }, (error, stackTrace) {
+    CrashReporter.current.recordError(error, stackTrace,
+        context: 'zone', fatal: true);
+  });
 }

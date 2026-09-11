@@ -62,6 +62,16 @@ Notes:
 - Display name is unified to "CISSP Compass" across Android (`android:label`), iOS (`CFBundleDisplayName`/`CFBundleName`), and the Windows window title.
 - The launch splash uses the app canvas color (#F7F7FA) + launcher icon (Android `launch_background.xml`, iOS `LaunchScreen.storyboard`) to avoid a white flash.
 
+## Crash & error reporting
+
+`lib/core/crash_reporting.dart` is the single seam for error visibility:
+
+- `main()` installs global handlers (`FlutterError.onError`, `PlatformDispatcher.onError`) and wraps `runApp` in `runZonedGuarded` — no framework or zone error vanishes silently anymore.
+- Silent `catch (_) {}` blocks were replaced by `logError(e, s, 'context')` calls (behavior unchanged: degrade + surface — but failures are recorded).
+- The default `LogCrashReporter` writes to the debug log. To ship real crash reporting (Sentry/Crashlytics), implement `CrashReporter` and call `CrashReporter.attach(...)` before `runApp` — no call sites change.
+
+Known dependency risk: `flutter_markdown` is discontinued (final release pinned; see pubspec note) — evaluate maintained successors before the next content-rendering change.
+
 ## Dart API client drift
 
 `packages/cissp_api` is hand-maintained against `openapi/openapi.json`. After backend OpenAPI changes:

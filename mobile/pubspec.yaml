@@ -17,6 +17,11 @@ dependencies:
   dio: ^5.8.0+1
   flutter_secure_storage: ^9.2.4
   shared_preferences: ^2.5.3
+  # NOTE: flutter_markdown 0.7.7+1 is the FINAL release — the Flutter team
+  # archived the package (it renders every question stem/explanation here).
+  # It still works; before the next content-rendering change, evaluate the
+  # maintained successors (e.g. markdown_widget / gpt_markdown) or vendor the
+  # needed subset. Tracked as a known dependency risk.
   flutter_markdown: ^0.7.7+1
   intl: ^0.20.2
   collection: ^1.19.1

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cissp_compass/l10n/app_localizations.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/providers.dart';
 import 'package:cissp_compass/design/compass.dart';
 import 'package:cissp_compass/design/legal_footer.dart';
@@ -36,16 +37,24 @@ final _analyticsProvider =
   ReviewRecommendation? rec;
   try {
     trend = await api.trend(windowDays: window);
-  } catch (_) {}
+  } catch (e, s) {
+    logError(e, s, 'analytics:trend');
+  }
   try {
     weak = await api.weakAreas();
-  } catch (_) {}
+  } catch (e, s) {
+    logError(e, s, 'analytics:weakAreas');
+  }
   try {
     errors = await api.errorTypes();
-  } catch (_) {}
+  } catch (e, s) {
+    logError(e, s, 'analytics:errorTypes');
+  }
   try {
     rec = await api.recommendation();
-  } catch (_) {}
+  } catch (e, s) {
+    logError(e, s, 'analytics:recommendation');
+  }
   return _AnalyticsBundle(
     domains: domains,
     trend: trend,

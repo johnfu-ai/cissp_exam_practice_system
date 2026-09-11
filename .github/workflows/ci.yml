@@ -134,7 +134,7 @@ jobs:
       - name: Widget tests
         working-directory: mobile
         continue-on-error: false
-        run: flutter test test/bilingual_text_test.dart test/login_dev_gate_test.dart test/shell_breakpoint_test.dart
+        run: flutter test test/bilingual_text_test.dart test/crash_reporting_test.dart test/login_dev_gate_test.dart test/shell_breakpoint_test.dart
       # theme AA constants are covered by dart test (test/theme_contrast_test.dart)
   mobile-android:
     name: Mobile (Android APK)

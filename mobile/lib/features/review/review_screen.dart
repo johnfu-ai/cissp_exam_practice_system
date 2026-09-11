@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cissp_compass/l10n/app_localizations.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/providers.dart';
 import 'package:cissp_compass/core/session_tracker.dart';
 import 'package:cissp_compass/design/legal_footer.dart';
@@ -39,7 +40,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
           SnackBar(content: Text(l10n.reviewCouldNotStart)),
         );
       }
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'review:startSession');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(l10n.reviewCouldNotStart)),

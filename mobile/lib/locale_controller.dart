@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/providers.dart';
 
 /// Drives [MaterialApp.locale] from cached prefs + optional server sync.
@@ -16,7 +17,9 @@ class LocaleController extends StateNotifier<Locale> {
     await _prefs.setInterfaceLanguage(next.languageCode);
     try {
       await _prefs.syncInterfaceLanguage(next.languageCode);
-    } catch (_) {}
+    } catch (e, s) {
+      logError(e, s, 'locale_controller:syncInterfaceLanguage');
+    }
   }
 }
 

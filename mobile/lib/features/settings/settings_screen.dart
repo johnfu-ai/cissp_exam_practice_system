@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cissp_compass/l10n/app_localizations.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/errors.dart';
 import 'package:cissp_compass/core/providers.dart';
 import 'package:cissp_compass/design/legal_footer.dart';
@@ -54,8 +55,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               copyUser(user, languageMode: mode),
             );
       }
-    } catch (_) {
+    } catch (e, s) {
       // Local prefs already updated; server sync best-effort.
+      logError(e, s, 'settings:syncPreferences');
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -92,7 +94,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ? l10n.settingsPasswordIncorrect
             : err.message;
       });
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'settings:changePassword');
       setState(() => _pwdErr = l10n.commonErrorTitle);
     } finally {
       if (mounted) setState(() => _pwdBusy = false);

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cissp_compass/l10n/app_localizations.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/errors.dart';
 import 'package:cissp_compass/core/providers.dart';
 import 'package:cissp_compass/core/session_tracker.dart';
@@ -54,7 +55,9 @@ class _ExamHomeScreenState extends ConsumerState<ExamHomeScreen> {
     try {
       final hist = await api.examHistory();
       if (mounted) setState(() => _history = hist);
-    } catch (_) {}
+    } catch (e, s) {
+      logError(e, s, 'exam:history');
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -76,7 +79,9 @@ class _ExamHomeScreenState extends ConsumerState<ExamHomeScreen> {
           ids = untrackSessionId(ids, id);
           changed = true;
         }
-      } catch (_) {}
+      } catch (e, s) {
+        logError(e, s, 'exam:refreshResume');
+      }
     }
     if (changed) await prefs.setExamSessionIds(ids);
     if (mounted) setState(() => _resume = active);
@@ -104,7 +109,8 @@ class _ExamHomeScreenState extends ConsumerState<ExamHomeScreen> {
         'language_mode': _languageMode,
       });
       await _trackAndGo(session.id);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'exam:create');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(l10n.examCouldNotStart)),
@@ -297,7 +303,8 @@ class _ExamRunnerScreenState extends ConsumerState<ExamRunnerScreen> {
         return;
       }
       if (mounted) setState(() => _error = err.message);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'exam:loadSession');
       if (mounted) {
         setState(() => _error = AppLocalizations.of(context)!.commonErrorTitle);
       }
@@ -445,7 +452,8 @@ class _FixedExamBodyState extends ConsumerState<_FixedExamBody> {
         return;
       }
       if (mounted) setState(() => _loadingQ = false);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'exam:next');
       if (mounted) setState(() => _loadingQ = false);
     }
   }
@@ -507,7 +515,8 @@ class _FixedExamBodyState extends ConsumerState<_FixedExamBody> {
         );
         setState(() => _busy = false);
       }
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'exam:upsert');
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -767,7 +776,8 @@ class _CatExamBodyState extends ConsumerState<_CatExamBody> {
         return;
       }
       if (mounted) setState(() => _loading = false);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'exam:finish');
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -965,7 +975,8 @@ class _ExamReportScreenState extends ConsumerState<ExamReportScreen> {
     try {
       final r = await ref.read(cisspApiProvider).examReport(widget.sessionId);
       if (mounted) setState(() => _report = r);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'exam:report');
       if (mounted) {
         setState(() => _error = AppLocalizations.of(context)!.commonErrorTitle);
       }
@@ -1135,14 +1146,17 @@ class _ExamReviewScreenState extends ConsumerState<ExamReviewScreen> {
         final session = await api.getExam(widget.sessionId);
         final cfg = session.config['language_mode'];
         if (cfg is String) mode = cfg;
-      } catch (_) {}
+      } catch (e, s) {
+        logError(e, s, 'exam:reviewMode');
+      }
       if (mounted) {
         setState(() {
           _items = items;
           _mode = mode;
         });
       }
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'exam:review');
       if (mounted) {
         setState(() => _error = AppLocalizations.of(context)!.commonErrorTitle);
       }

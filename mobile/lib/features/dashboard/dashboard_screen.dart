@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cissp_compass/l10n/app_localizations.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/providers.dart';
 import 'package:cissp_compass/design/compass.dart';
 import 'package:cissp_compass/design/legal_footer.dart';
@@ -16,11 +17,15 @@ final _dashboardProvider = FutureProvider.autoDispose<_DashData>((ref) async {
   List<DomainMastery> domains = const [];
   try {
     domains = await api.domainMastery();
-  } catch (_) {}
+  } catch (e, s) {
+    logError(e, s, 'dashboard:domainMastery');
+  }
   ReviewRecommendation? rec;
   try {
     rec = await api.recommendation();
-  } catch (_) {}
+  } catch (e, s) {
+    logError(e, s, 'dashboard:recommendation');
+  }
   return _DashData(dash: dash, domains: domains, rec: rec);
 });
 

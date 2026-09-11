@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cissp_compass/l10n/app_localizations.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:cissp_compass/core/crash_reporting.dart';
 import 'package:cissp_compass/core/errors.dart';
 import 'package:cissp_compass/core/providers.dart';
 import 'package:cissp_compass/core/session_tracker.dart';
@@ -82,10 +83,14 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
       List<TagOut> tags = const [];
       try {
         books = await api.books();
-      } catch (_) {}
+      } catch (e, s) {
+        logError(e, s, 'practice:bootstrap:books');
+      }
       try {
         tags = await api.tags();
-      } catch (_) {}
+      } catch (e, s) {
+        logError(e, s, 'practice:bootstrap:tags');
+      }
       if (mounted) {
         setState(() {
           _domains = domains;
@@ -93,7 +98,9 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
           _tags = tags;
         });
       }
-    } catch (_) {}
+    } catch (e, s) {
+      logError(e, s, 'practice:bootstrap:domains');
+    }
 
     await _refreshResume(api, prefs);
     if (mounted) setState(() => _loadingMeta = false);
@@ -109,7 +116,8 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
     try {
       final chapters = await ref.read(cisspApiProvider).chapters(bookId);
       if (mounted) setState(() => _chapters = chapters);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'practice:chapters');
       if (mounted) setState(() => _chapters = const []);
     }
   }
@@ -132,7 +140,9 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
           ids = untrackSessionId(ids, id);
           changed = true;
         }
-      } catch (_) {}
+      } catch (e, s) {
+        logError(e, s, 'practice:refreshResume');
+      }
     }
     if (changed) await prefs.setPracticeSessionIds(ids);
     if (mounted) setState(() => _resume = active);
@@ -168,7 +178,8 @@ class _PracticeHomeScreenState extends ConsumerState<PracticeHomeScreen> {
     try {
       final session = await api.createPractice(body);
       await _trackAndGo(session.id);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'practice:create');
       if (mounted) {
         setState(() {
           _error = l10n.practiceCouldNotStart;
@@ -508,7 +519,8 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
         return;
       }
       if (mounted) setState(() => _error = err.message);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'practice:loadQuestion');
       if (mounted) setState(() => _error = l10n.commonErrorTitle);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -600,7 +612,8 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
     try {
       final related = await api.relatedQuestions(questionId);
       if (mounted) setState(() => _related = related);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'practice:related');
       if (mounted) setState(() => _related = const []);
     } finally {
       if (mounted) setState(() => _relatedLoading = false);
@@ -620,7 +633,8 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
         if (mounted) {
           context.go('/practice/sessions/${widget.sessionId}/done');
         }
-      } catch (_) {
+      } catch (e, s) {
+        logError(e, s, 'practice:finish');
         _snack(l10n.commonErrorTitle);
       } finally {
         if (mounted) setState(() => _busy = false);
@@ -634,7 +648,8 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
         session,
         _position + 1,
       );
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'practice:next');
       _snack(l10n.commonErrorTitle);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -688,7 +703,8 @@ class _PracticeRunnerScreenState extends ConsumerState<PracticeRunnerScreen> {
         }
         if (body.containsKey('error_type')) _errorType = state.errorType;
       });
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'practice:questionState');
       _snack(AppLocalizations.of(context)!.commonErrorTitle);
     }
   }
@@ -1080,7 +1096,8 @@ class _PracticeDoneScreenState extends ConsumerState<PracticeDoneScreen> {
           .read(cisspApiProvider)
           .practiceSummary(widget.sessionId);
       if (mounted) setState(() => _summary = s);
-    } catch (_) {
+    } catch (e, s) {
+      logError(e, s, 'practice:summary');
       if (mounted) {
         setState(() => _error = AppLocalizations.of(context)!.commonErrorTitle);
       }
