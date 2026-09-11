@@ -80,6 +80,9 @@ def run_preview(session: Session, org_id: uuid.UUID, dataset: EtlDataset, initia
         "by_language": summary.by_language,
         "errors": all_errors,
         "conflicts": summary.conflicts,
+        # FR-IMP-06 (lite): trigram near-duplicate warnings for would-create
+        # stems (non-blocking; exact dedup is `duplicates` above).
+        "near_duplicates": summary.near_duplicates,
         "content_hash": content_hash,
     }
     run.preview_summary = preview_summary

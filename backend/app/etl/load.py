@@ -52,6 +52,9 @@ class DryRunSummary:
     conflicts: list[dict] = field(default_factory=list)
     by_type: dict = field(default_factory=dict)
     by_language: dict = field(default_factory=dict)
+    # FR-IMP-06 (lite): pg_trgm near-duplicate WARNINGS — non-blocking, surfaced
+    # in the preview so the operator can reword/skip before commit.
+    near_duplicates: list[dict] = field(default_factory=list)
 
 
 class _Resolvers:
@@ -469,6 +472,42 @@ def apply_load(session, org_id, dataset_slug, import_job_id, cleaned_list) -> Lo
     return result
 
 
+NEAR_DUPLICATE_SIMILARITY = 0.7
+NEAR_DUPLICATE_WARN_CAP = 50
+
+
+def _near_duplicate_hits(session, org_id, stem_en: str, limit: int = 3):
+    """Index-backed (pg_trgm GIN from migration a9b8c7d6e5f4) near-duplicate
+    screening: existing live EN stems with trigram similarity >= threshold.
+    Uses the % operator so the GIN index does the work; similarity_threshold
+    is SET LOCAL so it reverts with the transaction."""
+    from sqlalchemy import text as _text
+
+    # SET LOCAL cannot take a bind parameter; the threshold is a module
+    # constant (not user input) so inline it. SET LOCAL reverts at txn end.
+    session.execute(
+        _text(f"SET LOCAL pg_trgm.similarity_threshold = {NEAR_DUPLICATE_SIMILARITY}")
+    )
+    return list(
+        session.execute(
+            _text(
+                """
+                SELECT qt.question_id, qt.stem, similarity(qt.stem, :stem) AS sim
+                FROM question_translations qt
+                JOIN questions q ON q.id = qt.question_id
+                WHERE qt.language = 'en'
+                  AND q.organization_id = :org_id
+                  AND q.deleted_at IS NULL
+                  AND qt.stem % :stem
+                ORDER BY sim DESC
+                LIMIT :limit
+                """
+            ),
+            {"stem": stem_en, "org_id": org_id, "limit": limit},
+        ).all()
+    )
+
+
 def apply_dry_run(session, org_id, dataset_slug, cleaned_list) -> DryRunSummary:
     summary = DryRunSummary()
     # Track stem hashes that would land in the DB during this batch so a later
@@ -500,6 +539,22 @@ def apply_dry_run(session, org_id, dataset_slug, cleaned_list) -> DryRunSummary:
                 })
                 continue
             summary.would_create += 1
+            # Near-duplicate screening (FR-IMP-06 lite): warn — never block —
+            # when a to-be-created EN stem is trigram-similar to an existing one.
+            # Exact stem-hash conflicts were already handled above.
+            if (
+                cleaned.stem_en
+                and len(summary.near_duplicates) < NEAR_DUPLICATE_WARN_CAP
+            ):
+                for qid, existing_stem, sim in _near_duplicate_hits(
+                    session, org_id, cleaned.stem_en
+                ):
+                    summary.near_duplicates.append({
+                        "external_id": cleaned.external_id,
+                        "similar_to_question_id": str(qid),
+                        "similarity": round(float(sim), 3),
+                        "stem_excerpt": existing_stem[:80],
+                    })
         else:
             q = session.get(Question, existing.question_id)
             options = _current_options(session, q.id)

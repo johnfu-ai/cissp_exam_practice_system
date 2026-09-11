@@ -420,6 +420,12 @@ export interface EtlPreviewSummary {
   unchanged: number;
   duplicates?: number;
   conflicts?: { external_id: string; reason: string }[];
+  near_duplicates?: {
+    external_id: string;
+    similar_to_question_id: string;
+    similarity: number;
+    stem_excerpt: string;
+  }[];
   by_type: Record<string, number>;
   by_language: Record<string, number>;
   errors: EtlPreviewError[];

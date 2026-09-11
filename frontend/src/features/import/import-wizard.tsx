@@ -391,6 +391,39 @@ export function ImportWizard() {
                 </div>
               </div>
 
+              {(summary.near_duplicates?.length ?? 0) > 0 && (
+                <div>
+                  <h4 className="mb-2 text-sm font-medium">
+                    {t("importWiz.nearDuplicates", { n: summary.near_duplicates!.length })}
+                  </h4>
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    {t("importWiz.nearDuplicatesDesc")}
+                  </p>
+                  <div className="max-h-48 overflow-y-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-muted/60">
+                        <tr className="text-left text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">{t("importWiz.colExternalId")}</th>
+                          <th className="px-3 py-2 font-medium">{t("importWiz.colSimilarity")}</th>
+                          <th className="px-3 py-2 font-medium">{t("importWiz.colSimilarTo")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.near_duplicates!.map((w, i) => (
+                          <tr key={`${w.external_id}-${i}`} className="border-t">
+                            <td className="px-3 py-2 font-mono text-xs">{w.external_id}</td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {Math.round(w.similarity * 100)}%
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">{w.stem_excerpt}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {(summary.conflicts?.length ?? 0) > 0 && (
                 <div>
                   <h4 className="mb-2 text-sm font-medium">

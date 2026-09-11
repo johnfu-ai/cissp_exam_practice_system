@@ -613,3 +613,41 @@ def test_dry_run_and_load_agree_on_duplicate_counts(db_session):
     assert summary.duplicates == result.duplicates == 1
     assert [c["external_id"] for c in summary.conflicts] == ["c2"]
     assert [c["external_id"] for c in result.conflicts] == ["c2"]
+
+
+def test_dry_run_flags_near_duplicate_stems(db_session):
+    """FR-IMP-06 (lite): a would-create stem that is trigram-similar to an
+    existing live question is flagged as a NEAR-duplicate warning — reported,
+    never blocking (exact dedup is the `duplicates` counter)."""
+    org_id = _seed_org_and_domain(db_session)
+    apply_load(db_session, org_id, "osg10", None, [
+        _cleaned_bilingual(external_id="base",
+                           stem_en="What is the primary goal of a disaster recovery plan?"),
+    ])
+    # Same question lightly reworded — different stem hash, high similarity.
+    summary = apply_dry_run(db_session, org_id, "other-ds", [
+        _cleaned_bilingual(
+            external_id="near1",
+            stem_en="What is the primary goal of the disaster recovery plan?",
+        ),
+        _cleaned_bilingual(
+            external_id="unrelated",
+            stem_en="Which cipher provides authenticated encryption for VPNs?",
+        ),
+    ])
+    assert summary.would_create == 2  # screening never blocks
+    flagged = [w for w in summary.near_duplicates if w["external_id"] == "near1"]
+    assert flagged, "reworded stem should be flagged as a near duplicate"
+    assert flagged[0]["similarity"] >= 0.7
+    assert flagged[0]["stem_excerpt"]
+    assert all(
+        w["external_id"] != "unrelated" for w in summary.near_duplicates
+    ), "unrelated stem must not be flagged"
+
+
+def test_dry_run_near_duplicate_warning_survives_empty_bank(db_session):
+    """With no existing questions the screening adds nothing and still works."""
+    org_id = _seed_org_and_domain(db_session)
+    summary = apply_dry_run(db_session, org_id, "osg10", [_cleaned_bilingual()])
+    assert summary.would_create == 1
+    assert summary.near_duplicates == []
