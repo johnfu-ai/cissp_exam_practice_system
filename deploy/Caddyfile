@@ -1,0 +1,34 @@
+# Production edge (audit idea #3): automatic-HTTPS reverse proxy for the
+# whole stack, so `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+# is a complete, TLS-secured deployment with no external proxy to arrange.
+#
+# Single public origin, path-routed:
+#   https://$CADDY_DOMAIN/api/* | /live | /ready | /health  -> backend:8000
+#   everything else                                          -> frontend:3000 (admin portal)
+#
+# /metrics is deliberately NOT routed: backend+DB+Redis host ports are
+# unpublished in prod, so metrics stay private to the compose network
+# (scrape them via `docker compose exec`, an SSH tunnel, or the monitoring
+# profile's in-network Prometheus — see docker-compose.monitoring.yml).
+#
+# Real domain -> automatic Let's Encrypt certificates (ports 80/443 must be
+# reachable). CADDY_DOMAIN=localhost -> self-signed internal cert for local
+# prod-profile testing (curl -k). CADDY_DOMAIN=":80" -> plain HTTP fallback
+# for air-gapped/LAN use (do not use for a real deployment).
+{
+	# Optional: uncomment to receive ACME expiry notices.
+	# email ops@example.com
+}
+
+{$CADDY_DOMAIN} {
+	encode zstd gzip
+
+	@backend path /api/* /live /ready /health
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

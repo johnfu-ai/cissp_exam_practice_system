@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.requests import Request
 
 from app.api.admin import router as admin_router
@@ -131,9 +130,14 @@ def create_app() -> FastAPI:
     # Added last -> outermost, so security headers land on every response
     # (including CORS preflight).
     app.add_middleware(SecurityHeadersMiddleware)
-    # In non-dev environments, force HTTPS (audit C-3). Dev keeps plain HTTP.
-    if settings.app_env.lower() not in {"development", "dev", "test"}:
-        app.add_middleware(HTTPSRedirectMiddleware)
+    # HTTP->HTTPS forcing is owned by the edge, NOT the app (audit C-3):
+    # the prod stack fronts everything with Caddy (automatic HTTPS redirect),
+    # and uvicorn runs --proxy-headers so scheme detection through the proxy
+    # is correct (SecurityHeadersMiddleware still sends HSTS for TLS
+    # requests, and the compose healthcheck probes plain HTTP from loopback
+    # without being 307-redirected into a TLS handshake that can never
+    # succeed). If you deploy without the in-stack proxy, force HTTPS at
+    # your load balancer.
 
     @app.get("/live")
     def live() -> dict:

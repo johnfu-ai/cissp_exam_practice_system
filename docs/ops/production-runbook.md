@@ -14,25 +14,32 @@ Operational guide for a non-local deployment. Companion to `docker-compose.yml` 
 
 ## Deploy (compose)
 
+One command produces a complete, TLS-secured deployment — Caddy terminates TLS with automatic Let's Encrypt and path-routes a single public origin (`/api/*` + health → backend, everything else → admin frontend):
+
 ```bash
 export JWT_SECRET='…≥32 chars, not change-me…'
 export POSTGRES_PASSWORD='…'
-export CORS_ORIGINS='https://admin.example.com'
+export CADDY_DOMAIN='example.com'          # DNS A record → this host, 80+443 reachable
+export CORS_ORIGINS='https://example.com'
 # Optional but recommended:
 export SMTP_HOST=smtp.example.com SMTP_PORT=587 SMTP_USER=… SMTP_PASSWORD=…
-export SMTP_FROM='noreply@example.com' APP_PUBLIC_URL='https://admin.example.com'
+export SMTP_FROM='noreply@example.com'     # APP_PUBLIC_URL defaults to https://$CADDY_DOMAIN
 export SENTRY_DSN='…'   # empty = disabled
 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-curl -sf https://api.example.com/live
-curl -sf https://api.example.com/ready
+curl -sf https://example.com/live
+curl -sf https://example.com/ready
 ```
 
-Required prod env (compose will fail without them): `JWT_SECRET`, `POSTGRES_PASSWORD`, `CORS_ORIGINS`.
+Required prod env (compose will fail without them): `JWT_SECRET`, `POSTGRES_PASSWORD`, `CADDY_DOMAIN`, `CORS_ORIGINS`.
+
+Local prod-profile test (self-signed cert, use `curl -k`): `CADDY_DOMAIN=localhost JWT_SECRET=… POSTGRES_PASSWORD=… CORS_ORIGINS=https://localhost docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
+
+The Flutter learner app's production API address is the same public origin — build release clients with `--dart-define=API_BASE_URL=https://example.com --dart-define=APP_ENV=production` (the release pipeline bakes in the repository variable `PROD_API_BASE_URL`, which should be set to this origin). Same-origin routing also means browser admin sessions need no CORS relaxation.
 
 ## TLS
 
-Terminate TLS at a reverse proxy (Caddy / nginx / cloud LB) in front of the published frontend and backend. Backend enables `HTTPSRedirectMiddleware` when `APP_ENV` is not a dev value. Prefer proxy → container over publishing DB/Redis ports (prod compose already clears host ports).
+Terminated at the in-stack Caddy service (`deploy/Caddyfile`): automatic HTTPS for real domains, self-signed internal cert for `CADDY_DOMAIN=localhost`, plain-HTTP `:80` fallback for air-gapped use. Backend enables `HTTPSRedirectMiddleware` when `APP_ENV` is not a dev value; uvicorn runs `--proxy-headers` with `FORWARDED_ALLOW_IPS` defaulting to the Docker bridge ranges so the backend sees the real client scheme through the proxy (no redirect loop) and logs real client IPs. Only Caddy's 80/443 are published — backend (including the unauthenticated `/metrics`), DB, and Redis are private to the compose network. To replace Caddy with your own LB, remove the `caddy` service and republish backend/frontend ports.
 
 ## Health & metrics
 

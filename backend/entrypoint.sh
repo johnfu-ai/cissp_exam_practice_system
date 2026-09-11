@@ -22,4 +22,6 @@ exec uvicorn app.main:app \
   --host 0.0.0.0 \
   --port 8000 \
   --workers "${UVICORN_WORKERS:-1}" \
-  --timeout-graceful-shutdown "${UVICORN_GRACEFUL_SHUTDOWN_SECONDS:-30}"
+  --timeout-graceful-shutdown "${UVICORN_GRACEFUL_SHUTDOWN_SECONDS:-30}" \
+  --proxy-headers \
+  --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-127.0.0.1}"

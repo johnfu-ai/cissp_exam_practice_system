@@ -5,14 +5,22 @@
 #   JWT_SECRET         >= 32 chars, NOT the default (the config validator
 #                       refuses to start otherwise - audit P0 #2).
 #   POSTGRES_PASSWORD  strong DB password.
-#   CORS_ORIGINS       comma-separated allowed origins.
+#   CADDY_DOMAIN       public domain for automatic HTTPS (e.g. example.com).
+#   CORS_ORIGINS       comma-separated allowed origins (https://<CADDY_DOMAIN>).
 # Optional:
 #   UVICORN_WORKERS    (default 2)  SENTRY_DSN  SENTRY_TRACES_SAMPLE_RATE
+#   APP_PUBLIC_URL     (defaults to https://<CADDY_DOMAIN>; used in reset emails)
 #
 # What this override changes vs dev:
 #   * APP_ENV=production -> HTTPS redirect + strong-secret enforcement.
-#   * DB + Redis are NOT published to the host (internal to the compose net).
-#   * Backend runs N workers with multiprocess Prometheus metrics.
+#   * DB + Redis + backend + frontend are NOT published to the host — the
+#     ONLY public ports are Caddy's 80/443 (this also keeps the unauthenticated
+#     /metrics endpoint private to the compose network).
+#   * Caddy terminates TLS (automatic Let's Encrypt for real domains) and
+#     path-routes one public origin: /api/* + health -> backend, else frontend.
+#   * Backend runs N workers with multiprocess Prometheus metrics and trusts
+#     X-Forwarded-* from the compose network (docker bridge ranges) so the
+#     HTTPS redirect sees the real client scheme instead of redirect-looping.
 #   * Resource limits (mem/cpu) on backend + frontend.
 #   * restart: always (daemon-restart resilient).
 services:
@@ -32,6 +40,7 @@ services:
     restart: "no"
 
   backend:
+    ports: !reset []
     environment:
       APP_ENV: production
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required for production}
@@ -40,6 +49,12 @@ services:
       # Tier 2 #24: N workers; Redis-backed stores are shared across workers.
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
       UVICORN_GRACEFUL_SHUTDOWN_SECONDS: "30"
+      # Behind Caddy: uvicorn --proxy-headers trusts X-Forwarded-Proto/For
+      # from these ranges (docker bridge networks) so scheme detection and
+      # client IPs are correct; everything else still presents raw HTTP.
+      FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-172.16.0.0/12}"
+      # Reset emails link back to the public origin through Caddy.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://${CADDY_DOMAIN}}
       # Tier 2 #26: Sentry (no-op without SENTRY_DSN).
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
@@ -60,9 +75,36 @@ services:
     restart: always
 
   frontend:
+    ports: !reset []
     deploy:
       resources:
         limits:
           memory: 512m
           cpus: "1.0"
     restart: always
+
+  caddy:
+    # Public edge: automatic HTTPS (Let's Encrypt for real domains,
+    # self-signed internal cert for CADDY_DOMAIN=localhost) and single-origin
+    # path routing — see deploy/Caddyfile. The only published ports in prod.
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:?CADDY_DOMAIN is required (e.g. example.com; localhost for a self-signed local test)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: always
+
+volumes:
+  caddy_data:
+  caddy_config:
+
