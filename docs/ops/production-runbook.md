@@ -60,11 +60,22 @@ Dev default admin password after seed: `Adminadmin1` (override with `SEED_ADMIN_
 
 ## Flutter store signing
 
-**Android:** copy `mobile/android/key.properties.example` → `mobile/android/key.properties`, point `storeFile` at an upload keystore. Without it, release builds fall back to debug signing. Optional CI secrets for a signed job: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`, `ANDROID_KEY_ALIAS` (decode keystore in the job, write `key.properties`, `flutter build appbundle --release`). Default CI still builds **debug** APKs.
+**Android:** copy `mobile/android/key.properties.example` → `mobile/android/key.properties`, point `storeFile` at an upload keystore. Without it, local release builds fall back to debug signing (local-dev convenience only — see below for the release pipeline, which enforces signing).
 
 **iOS:** CI uses `--no-codesign`. App Store / TestFlight needs Apple Developer certs + provisioning profiles in the Mac runner (not stored in this repo).
 
-**Windows:** MSIX / Store signing is a follow-up; current CI builds an unsigned debug Windows binary.
+**Windows:** MSIX / Store signing is a follow-up; the release pipeline ships an unsigned release zip.
+
+## Release pipeline
+
+Push a `v*` tag (e.g. `git tag v1.3.1 && git push origin v1.3.1`) to run `.github/workflows/release.yml`, which produces versioned, installable artifacts and registry images:
+
+- **Signed Android APK + AAB** — requires the repository secrets `ANDROID_KEYSTORE_BASE64` (base64 of the upload keystore), `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. The job **fails with a clear error** when they are missing instead of shipping a debug-signed build.
+- **Windows x64 release zip** (unsigned) and an **unsigned iOS release compile** (proves release builds; store upload still needs Apple credentials on the runner).
+- **Server images pushed to ghcr.io** — `ghcr.io/<repo>/backend:<version>` and `ghcr.io/<repo>/frontend:<version>` (+ `:latest`), built with `NEXT_PUBLIC_API_URL` baked in. Compose can then reference these image tags instead of building locally, which is what makes "roll back by redeploying the previous image tag" real.
+- A **GitHub release** with the artifacts and generated notes. All app builds pass `--dart-define=APP_ENV=production` (dev conveniences compiled out) and `--build-name/--build-number` from the tag + run number.
+
+Prerequisite: set the repository **variable** `PROD_API_BASE_URL` (Settings → Secrets and variables → Actions → Variables) to the production API origin; the workflow fails fast when it is unset. A `workflow_dispatch` dry run (version input) exercises all build jobs without creating the GitHub release.
 
 ## Incident basics
 

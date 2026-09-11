@@ -10,6 +10,10 @@ WORKDIR /app
 # Registry is configurable via build arg (default: official npm registry). The
 # previous hardcoded registry.npmmirror.com is removed.
 ARG NPM_REGISTRY=https://registry.npmjs.org
+# Public API origin, inlined into client bundles at build time (empty default
+# falls through src/lib/config.ts's env chain at runtime for server-side calls).
+ARG NEXT_PUBLIC_API_URL=
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY package.json package-lock.json* ./
 RUN npm config set registry "${NPM_REGISTRY}" \
  && npm config set fetch-retries 5 \
