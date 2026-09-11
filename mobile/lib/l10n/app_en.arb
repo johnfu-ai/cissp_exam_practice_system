@@ -45,7 +45,7 @@
   "authPasswordPlaceholder": "Enter your password",
   "authNoAccount": "No account?",
   "authHaveAccount": "Already have an account?",
-  "authDevLogin": "Dev login (admin / admin)",
+  "authDevLogin": "Dev login (admin)",
   "authTooManyAttempts": "Too many attempts. Try later.",
   "authInvalidCredentials": "Invalid credentials.",
   "authEmailExists": "Email already registered.",

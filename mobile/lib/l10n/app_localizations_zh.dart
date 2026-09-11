@@ -119,7 +119,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get authHaveAccount => '已有账号？';
 
   @override
-  String get authDevLogin => '开发登录（admin / admin）';
+  String get authDevLogin => '开发登录（admin）';
 
   @override
   String get authTooManyAttempts => '尝试次数过多，请稍后再试。';

@@ -317,7 +317,7 @@ abstract class AppLocalizations {
   /// No description provided for @authDevLogin.
   ///
   /// In en, this message translates to:
-  /// **'Dev login (admin / admin)'**
+  /// **'Dev login (admin)'**
   String get authDevLogin;
 
   /// No description provided for @authTooManyAttempts.

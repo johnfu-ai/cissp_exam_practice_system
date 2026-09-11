@@ -119,7 +119,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get authHaveAccount => 'Already have an account?';
 
   @override
-  String get authDevLogin => 'Dev login (admin / admin)';
+  String get authDevLogin => 'Dev login (admin)';
 
   @override
   String get authTooManyAttempts => 'Too many attempts. Try later.';

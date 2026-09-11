@@ -122,12 +122,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: Text(_busy ? l10n.authLoggingIn : l10n.authLogin),
                 ),
                 const SizedBox(height: 8),
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _submit(email: 'admin@example.com', password: 'Adminadmin1'),
-                  child: Text(l10n.authDevLogin),
-                ),
+                // Dev-only shortcut against the dev seed admin; compiled out
+                // of production builds (APP_ENV=production).
+                if (ref.watch(devConveniencesProvider))
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => _submit(email: 'admin@example.com', password: 'Adminadmin1'),
+                    child: Text(l10n.authDevLogin),
+                  ),
                 const SizedBox(height: 8),
                 Wrap(
                   alignment: WrapAlignment.center,

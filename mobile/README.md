@@ -41,6 +41,27 @@ flutter test --update-goldens
 
 Copy `android/key.properties.example` → `android/key.properties` and point `storeFile` at your upload keystore. Without it, release builds fall back to debug signing. See `docs/ops/production-runbook.md`.
 
+## Release builds
+
+Distribution builds must pass `APP_ENV=production` — this compiles out dev conveniences (the dev-login shortcut and the raw password-reset token display) and is required for correct behavior on devices:
+
+```bash
+flutter build apk --release \
+  --dart-define=API_BASE_URL=https://api.example.com \
+  --dart-define=APP_ENV=production
+
+flutter build appbundle --release \
+  --dart-define=API_BASE_URL=https://api.example.com \
+  --dart-define=APP_ENV=production
+```
+
+Notes:
+
+- `APP_ENV` defaults to `development`; anything other than exactly `production` (case-insensitive) keeps dev affordances, so a typo can never silently ship them.
+- The `INTERNET` permission lives in the main `AndroidManifest.xml` (not just the debug/profile overlays) — release builds need it to reach the backend.
+- Display name is unified to "CISSP Compass" across Android (`android:label`), iOS (`CFBundleDisplayName`/`CFBundleName`), and the Windows window title.
+- The launch splash uses the app canvas color (#F7F7FA) + launcher icon (Android `launch_background.xml`, iOS `LaunchScreen.storyboard`) to avoid a white flash.
+
 ## Dart API client drift
 
 `packages/cissp_api` is hand-maintained against `openapi/openapi.json`. After backend OpenAPI changes:

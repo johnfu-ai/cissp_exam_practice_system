@@ -120,6 +120,7 @@ jobs:
         # run them separately so a WSL WebSocket flake doesn't hide unit failures.
         run: >
           dart test -p vm
+          test/app_config_test.dart
           test/auth_refresh_test.dart
           test/cat_language_toggle_test.dart
           test/cat_no_advance_integration_test.dart
@@ -133,7 +134,7 @@ jobs:
       - name: Widget tests
         working-directory: mobile
         continue-on-error: false
-        run: flutter test test/bilingual_text_test.dart test/shell_breakpoint_test.dart
+        run: flutter test test/bilingual_text_test.dart test/login_dev_gate_test.dart test/shell_breakpoint_test.dart
       # theme AA constants are covered by dart test (test/theme_contrast_test.dart)
   mobile-android:
     name: Mobile (Android APK)

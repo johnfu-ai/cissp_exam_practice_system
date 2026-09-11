@@ -3,7 +3,14 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:cissp_compass/core/auth_session.dart';
+import 'package:cissp_compass/core/config.dart';
 import 'package:cissp_compass/core/storage.dart';
+
+/// Whether dev affordances (dev-login button, reset-token display) render.
+/// Defaults to the compile-time [ApiConfig]; tests override it.
+final devConveniencesProvider = Provider<bool>(
+  (ref) => ApiConfig.current.enableDevConveniences,
+);
 
 final tokenStoreProvider = Provider<TokenStore>((ref) => SecureTokenStore());
 

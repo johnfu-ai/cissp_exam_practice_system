@@ -45,11 +45,14 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       final api = ref.read(cisspApiProvider);
       final data = await api.requestPasswordReset(_email.text.trim());
       final token = data['token'] as String?;
+      // The API only returns the token in dev/test environments; mirror that
+      // on the client and never surface it in production builds.
+      final showDevToken = ref.read(devConveniencesProvider);
       setState(() {
         _sent = true;
-        _devToken = token;
+        _devToken = showDevToken ? token : null;
         _message = AppLocalizations.of(context)!.authResetSent;
-        if (token != null) _token.text = token;
+        if (token != null && showDevToken) _token.text = token;
       });
     } on DioException catch (e) {
       setState(() => _error = ApiException.fromDio(e).message);

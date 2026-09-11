@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Release builds must be able to reach the backend. The debug/profile
+         manifests carry this too, but the main manifest is what a release
+         build uses — without it a release APK has no networking at all. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="cissp_compass"
+        android:label="CISSP Compass"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

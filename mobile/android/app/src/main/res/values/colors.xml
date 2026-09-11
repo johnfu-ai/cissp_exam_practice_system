@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App canvas background (#F7F7FA, AppColors.canvas) used by the launch
+         splash so there is no white flash before the first Flutter frame. -->
+    <color name="launch_background">#FFF7F7FA</color>
+</resources>
