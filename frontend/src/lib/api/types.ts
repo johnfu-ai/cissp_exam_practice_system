@@ -826,6 +826,60 @@ export interface PaperSessionsResponse {
   items: PaperSessionSummary[];
 }
 
+// PRD v1.5 FR-PAPER-10..12
+
+/** Free-practice bank — a dataset carrying published questions (e.g. OSG v10). */
+export interface Bank {
+  dataset_slug: string;
+  name: string;
+  question_count: number;
+  languages: string[];
+  has_papers: boolean;
+}
+
+export interface BanksResponse {
+  items: Bank[];
+}
+
+/** Resume bundle for the paper player (`GET /api/papers/sessions/{id}/state`). */
+export interface PaperSessionState {
+  session_id: string;
+  kind: "practice" | "exam";
+  status: string;
+  paper_id: string | null;
+  paper_name: string | null;
+  total: number;
+  answered_positions: number[];
+  wrong_positions: number[];
+  elapsed_seconds: number | null;
+  deadline_at: string | null;
+}
+
+/** Resumable entry (`GET /api/papers/sessions/in-progress`). */
+export interface InProgressSession {
+  session_id: string;
+  kind: "practice" | "exam";
+  source: "paper" | "bank";
+  paper_id: string | null;
+  paper_name: string | null;
+  dataset_slug: string | null;
+  dataset_name: string | null;
+  total: number;
+  answered: number;
+  started_at: string | null;
+}
+
+export interface InProgressSessionsResponse {
+  items: InProgressSession[];
+}
+
+/** `POST /api/papers/sessions/{id}/switch-mode` result. */
+export interface SwitchModeResult {
+  session_id: string;
+  kind: "practice" | "exam";
+  paper_id: string | null;
+}
+
 
 
 

@@ -38,6 +38,11 @@ export const qk = {
     list: (all: boolean) => ["papers", "list", all] as const,
     detail: (id: string) => ["papers", "detail", id] as const,
     sessions: (id: string) => ["papers", id, "sessions"] as const,
+    state: (sessionId: string) => ["papers", "session", sessionId, "state"] as const,
+  },
+  banks: {
+    list: ["banks", "list"] as const,
+    inProgress: ["papers", "sessions", "in-progress"] as const,
   },
   practice: {
     question: (sessionId: string, position: number) =>

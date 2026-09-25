@@ -1020,6 +1020,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/practice/sessions/{session_id}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Heartbeat
+         * @description FR-PAPER-12: report the client's active elapsed seconds so practice
+         *     time survives exits (away time is not counted).
+         */
+        post: operations["heartbeat_api_practice_sessions__session_id__heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/practice/sessions/{session_id}/pause": {
         parameters: {
             query?: never;
@@ -1125,6 +1146,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/papers/sessions/in-progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List In Progress Sessions
+         * @description FR-PAPER-12: the caller's resumable paper/bank sessions.
+         */
+        get: operations["list_in_progress_sessions_api_papers_sessions_in_progress_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/papers/sessions/{session_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session State
+         * @description FR-PAPER-12: resume bundle — answer-sheet state, progress, time.
+         */
+        get: operations["get_session_state_api_papers_sessions__session_id__state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/papers/sessions/{session_id}/switch-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch Session Mode
+         * @description FR-PAPER-11: convert an in-progress paper session to the other mode,
+         *     preserving answers, snapshots, and time.
+         */
+        post: operations["switch_session_mode_api_papers_sessions__session_id__switch_mode_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/papers": {
         parameters: {
             query?: never;
@@ -1180,6 +1262,27 @@ export interface paths {
          *     sessions via the exam API.
          */
         post: operations["create_paper_session_api_papers__paper_id__sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/banks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Banks
+         * @description FR-PAPER-10: free-practice banks (datasets carrying published
+         *     questions), e.g. OSG v10 alongside the mock-paper papers.
+         */
+        get: operations["list_banks_api_banks_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2326,6 +2429,24 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HeartbeatIn
+         * @description FR-PAPER-12: the client's accumulated active seconds for a session.
+         */
+        HeartbeatIn: {
+            /** Elapsed Seconds */
+            elapsed_seconds: number;
+        };
+        /** HeartbeatOut */
+        HeartbeatOut: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Elapsed Seconds */
+            elapsed_seconds: number;
+        };
         /** KnowledgePointIn */
         KnowledgePointIn: {
             /** Name */
@@ -2831,6 +2952,8 @@ export interface components {
             difficulty?: number | null;
             /** Tag Id */
             tag_id?: string | null;
+            /** Dataset Slug */
+            dataset_slug?: string | null;
             /**
              * Shuffle Options
              * @default false
@@ -2885,6 +3008,14 @@ export interface components {
             domains: components["schemas"]["DomainBreakdown"][];
             /** Wrong Questions */
             wrong_questions: components["schemas"]["WrongQuestion"][];
+        };
+        /** SwitchModeIn */
+        SwitchModeIn: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "practice" | "exam";
         };
         /** TagIn */
         TagIn: {
@@ -5597,6 +5728,41 @@ export interface operations {
             };
         };
     };
+    heartbeat_api_practice_sessions__session_id__heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HeartbeatIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeartbeatOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     pause_session_api_practice_sessions__session_id__pause_post: {
         parameters: {
             query?: never;
@@ -5787,6 +5953,92 @@ export interface operations {
             };
         };
     };
+    list_in_progress_sessions_api_papers_sessions_in_progress_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_session_state_api_papers_sessions__session_id__state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    switch_session_mode_api_papers_sessions__session_id__switch_mode_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchModeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_papers_api_papers_get: {
         parameters: {
             query?: {
@@ -5911,6 +6163,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_banks_api_banks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

@@ -6,9 +6,15 @@
 //
 // Invariants (tested): the language-mode toggle is pure client state — it
 // never submits, never advances; exam answers auto-save on navigation.
+//
+// PRD v1.5 (FR-PAPER-11..13): the sheet never collapses while a question
+// loads (stable total), the palette scrolls inside a bounded region, mount
+// restores sheet/timer/progress from the server resume bundle, practice time
+// heartbeats to the server, and paper sessions can switch mode mid-flight.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiJson } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { BilingualText, localizedText } from "@/components/bilingual-text";
@@ -29,7 +35,12 @@ import {
   useSubmitExamAnswer,
   useSubmitPracticeAnswer,
 } from "@/lib/api/sessions";
-import type { AnswerResult, LanguageMode, QuestionDelivery } from "@/lib/api/types";
+import type {
+  AnswerResult,
+  LanguageMode,
+  PaperSessionState,
+  QuestionDelivery,
+} from "@/lib/api/types";
 import {
   cellStatus,
   emptySheet,
@@ -40,15 +51,19 @@ import {
 } from "./answer-sheet";
 
 const nowIso = () => new Date().toISOString();
+const HEARTBEAT_INTERVAL_MS = 20_000;
 
 export function PaperPlayer({
   sessionId,
   kind,
+  paperId,
 }: {
   sessionId: string;
   kind: "practice" | "exam";
+  paperId?: string;
 }) {
   const t = useT();
+  const router = useRouter();
   const { data: prefs } = usePreferences();
   const [mode, setMode] = useState<LanguageMode>("en");
   useEffect(() => {
@@ -60,7 +75,7 @@ export function PaperPlayer({
   const [selection, setSelection] = useState<number[]>([]);
   const [essayText, setEssayText] = useState("");
   const [result, setResult] = useState<AnswerResult | null>(null);
-  const [startedEpoch] = useState(() => Date.now());
+  const [startedEpoch, setStartedEpoch] = useState(() => Date.now());
   const [elapsed, setElapsed] = useState(0);
   const [deadline, setDeadline] = useState<number | null>(null);
   const [finished, setFinished] = useState(false);
@@ -69,27 +84,73 @@ export function PaperPlayer({
     correct: number;
     accuracy: number;
   } | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const questionStart = useRef(0);
 
-  // exam countdown: pull deadline from the session config once
+  // FR-PAPER-12: fetch the resume bundle once on mount — restores the answer
+  // sheet, timer base (practice) / deadline (exam), and jumps to the first
+  // unanswered question.
+  const resumeFetched = useRef(false);
   useEffect(() => {
-    if (kind !== "exam" || deadline !== null) return;
+    if (resumeFetched.current) return;
+    resumeFetched.current = true;
     let alive = true;
-    apiJson<{ config: Record<string, unknown> }>(`/api/exam/sessions/${sessionId}`)
-      .then((s) => {
-        const iso = s.config?.deadline_at as string | undefined;
-        if (alive && iso) setDeadline(new Date(iso).getTime());
+    apiJson<PaperSessionState>(`/api/papers/sessions/${sessionId}/state`)
+      .then((st) => {
+        if (!alive || st.status !== "in_progress") return;
+        const answered: Record<number, boolean> = {};
+        const wrong: Record<number, boolean> = {};
+        for (const p of st.answered_positions) answered[p] = true;
+        for (const p of st.wrong_positions) wrong[p] = true;
+        setSheet({ answered, wrong, flagged: {} });
+        if (st.kind === "practice" && st.elapsed_seconds != null) {
+          setStartedEpoch(Date.now() - st.elapsed_seconds * 1000);
+        }
+        if (st.kind === "exam" && st.deadline_at) {
+          setDeadline(new Date(st.deadline_at).getTime());
+        }
+        if (st.total > 0) {
+          const answeredSet = new Set(st.answered_positions);
+          let first = 0;
+          while (first < st.total && answeredSet.has(first)) first += 1;
+          setPosition(first >= st.total ? 0 : first);
+        }
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [kind, sessionId, deadline]);
+  }, [sessionId]);
 
   useEffect(() => {
+    // set immediately so a resumed timer shows the carried-over base at once
+    setElapsed(Date.now() - startedEpoch);
     const timer = window.setInterval(() => setElapsed(Date.now() - startedEpoch), 1000);
     return () => window.clearInterval(timer);
   }, [startedEpoch]);
+
+  // FR-PAPER-12: report accumulated practice time so exits don't lose it;
+  // time away from the player is not counted (server grace window).
+  const startedRef = useRef(startedEpoch);
+  useEffect(() => {
+    startedRef.current = startedEpoch;
+  }, [startedEpoch]);
+  useEffect(() => {
+    if (kind !== "practice" || finished) return;
+    const id = window.setInterval(() => {
+      apiJson(`/api/practice/sessions/${sessionId}/heartbeat`, {
+        method: "POST",
+        body: JSON.stringify({
+          elapsed_seconds: Math.max(
+            0,
+            Math.floor((Date.now() - startedRef.current) / 1000),
+          ),
+        }),
+      }).catch(() => {});
+    }, HEARTBEAT_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [kind, finished, sessionId]);
 
   const practiceQ = usePracticeQuestion(sessionId, position, kind === "practice" && !finished);
   const examQ = useExamQuestion(sessionId, position, kind === "exam" && !finished);
@@ -104,7 +165,15 @@ export function PaperPlayer({
   const finishExam = useFinishExam(sessionId);
   const setState = useSetQuestionState();
 
-  const total = q?.total ?? 0;
+  // FR-PAPER-13: the sheet total is stable for the whole session — it must
+  // not collapse (and shove the submit button around) while a question load
+  // is in flight.
+  const [stableTotal, setStableTotal] = useState(0);
+  useEffect(() => {
+    if (q?.total) setStableTotal(q.total);
+  }, [q?.total]);
+  const total = stableTotal;
+
   const counts = useMemo(() => sheetCounts(sheet, total), [sheet, total]);
   const isEssay = q?.question_type === "essay";
 
@@ -219,6 +288,36 @@ export function PaperPlayer({
     }
   }, [elapsed, kind, deadline, finished]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // FR-PAPER-11: convert this paper session to the other mode; the server
+  // copies answers and time, we just route to the new session.
+  async function switchMode() {
+    if (!paperId || switching) return;
+    const target = kind === "practice" ? "exam" : "practice";
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      const result = await apiJson<{
+        session_id: string;
+        kind: "practice" | "exam";
+      }>(`/api/papers/sessions/${sessionId}/switch-mode`, {
+        method: "POST",
+        body: JSON.stringify({ mode: target }),
+      });
+      router.replace(
+        `/paper-play/${result.session_id}?kind=${result.kind}&paper=${paperId}`,
+      );
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      try {
+        const parsed = JSON.parse(raw) as { detail?: string };
+        setSwitchError(parsed?.detail ?? raw);
+      } catch {
+        setSwitchError(raw);
+      }
+      setSwitching(false);
+    }
+  }
+
   function toggleFlag() {
     if (!q) return;
     const next = !sheet.flagged[q.position];
@@ -245,33 +344,59 @@ export function PaperPlayer({
         <Badge variant={kind === "exam" ? "default" : "secondary"}>
           {kind === "exam" ? t("paperPlay.examMode") : t("paperPlay.practiceMode")}
         </Badge>
+        {paperId && !finished && (
+          <div className="space-y-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={switching}
+              onClick={switchMode}
+            >
+              {kind === "practice"
+                ? t("paperPlay.switchToExam")
+                : t("paperPlay.switchToPractice")}
+            </Button>
+            {switchError && (
+              <p className="text-xs text-destructive" role="alert">
+                {switchError}
+              </p>
+            )}
+          </div>
+        )}
         {total > 0 && (
           <div>
-            <div className="mb-2 grid grid-cols-6 gap-1.5">
-              {Array.from({ length: total }, (_, i) => {
-                const status = cellStatus(sheet, i);
-                const cls =
-                  status === "answered"
-                    ? "bg-primary text-primary-foreground"
-                    : status === "wrong"
-                      ? "bg-destructive text-white"
-                      : status === "flagged"
-                        ? "border-2 border-amber-400 text-foreground"
-                        : "border text-muted-foreground";
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    aria-label={`question ${i + 1} ${status}`}
-                    onClick={() => goto(i)}
-                    className={`h-8 rounded text-xs font-medium transition-colors ${cls} ${
-                      i === position ? "ring-2 ring-ring" : ""
-                    }`}
-                  >
-                    {i + 1}
-                  </button>
-                );
-              })}
+            <div
+              role="region"
+              aria-label={t("paperPlay.palette")}
+              className="max-h-[50vh] overflow-y-auto pr-1"
+            >
+              <div className="mb-2 grid grid-cols-6 gap-1.5">
+                {Array.from({ length: total }, (_, i) => {
+                  const status = cellStatus(sheet, i);
+                  const cls =
+                    status === "answered"
+                      ? "bg-primary text-primary-foreground"
+                      : status === "wrong"
+                        ? "bg-destructive text-white"
+                        : status === "flagged"
+                          ? "border-2 border-amber-400 text-foreground"
+                          : "border text-muted-foreground";
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      aria-label={`question ${i + 1} ${status}`}
+                      onClick={() => goto(i)}
+                      className={`h-8 rounded text-xs font-medium transition-colors ${cls} ${
+                        i === position ? "ring-2 ring-ring" : ""
+                      }`}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
               <div>{t("paperPlay.answered")} ({counts.answered})</div>

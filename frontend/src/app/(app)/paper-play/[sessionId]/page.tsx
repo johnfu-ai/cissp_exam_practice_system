@@ -8,8 +8,12 @@ export default async function PaperPlayPage({
   searchParams: Promise<{ kind?: string; paper?: string }>;
 }) {
   const { sessionId } = await params;
-  const { kind } = await searchParams;
+  const { kind, paper } = await searchParams;
   return (
-    <PaperPlayer sessionId={sessionId} kind={kind === "exam" ? "exam" : "practice"} />
+    <PaperPlayer
+      sessionId={sessionId}
+      kind={kind === "exam" ? "exam" : "practice"}
+      paperId={paper}
+    />
   );
 }

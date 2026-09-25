@@ -5,7 +5,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/api";
 import { qk } from "./keys";
-import type { LanguageMode, PaperDetail, PaperListItem, PapersResponse, PaperSessionsResponse } from "./types";
+import type {
+  BanksResponse,
+  InProgressSessionsResponse,
+  LanguageMode,
+  PaperDetail,
+  PaperListItem,
+  PapersResponse,
+  PaperSessionsResponse,
+} from "./types";
 
 export type PaperSessionMode = "practice" | "exam";
 
@@ -59,3 +67,20 @@ export function useCreatePaperSession(paperId: string) {
 }
 
 export type { PaperListItem, PaperDetail };
+
+// --- PRD v1.5: free-practice banks + resume (FR-PAPER-10/12) -------------------
+
+export function useBanks() {
+  return useQuery({
+    queryKey: qk.banks.list,
+    queryFn: () => apiJson<BanksResponse>("/api/banks"),
+  });
+}
+
+export function useInProgressSessions() {
+  return useQuery({
+    queryKey: qk.banks.inProgress,
+    queryFn: () =>
+      apiJson<InProgressSessionsResponse>("/api/papers/sessions/in-progress"),
+  });
+}
