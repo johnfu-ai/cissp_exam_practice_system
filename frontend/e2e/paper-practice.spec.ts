@@ -26,7 +26,7 @@ test("learner core journey: papers -> practice -> wrong book", async ({ page }) 
   await page.goto("/papers");
   await expect(page.getByRole("heading", { name: "Papers" })).toBeVisible();
   const firstCard = page.getByTestId("papers-grid").locator("> div").first();
-  await expect(firstCard).toContainText("CISSP 模拟试卷");
+  await expect(firstCard).toContainText("模拟试卷");
   await expect(firstCard).toContainText("questions");
 
   // Start practice on the first paper (Start over if an old run left an

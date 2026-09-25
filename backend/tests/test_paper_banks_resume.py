@@ -208,7 +208,7 @@ def test_banks_lists_datasets_with_published_counts(client):
     )
     db.flush()
     _seed_dataset(db, user, "osg10", "CISSP OSG v10", osg_q + [draft_q])
-    # paper-like dataset: questions exist but stay draft; papers cover it
+    # mock-paper dataset: questions exist but stay draft; papers cover it
     gq = [_seed_choice(db, user, stem=f"G{i}") for i in range(2)]
     _seed_dataset(db, user, "mockpapers", "Mock papers", gq, with_paper=True)
     # empty dataset is excluded entirely

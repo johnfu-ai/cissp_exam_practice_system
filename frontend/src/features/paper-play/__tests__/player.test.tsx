@@ -224,7 +224,7 @@ describe("<PaperPlayer> sheet stability + palette scroll (FR-PAPER-13)", () => {
   });
 });
 
-describe("<PaperPlayer> mock-paper layout (FR-PAPER-05, v1.6)", () => {
+describe("<PaperPlayer> paper layout (FR-PAPER-05, v1.6)", () => {
   beforeEach(() => {
     setupDefaultQuestion();
     apiJson.mockResolvedValue(defaultResumeState);

@@ -632,7 +632,7 @@ export const zh: typeof en = {
     questionsPerSession: "每次练习题数",
     sequential: "顺序练习",
     random: "随机练习",
-    // PRD v1.6（参考样式题库页 + 重入提示 + 做题记录）
+    // PRD v1.6（模拟试卷样式题库页 + 重入提示 + 做题记录）
     statsPapers: "试卷总数",
     statsCompleted: "已完成",
     statsWrong: "错题数",

@@ -1,4 +1,4 @@
-# Design: MockPaper Papers, Essay Questions, Wrong Book, WeChat Mini Program (PRD v1.4)
+# Design: Paper Papers, Essay Questions, Wrong Book, WeChat Mini Program (PRD v1.4)
 
 Date: 2026-09-25
 Status: Accepted
@@ -43,8 +43,8 @@ Exam report branch: when `config.scoring == "paper"`, `_build_report` scores `su
 ### 1.4 ETL (FR-ETL-17..19)
 
 - `app/etl/paper_export.py` (pure + CLI): converts `paper_*.json` (+ optional `wrong_questions_*.json` ignored for MVP) → dataset dir `docs/questions/mockpapers/` with `manifest.json`, `questions.jsonl`, `papers.json`.
-  - Bilingual split: stems by `<p>` blocks, else inline first-CJK-boundary; options strip `^[A-Z][.、]\s*` prefix then split; `answerAnalysis` per-option → `option_explanations`, correct-option analysis preferred as question explanation; Word-HTML normalization (strip `MsoNormal` classes, `&nbsp;` → space, drop `font-family` spans); external id `mockpapers-{paperIdx:02d}-{q.sort}`? No — question-level external id from mock-paper `question.id`: `paper-{id}` (stable across papers, dedupes naturally).
-  - Book/chapter: book `CISSP 模拟试卷`, edition 63, chapter = paper index 1..8, chapter_title = paperName; `domain_number` = paper index (papers 一..八 map to CISSP domains 1..8).
+  - Bilingual split: stems by `<p>` blocks, else inline first-CJK-boundary; options strip `^[A-Z][.、]\s*` prefix then split; `answerAnalysis` per-option → `option_explanations`, correct-option analysis preferred as question explanation; Word-HTML normalization (strip `MsoNormal` classes, `&nbsp;` → space, drop `font-family` spans); external id `mockpapers-{paperIdx:02d}-{q.sort}`? No — question-level external id from paper `question.id`: `paper-{id}` (stable across papers, dedupes naturally).
+  - Book/chapter: book `CISSP 模拟试卷`, edition 1, chapter = paper index 1..8, chapter_title = paperName; `domain_number` = paper index (papers 一..八 map to CISSP domains 1..8).
   - `papers.json` rows: `{id, name, duration_minutes, domain_number, question_ids: [paper-<qid>...], scores: [q.score...], total_score, status: "published"}`.
 - Transform: `essay` type — no options/correct_keys required; `reference_answer {en,zh}` validated non-empty in ≥1 language.
 - Load: after questions, process `papers.json` idempotently (`(dataset_slug, paper_external_id)`): upsert Paper + replace PaperQuestion rows; question refs resolved via `QuestionExternalKey`; missing refs → whole paper to error report, skipped.
@@ -58,7 +58,7 @@ One migration: `essay` enum value (ALTER TYPE ADD VALUE, apply before table DDL)
 
 - Restore deleted learner infrastructure only where needed; new-first approach for paper flow:
   - `/papers` — paper list (题库): cards with name, counts, duration, score, domain badge, my attempts; buttons 开始练习/开始考试.
-  - `/papers/[id]` — paper player (mock-paper style): header (title, duration/score, timer), left column answer sheet grid (已答/错误/未答/标记) + counts + mode + submit; main area question (type badge, 纠错/标记/收藏 actions, bilingual toggle, options / essay textarea, prev/next). Practice mode: per-question immediate feedback panel (correct answer, per-option explanations, reference answer + self-assess buttons for essay). Exam mode: palette nav, revisable answers, countdown + submit → redirect report.
+  - `/papers/[id]` — paper player (paper style): header (title, duration/score, timer), left column answer sheet grid (已答/错误/未答/标记) + counts + mode + submit; main area question (type badge, 纠错/标记/收藏 actions, bilingual toggle, options / essay textarea, prev/next). Practice mode: per-question immediate feedback panel (correct answer, per-option explanations, reference answer + self-assess buttons for essay). Exam mode: palette nav, revisable answers, countdown + submit → redirect report.
   - `/papers/[id]/sessions/[sessionId]` — report/review (fixed-exam style report branched for paper scoring; per-question review incl. essay reference + self-assessment).
   - `/wrong-book` — tabs 我的错题/我的收藏/我的纠错, paper filter, cards with actions (重新练习/查看解析/我已掌握).
 - `require-auth` gating: learner routes allowed for all authed users; root page redirects learners → `/papers`; sidebar gains learner section (题库/错题集) visible to all, manage section stays permission-gated.
@@ -110,5 +110,5 @@ miniprogram/
 
 - Exam essay scoring: unscored (0) until self-assessed — report recomputes on read; `GET report` reflects latest self-assessments.
 - `ExamSessionKind` stays `fixed` for paper exams; paper branch keyed on `config.paper_id` (avoids enum migration + branch sprawl).
-- mock-paper images in explanations are external URLs; nh3 sanitization keeps `img` tags with https src (extend allowlist) — external hosting availability is acceptable (source data as-is).
+- paper images in explanations are external URLs; nh3 sanitization keeps `img` tags with https src (extend allowlist) — external hosting availability is acceptable (source data as-is).
 - Mini program e2e automation (miniprogram-automator) needs Windows/macOS devtools — out of CI scope, documented as manual acceptance.

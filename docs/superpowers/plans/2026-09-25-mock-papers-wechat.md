@@ -1,4 +1,4 @@
-# Plan: MockPaper Papers, Essay, Wrong Book, WeChat Mini Program (PRD v1.4)
+# Plan: Paper Papers, Essay, Wrong Book, WeChat Mini Program (PRD v1.4)
 
 TDD throughout — tests land before/with each step. Each numbered step ends runnable & green.
 
@@ -10,7 +10,7 @@ TDD throughout — tests land before/with each step. Each numbered step ends run
 
 ## Wave 2 — Backend (TDD)
 
-4. MockPaper converter `app/etl/paper_export.py`: tests over real exports (bilingual split, letter-prefix strip, Word-HTML normalize, analysis merge, papers.json emission, idempotent re-run) → implementation → generate `docs/questions/mockpapers/`.
+4. Paper converter `app/etl/paper_export.py`: tests over real exports (bilingual split, letter-prefix strip, Word-HTML normalize, analysis merge, papers.json emission, idempotent re-run) → implementation → generate `docs/questions/mockpapers/`.
 5. Models + migration: `essay` enum, `QuestionTranslation.reference_answer`, `UserQuestionState.wrong_count/last_wrong_at`, `PaperStatus` enum, `Paper`/`PaperQuestion`; model tests; `alembic revision --autogenerate` + zero-drift check.
 6. Essay question lifecycle: `_validate_options` essay rules, editor schemas (reference_answer), publish completeness, translation delivery/snapshot reference_answer. Tests: `test_question_essay.py`.
 7. Essay answering: practice answer `answer_text` + result reference answer; practice self-assessment endpoint; exam answer `answer_text`; exam post-finish self-assessment endpoint; judge returns None for essay; CAT pool excludes essay. Tests: `test_practice_essay.py`, `test_exam_essay.py`.

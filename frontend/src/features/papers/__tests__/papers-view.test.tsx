@@ -5,7 +5,7 @@ import { renderWithProviders } from "@/test/render-with-providers";
 
 // PRD v1.6: the dedicated "In progress" section is GONE. Re-entry happens via
 // a continue-or-new prompt when starting a paper that already has an
-// in-progress session (FR-PAPER-12), the page carries a paper-style stats
+// in-progress session (FR-PAPER-12), the page carries a paper-bank-style stats
 // row + attempt-status cards (FR-PAPER-03), and each paper opens an
 // answer-records modal (FR-PAPER-14).
 
@@ -136,7 +136,7 @@ describe("<PapersView>", () => {
     ];
   });
 
-  it("renders the stats row and paper-style paper cards", () => {
+  it("renders the stats row and paper-bank-style paper cards", () => {
     renderWithProviders(<PapersView />);
     // stats: 1 paper, 1 completed (attempts>0), 7 wrong questions
     const stats = screen.getByTestId("papers-stats");
@@ -151,7 +151,7 @@ describe("<PapersView>", () => {
     expect(screen.getByText("Taken 2x")).toBeInTheDocument();
     expect(screen.getByText("Best 100")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Records: 参考/ }),
+      screen.getByRole("button", { name: /Records: 模拟试卷/ }),
     ).toBeInTheDocument();
   });
 
@@ -166,7 +166,7 @@ describe("<PapersView>", () => {
     inProgress.items = [];
     renderWithProviders(<PapersView />);
     await userEvent.click(
-      screen.getByRole("button", { name: /Practice: 参考/ }),
+      screen.getByRole("button", { name: /Practice: 模拟试卷/ }),
     );
     expect(apiJson).toHaveBeenCalledWith(
       "/api/papers/p1/sessions",
@@ -179,7 +179,7 @@ describe("<PapersView>", () => {
     apiJson.mockResolvedValueOnce({ id: "sess-1" });
     renderWithProviders(<PapersView />);
     await userEvent.click(
-      screen.getByRole("button", { name: /Practice: 参考/ }),
+      screen.getByRole("button", { name: /Practice: 模拟试卷/ }),
     );
     // the continue dialog replaces a direct start
     const dialog = await screen.findByTestId("continue-dialog");
@@ -203,7 +203,7 @@ describe("<PapersView>", () => {
     apiJson.mockResolvedValueOnce({ id: "sess-2" });
     renderWithProviders(<PapersView />);
     await userEvent.click(
-      screen.getByRole("button", { name: /Practice: 参考/ }),
+      screen.getByRole("button", { name: /Practice: 模拟试卷/ }),
     );
     await screen.findByTestId("continue-dialog");
     await userEvent.click(screen.getByRole("button", { name: "Start over" }));
@@ -218,7 +218,7 @@ describe("<PapersView>", () => {
     apiJson.mockResolvedValueOnce({ id: "sess-3" });
     renderWithProviders(<PapersView />);
     // only a practice session is in progress -> Exam starts directly
-    await userEvent.click(screen.getByRole("button", { name: /Exam: 参考/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Exam: 模拟试卷/ }));
     expect(
       screen.queryByTestId("continue-dialog"),
     ).not.toBeInTheDocument();
@@ -231,7 +231,7 @@ describe("<PapersView>", () => {
 
   it("opens the answer-records modal with stats and history (FR-PAPER-14)", async () => {
     renderWithProviders(<PapersView />);
-    await userEvent.click(screen.getByRole("button", { name: /Records: 参考/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Records: 模拟试卷/ }));
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toBeVisible();
     // stats over exam attempts (one exam, score 100)

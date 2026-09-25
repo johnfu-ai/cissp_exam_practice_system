@@ -4385,7 +4385,7 @@
           "papers"
         ],
         "summary": "List Banks",
-        "description": "FR-PAPER-10: free-practice banks (datasets carrying published\nquestions), e.g. OSG v10 alongside the mock-paper papers.",
+        "description": "FR-PAPER-10: free-practice banks (datasets carrying published\nquestions), e.g. OSG v10 alongside the mock papers.",
         "operationId": "list_banks_api_banks_get",
         "responses": {
           "200": {

@@ -160,7 +160,7 @@ def _parse_option_explanations(rec: dict) -> dict[str, Bilingual] | None:
 def _parse_record(rec: dict) -> RawQuestion:
     src = rec["source"]
     meta = dict(rec.get("meta", {}) or {})
-    # FR-PAPER/mock-paper: source.domain_number flows into meta["domain"] so the
+    # FR-PAPER: source.domain_number flows into meta["domain"] so the
     # transform/load path resolves the CISSP domain without a mapping row.
     if "domain" not in meta and src.get("domain_number") is not None:
         meta["domain"] = src["domain_number"]

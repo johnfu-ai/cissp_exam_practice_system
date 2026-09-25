@@ -1,6 +1,6 @@
 "use client";
 
-// paper-bank-style paper player (PRD v1.4 FR-PAPER-05/07): timer, answer sheet
+// Paper-bank-style paper player (PRD v1.4 FR-PAPER-05/07): timer, answer sheet
 // with 4-state legend, per-question navigation with auto-save, bilingual
 // toggle, flag/bookmark, essay textarea + self-assessment, submit.
 //
@@ -20,7 +20,7 @@
 // PRD v1.6 (FR-PAPER-05 restyle): big blue timer, a segmented practice⇄exam
 // mode switch, current-question outline on the palette, a green auto-save
 // pill, a paper-title header, type tag + 纠错/标记/收藏 icon actions, radio
-// option indicators, and a bottom prev/next bar — matching the mock-paper
+// option indicators, and a bottom prev/next bar — matching the reference
 // reference layout.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -435,7 +435,7 @@ export function PaperPlayer({
 
   return (
     <div className="mx-auto flex w-full max-w-6xl gap-6 p-6">
-      {/* Left rail: big timer + mode switch + answer sheet + submit (mock-paper) */}
+      {/* Left rail: big timer + mode switch + answer sheet + submit */}
       <Card className="sticky top-6 h-fit w-64 shrink-0 space-y-4 p-5">
         <div>
           <div className="text-xs text-muted-foreground">
@@ -581,7 +581,7 @@ export function PaperPlayer({
 
       {/* Main column */}
       <div className="min-w-0 flex-1 space-y-4">
-        {/* paper-style paper header (FR-PAPER-05, v1.6) */}
+        {/* paper-bank-style paper header (FR-PAPER-05, v1.6) */}
         {paperId && paperDetail.data && !practiceSummary && (
           <Card className="space-y-1 p-4">
             <h1 className="text-base font-semibold leading-snug">

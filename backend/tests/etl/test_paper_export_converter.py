@@ -1,7 +1,8 @@
-"""MockPaper export converter tests (FR-ETL-17).
+"""Exam paper-export converter tests (FR-ETL-17).
 
-Unit tests use synthetic paper-shaped records; golden tests run against the
-real exports checked in at ``docs/paper_exam_exports/``.
+Unit tests use synthetic export-shaped records; golden tests validate the
+committed ``docs/questions/mockpapers`` dataset directly (the raw exports
+are not kept in the repository).
 """
 
 import json
@@ -17,7 +18,7 @@ from app.etl.paper_export import (
     write_dataset,
 )
 
-EXPORTS_DIR = Path(__file__).resolve().parents[3] / "docs" / "paper_exam_exports"
+DATASET_DIR = Path(__file__).resolve().parents[3] / "docs" / "questions" / "mockpapers"
 
 
 # ---------------------------------------------------------------------------
@@ -39,12 +40,13 @@ class TestSplitBilingual:
         assert split_bilingual("对在网络上传输的数据是否需要加密的判断应该基于：") == (
             "", "对在网络上传输的数据是否需要加密的判断应该基于：")
 
-    def test_en_only(self):
-        assert split_bilingual("Plain english stem") == ("Plain english stem", "")
-
     def test_cjk_punctuation_only_text_is_zh(self):
         assert split_bilingual("下列哪一项不是对保密性的破坏？") == (
             "", "下列哪一项不是对保密性的破坏？")
+
+    def test_en_only(self):
+        assert split_bilingual("Plain english stem") == (
+            "Plain english stem", "")
 
 
 class TestStripOptionLetter:
@@ -147,10 +149,12 @@ class TestConvertExports:
         assert first["source"]["chapter"] == 1
         assert first["source"]["domain_number"] == 1
         assert first["license_status"] == "unconfirmed"
+        assert first["meta"]["export"] == {"question_id": "q1", "paper_id": "p1"}
 
         paper = papers[0]
         assert paper["id"] == "p1"
         assert paper["name"] == "模拟试卷一.安全与风险管理"
+        assert paper["description"] == "CISSP 模拟试卷"
         assert paper["duration_minutes"] == 60
         assert paper["question_ids"] == ["paper-q1", "paper-q2"]
         assert paper["scores"] == [1, 1]
@@ -185,23 +189,35 @@ class TestConvertExports:
 
 
 # ---------------------------------------------------------------------------
-# Golden tests over the real exports
+# Golden tests over the committed dataset
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(not EXPORTS_DIR.exists(), reason="mock-paper exports not present")
-class TestRealExports:
-    def test_all_eight_papers_convert(self):
-        manifest, records, papers = convert_exports(EXPORTS_DIR)
-        assert len(papers) == 8
+def _read_records():
+    lines = (DATASET_DIR / "questions.jsonl").read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines]
+
+
+def _read_papers():
+    doc = json.loads((DATASET_DIR / "papers.json").read_text(encoding="utf-8"))
+    return doc["papers"]
+
+
+@pytest.mark.skipif(not DATASET_DIR.exists(), reason="mockpapers dataset not committed")
+class TestCommittedDataset:
+    def test_all_eight_papers_committed(self):
+        manifest = json.loads(
+            (DATASET_DIR / "manifest.json").read_text(encoding="utf-8"))
+        papers = _read_papers()
+        records = _read_records()
         assert manifest["total_questions"] == 828
+        assert len(papers) == 8
         assert len(records) == 828
         # unique external ids
         ids = [r["id"] for r in records]
         assert len(set(ids)) == 828
 
     def test_every_question_has_stem_and_one_correct_choice(self):
-        _, records, _ = convert_exports(EXPORTS_DIR)
-        for r in records:
+        for r in _read_records():
             assert r["type"] == "single_choice"
             assert r["stem"]["en"] or r["stem"]["zh"], r["id"]
             assert len(r["options"]) >= 2
@@ -212,7 +228,8 @@ class TestRealExports:
                 assert o["text"]["en"] or o["text"]["zh"], (r["id"], o["key"])
 
     def test_papers_reference_existing_questions_in_order(self):
-        _, records, papers = convert_exports(EXPORTS_DIR)
+        records = _read_records()
+        papers = _read_papers()
         known = {r["id"] for r in records}
         total = 0
         for p in papers:
@@ -224,14 +241,15 @@ class TestRealExports:
         assert total == 828
 
     def test_domain_mapping_one_to_eight(self):
-        _, _, papers = convert_exports(EXPORTS_DIR)
-        by_domain = {p["domain_number"]: p["name"] for p in papers}
+        by_domain = {p["domain_number"]: p["name"] for p in _read_papers()}
         assert sorted(by_domain) == [1, 2, 3, 4, 5, 6, 7, 8]
         assert "安全与风险管理" in by_domain[1]
         assert "开发安全" in by_domain[8]
 
     def test_explanations_preserved_where_source_has_them(self):
-        _, records, _ = convert_exports(EXPORTS_DIR)
-        with_exp = [r for r in records if r["explanation"]["en"] or r["explanation"]["zh"]]
+        with_exp = [
+            r for r in _read_records()
+            if r["explanation"]["en"] or r["explanation"]["zh"]
+        ]
         # spot-checked source: 292 questions carry answerAnalysis
         assert 200 <= len(with_exp) <= 828

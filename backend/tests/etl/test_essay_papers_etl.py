@@ -104,8 +104,8 @@ def test_parse_record_reads_reference_answer_and_domain_number(tmp_path):
     assert raw.meta.get("domain") == 3  # source.domain_number -> meta.domain
 
 
-@pytest.mark.skipif(not MOCKPAPERS_DIR.exists(), reason="mockpapers dataset not generated")
-def test_reader_reads_mock-paper_papers_json():
+@pytest.mark.skipif(not MOCKPAPERS_DIR.exists(), reason="mockpapers dataset not committed")
+def test_reader_reads_mock_papers_json():
     reader = DatasetReader(MOCKPAPERS_DIR)
     raws, errors, content_hash = reader.read()
     assert not errors
@@ -187,8 +187,8 @@ def test_load_papers_missing_question_ref_skips_paper(db_session):
     assert db_session.execute(select(Paper)).scalars().first() is None
 
 
-@pytest.mark.skipif(not MOCKPAPERS_DIR.exists(), reason="mockpapers dataset not generated")
-def test_full_pipeline_mock-paper_dataset(db_session):
+@pytest.mark.skipif(not MOCKPAPERS_DIR.exists(), reason="mockpapers dataset not committed")
+def test_full_pipeline_mockpapers_dataset(db_session):
     """End-to-end over the real converted dataset: extract -> transform ->
     apply_load(incl. papers) yields 828 questions + 8 papers."""
     org = _org(db_session)

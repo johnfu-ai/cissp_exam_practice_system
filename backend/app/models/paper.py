@@ -1,7 +1,7 @@
 """Paper (试卷) models — PRD v1.4 FR-PAPER.
 
 A paper is an ordered, per-question-scored list of questions imported from a
-mock-paper export (or composed manually later). Papers are org-scoped content:
+paper-bank export (or composed manually later). Papers are org-scoped content:
 ``(dataset_slug, paper_external_id)`` is unique so ETL loading is idempotent.
 """
 
@@ -54,7 +54,7 @@ class Paper(UUIDPrimaryKey, TenantScopedMixin, TimestampMixin, SoftDeleteMixin, 
     # may leave both NULL (the unique constraint treats NULLs as distinct).
     dataset_slug: Mapped[str | None] = mapped_column(String(100), nullable=True)
     paper_external_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # mock-paper papers 一..八 map to CISSP domains 1..8; NULL for mixed papers.
+    # mock papers 一..八 map to CISSP domains 1..8; NULL for mixed papers.
     domain_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     questions: Mapped[list["PaperQuestion"]] = relationship(

@@ -324,7 +324,7 @@ def _dedup_hashes(cleaned) -> tuple[str, str]:
     """Three-level dedup (PRD §10.4 rule 6 / FR-ETL-08): stem hash + option-set
     fingerprint, both sha256.
 
-    The stem hash covers BOTH languages: mock-paper scenario questions use a
+    The stem hash covers BOTH languages: paper-bank scenario questions use a
     generic EN lead-in ("Bob", "Alice") while the actual question lives in the
     zh stem/options — an EN-only hash would collide distinct questions (and,
     at the other extreme, empty EN stems on zh-only records would all collide

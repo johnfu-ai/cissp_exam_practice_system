@@ -35,7 +35,7 @@ def list_banks(
     session: Session = Depends(get_session),
 ):
     """FR-PAPER-10: free-practice banks (datasets carrying published
-    questions), e.g. OSG v10 alongside the mock-paper papers."""
+    questions), e.g. OSG v10 alongside the mock papers."""
     return {"items": svc.list_banks(session, org_id=current.org_id)}
 
 

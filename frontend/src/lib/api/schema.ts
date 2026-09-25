@@ -1300,7 +1300,7 @@ export interface paths {
         /**
          * List Banks
          * @description FR-PAPER-10: free-practice banks (datasets carrying published
-         *     questions), e.g. OSG v10 alongside the mock-paper papers.
+         *     questions), e.g. OSG v10 alongside the mock papers.
          */
         get: operations["list_banks_api_banks_get"];
         put?: never;

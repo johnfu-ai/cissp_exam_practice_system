@@ -2,7 +2,7 @@
 
 // Paper library (题库) — PRD v1.4 FR-PAPER-03: browse published papers and
 // launch practice/exam sessions in one click. PRD v1.5 added free-practice
-// dataset banks (FR-PAPER-10). PRD v1.6 restyles the page after the mock-paper
+// dataset banks (FR-PAPER-10). PRD v1.6 restyles the page after the reference
 // reference (stats row, attempt status on cards) and replaces the dedicated
 // "in progress" section with a continue-or-new prompt on session start
 // (FR-PAPER-12) plus an answer-records modal per paper (FR-PAPER-14).
@@ -140,7 +140,7 @@ export function PapersView() {
       />
       {isError && <p className="text-sm text-destructive">{t("error.generic")}</p>}
 
-      {/* paper-style stats row (FR-PAPER-03, v1.6) */}
+      {/* paper-bank-style stats row (FR-PAPER-03, v1.6) */}
       <div className="grid grid-cols-3 gap-3" data-testid="papers-stats">
         <Card className="p-4 text-center">
           <div className="text-2xl font-semibold tabular-nums">{papers.length}</div>
@@ -291,7 +291,7 @@ export function PapersView() {
         </section>
       )}
 
-      {/* FR-PAPER-12: continue-or-new prompt (mock-paper 继续答题 dialog) */}
+      {/* FR-PAPER-12: continue-or-new prompt (继续答题 dialog) */}
       <Dialog
         open={prompt !== null}
         onOpenChange={(open) => {
@@ -333,7 +333,7 @@ export function PapersView() {
         </DialogContent>
       </Dialog>
 
-      {/* FR-PAPER-14: answer-records modal (mock-paper 做题记录) */}
+      {/* FR-PAPER-14: answer-records modal (做题记录) */}
       <RecordsDialog paper={recordsFor} onClose={() => setRecordsFor(null)} />
     </div>
   );

@@ -5,7 +5,7 @@ a **Next.js admin portal**, and a **FastAPI** backend. Exam rules (domain weight
 duration, passing line) live in data via `ExamBlueprint`, not hard-coded constants.
 
 > **Status (PRD v1.3 + P1 completeness).** Backend feature-complete (104+ endpoints, 8 routers).
-> Learner clients cover paper-based practice/exam (mock-paper imports), the wrong-question book,
+> Learner clients cover paper-based practice/exam (paper imports), the wrong-question book,
 > answer metadata (mapping/history/related/`is_questioned`), review, fixed/CAT exams, analytics,
 > and settings. Next.js is **admin-only** (import with template/mapping, questions, taxonomy
 > including chapter→domain mappings + KP↔domain bindings, admin, settings). Shared OpenAPI
@@ -144,7 +144,7 @@ Ops runbook (TLS, SMTP, Sentry, incidents): [`docs/ops/production-runbook.md`](d
 ## Documentation
 
 - PRD: [`docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md`](docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md)
-- MockPaper papers / mini program wave: [`docs/superpowers/specs/2026-09-25-paper-papers-wechat-design.md`](docs/superpowers/specs/2026-09-25-paper-papers-wechat-design.md)
+- Mock papers / mini program wave: [`docs/superpowers/specs/2026-09-25-mock-papers-wechat-design.md`](docs/superpowers/specs/2026-09-25-mock-papers-wechat-design.md)
 - Dual-client gap closure: [`docs/superpowers/specs/2026-08-10-prd-apps-gap-closure-design.md`](docs/superpowers/specs/2026-08-10-prd-apps-gap-closure-design.md)
 - P1 completeness: [`docs/superpowers/specs/2026-08-10-prd-p1-completeness-design.md`](docs/superpowers/specs/2026-08-10-prd-p1-completeness-design.md)
 - Agent guidance: [`CLAUDE.md`](CLAUDE.md)

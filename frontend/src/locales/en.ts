@@ -635,7 +635,7 @@ export const en = {
     questionsPerSession: "Questions per session",
     sequential: "Sequential",
     random: "Random",
-    // PRD v1.6 (paper-style papers page + re-entry prompt + records)
+    // PRD v1.6 (paper-bank-style papers page + re-entry prompt + records)
     statsPapers: "Papers",
     statsCompleted: "Completed",
     statsWrong: "Wrong questions",

@@ -1,4 +1,4 @@
-// Answer-sheet state for the paper-style paper player (PRD v1.4 FR-PAPER-05).
+// Answer-sheet state for the paper-bank-style paper player (PRD v1.4 FR-PAPER-05).
 // Pure helpers, unit-tested — the player component keeps these in React state.
 
 export type CellStatus = "answered" | "wrong" | "unanswered" | "flagged";
@@ -19,7 +19,7 @@ export const emptySheet: AnswerSheetState = {
 };
 
 /** Answer-sheet cell status: flagged wins the visual only when the cell is
- * otherwise plain — mock-paper renders answered/wrong with a corner marker for
+ * otherwise plain — the reference design renders answered/wrong with a corner marker for
  * flags; the 4-state legend counts each cell once by primary status. */
 export function cellStatus(
   sheet: AnswerSheetState,

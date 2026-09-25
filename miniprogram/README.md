@@ -1,7 +1,7 @@
 # CISSP Papers — WeChat Mini Program (学员端)
 
 Native WeChat mini program (no runtime framework) carrying the learner flow
-(PRD v1.4 FR-CLIENT-01/02): login, paper library (题库), paper-style paper
+(PRD v1.4 FR-CLIENT-01/02): login, paper library (题库), paper-bank-style paper
 player (practice/exam, answer sheet, timer, auto-save, bilingual toggle,
 essay self-assessment), wrong-question book (错题集), and settings.
 

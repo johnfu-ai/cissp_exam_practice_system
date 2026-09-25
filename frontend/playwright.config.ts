@@ -17,6 +17,11 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
   fullyParallel: false,
+  // The three specs share one admin account (language pin/restore,
+  // finishInProgressPractices) and the same first paper — since v1.7,
+  // creating a session abandons in-progress ones, so concurrent spec runs
+  // destroy each other's sessions. Run files sequentially by design.
+  workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "line" : "list",
   use: {

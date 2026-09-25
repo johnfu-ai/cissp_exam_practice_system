@@ -1,13 +1,13 @@
-"""MockPaper exam-export converter (FR-ETL-17).
+"""Exam paper-export converter (FR-ETL-17).
 
-Reads the raw mock-paper exports (``paper_*.json``) from
-``docs/paper_exam_exports/`` and emits a standard ETL dataset directory
+Reads raw exam paper exports (``paper_*.json`` documents exported from a
+paper platform) and emits a standard ETL dataset directory
 (``manifest.json`` + ``questions.jsonl`` + ``papers.json``, §10.3 PRD v1.4).
 
 The module is pure (no DB, no source mutation) so it can be unit-tested and
 run idempotently:
 
-    python -m app.etl.paper_export docs/paper_exam_exports docs/questions/mockpapers
+    python -m app.etl.paper_export <exports_dir> <out_dir>
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ EDITION = 1
 _DATASET_SLUG = "mockpapers"
 
 # CJK ideographs + CJK punctuation + fullwidth forms — the boundary of a
-# Chinese segment inside otherwise-Latin mock-paper text.
+# Chinese segment inside otherwise-Latin source text.
 _CJK_RE = re.compile(r"[　-〿一-鿿＀-￯]")
 _P_BLOCK_RE = re.compile(r"<p[^>]*>(.*?)</p>", re.S)
 _SPAN_RE = re.compile(r"</?span[^>]*>")
@@ -66,7 +66,7 @@ def _blocks(text: str) -> list[str] | None:
 
 
 def split_bilingual(text: str) -> tuple[str, str]:
-    """Split a mock-paper text into ``(en, zh)``.
+    """Split an export text into ``(en, zh)``.
 
     Prefers ``<p>``-block granularity (English blocks vs CJK blocks); falls
     back to the first CJK-character boundary for inline-mixed text.
@@ -128,7 +128,7 @@ def convert_question(
     domain_number: int | None,
     paper_external_id: str,
 ) -> dict[str, Any] | None:
-    """Convert one mock-paper question record to the standard dataset shape."""
+    """Convert one export question record to the standard dataset shape."""
     qid = raw_question.get("id") or raw_question.get("paperQuestionId")
     if not qid:
         return None
@@ -192,7 +192,7 @@ def convert_question(
         "option_explanations": option_explanations or None,
         "license_status": "unconfirmed",
         "meta": {
-            "mock-paper": {
+            "export": {
                 "question_id": str(qid),
                 "paper_id": str(paper_external_id),
             },
@@ -233,7 +233,7 @@ def convert_paper(document: dict[str, Any]) -> tuple[dict[str, Any], list[dict[s
     paper_row = {
         "id": paper_external_id,
         "name": paper_name,
-        "description": f"{BOOK_NAME}（{EDITION}期）试卷",
+        "description": f"{BOOK_NAME}",
         "duration_minutes": paper_meta.get("examDuration"),
         "domain_number": domain_number,
         "question_ids": question_ids,
@@ -269,7 +269,7 @@ def convert_exports(exports_dir: Path | str) -> tuple[dict[str, Any], list[dict[
         type_counts[record["type"]] = type_counts.get(record["type"], 0) + 1
 
     manifest = {
-        "source": f"paper_exam_exports ({len(files)} papers, {_DATASET_SLUG})",
+        "source": f"paper exam exports ({len(files)} papers, {_DATASET_SLUG})",
         "dataset_slug": _DATASET_SLUG,
         "total_questions": len(records),
         "chapters": len(paper_rows),
@@ -300,7 +300,7 @@ def write_dataset(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Convert mock-paper exports to an ETL dataset")
+    parser = argparse.ArgumentParser(description="Convert paper exports to an ETL dataset")
     parser.add_argument("exports_dir", help="directory containing paper_*.json exports")
     parser.add_argument("out_dir", help="output dataset directory")
     args = parser.parse_args(argv)
