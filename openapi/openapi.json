@@ -3669,7 +3669,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/HeartbeatIn"
+                "$ref": "#/components/schemas/app__schemas__practice__HeartbeatIn"
               }
             }
           }
@@ -4102,6 +4102,63 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SwitchModeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/papers/sessions/{session_id}/heartbeat": {
+      "post": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "Heartbeat Paper Session",
+        "description": "FR-PAPER-12 (v1.7): unified active-time heartbeat — works for paper\npractice, bank practice, AND paper exam sessions (the exam countdown is\nbudget − accumulated active time).",
+        "operationId": "heartbeat_paper_session_api_papers_sessions__session_id__heartbeat_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__papers__HeartbeatIn"
               }
             }
           }
@@ -7999,21 +8056,6 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "HeartbeatIn": {
-        "properties": {
-          "elapsed_seconds": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Elapsed Seconds"
-          }
-        },
-        "type": "object",
-        "required": [
-          "elapsed_seconds"
-        ],
-        "title": "HeartbeatIn",
-        "description": "FR-PAPER-12: the client's accumulated active seconds for a session."
-      },
       "HeartbeatOut": {
         "properties": {
           "session_id": {
@@ -10209,6 +10251,17 @@
         "title": "_ClassMemberIn",
         "description": "Request body for adding a class member (POST /classes/{id}/members).\n\nDefined inline rather than in schemas/admin.py to keep this task's diff\nto the router + main + tests only, per the task brief."
       },
+      "app__api__papers__HeartbeatIn": {
+        "properties": {
+          "elapsed_seconds": {
+            "type": "integer",
+            "title": "Elapsed Seconds",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "HeartbeatIn"
+      },
       "app__schemas__admin__FeedbackOut": {
         "properties": {
           "id": {
@@ -10501,6 +10554,21 @@
         ],
         "title": "SelfAssessmentIn",
         "description": "FR-ESSAY-03: learner self-assesses an essay answer after finishing."
+      },
+      "app__schemas__practice__HeartbeatIn": {
+        "properties": {
+          "elapsed_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Elapsed Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "elapsed_seconds"
+        ],
+        "title": "HeartbeatIn",
+        "description": "FR-PAPER-12: the client's accumulated active seconds for a session."
       },
       "app__schemas__practice__QuestionDeliveryOut": {
         "properties": {

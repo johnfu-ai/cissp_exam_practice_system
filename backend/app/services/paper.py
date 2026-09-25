@@ -105,8 +105,9 @@ def list_papers(
     stmt = stmt.order_by(Paper.created_at.asc())
     papers = list(session.execute(stmt).scalars().all())
 
-    # Caller's attempt stats (per paper): practice attempts + finished exams
-    # with best raw score.
+    # Caller's attempt stats (per paper): FINISHED practice attempts
+    # (v1.7 — in-progress/abandoned don't count) + finished exams with best
+    # raw score.
     practice_counts: dict = {}
     exam_stats: dict = {}
     if user_id is not None and papers:
@@ -115,6 +116,7 @@ def list_papers(
             select(PracticeSession).where(
                 PracticeSession.user_id == user_id,
                 PracticeSession.organization_id == org_id,
+                PracticeSession.status == PracticeSessionStatus.completed,
             )
         ).scalars().all():
             pid = (ps.config or {}).get("paper_id")
@@ -224,6 +226,37 @@ def _paper_raw_score(es: ExamSession) -> int:
     return int(correct)
 
 
+def _abandon_in_progress(session: Session, *, paper_id, user_id, org_id, mode: str):
+    """v1.7 FR-PAPER-12: 「重新开始」— abandon the user's previous in-progress
+    sessions for the SAME paper+mode so they never linger in the resume list
+    or inflate attempt counts. The other mode is untouched."""
+    if mode == "practice":
+        for ps in session.execute(
+            select(PracticeSession).where(
+                PracticeSession.user_id == user_id,
+                PracticeSession.organization_id == org_id,
+                PracticeSession.status == PracticeSessionStatus.in_progress,
+            )
+        ).scalars().all():
+            if (ps.config or {}).get("paper_id") != str(paper_id):
+                continue
+            ps.status = PracticeSessionStatus.abandoned
+            ps.ended_at = datetime.now(timezone.utc)
+    else:
+        for es in session.execute(
+            select(ExamSession).where(
+                ExamSession.user_id == user_id,
+                ExamSession.organization_id == org_id,
+                ExamSession.status == ExamSessionStatus.in_progress,
+            )
+        ).scalars().all():
+            if (es.config or {}).get("paper_id") != str(paper_id):
+                continue
+            es.status = ExamSessionStatus.aborted
+            es.ended_at = datetime.now(timezone.utc)
+    session.flush()
+
+
 def create_paper_session(
     session: Session, *, paper_id, org_id, actor_id, mode: str, language_mode=None
 ):
@@ -241,6 +274,12 @@ def create_paper_session(
     question_ids = [str(pq.question_id) for pq in pqs]
     scores = [pq.score for pq in pqs]
     resolved_mode = resolve_mode(session, actor_id, language_mode)
+    # v1.7 FR-PAPER-12: 「重新开始」— abandon the caller's previous
+    # in-progress session for the SAME paper+mode (other mode untouched)
+    _abandon_in_progress(
+        session, paper_id=paper.id, user_id=actor_id, org_id=org_id, mode=mode
+    )
+    started = datetime.now(timezone.utc)
 
     if mode == "practice":
         ps = PracticeSession(
@@ -257,6 +296,9 @@ def create_paper_session(
                 "language_mode": resolved_mode,
                 "shuffle_options": False,
                 "question_ids": question_ids,
+                # v1.7 active-time clock (中断即停表 — no wall-clock fallback)
+                "elapsed_seconds": 0,
+                "last_seen_at": started.isoformat(),
             },
         )
         session.add(ps)
@@ -276,9 +318,9 @@ def create_paper_session(
     ).scalars().first()
     if bp is None:
         raise ValidationError("no current exam blueprint configured")
-    started = datetime.now(timezone.utc)
     duration = paper.duration_minutes or 60
-    deadline = started + timedelta(minutes=duration)
+    budget = duration * 60
+    deadline = started + timedelta(seconds=budget)
     total_score = paper.total_score or sum(scores)
     config = {
         "paper_id": str(paper.id),
@@ -288,6 +330,11 @@ def create_paper_session(
         "question_ids": question_ids,
         "scores": scores,
         "deadline_at": deadline.isoformat(),
+        # v1.7 active-time budget: countdown = budget − accumulated active
+        # time; time away from the player does not consume it
+        "duration_budget_seconds": budget,
+        "elapsed_seconds": 0,
+        "last_seen_at": started.isoformat(),
         "max_score": total_score,
         "passing_score": round(total_score * _PAPER_PASS_RATIO),
         "duration_minutes": duration,
@@ -322,6 +369,15 @@ def _paper_exam_score(cfg: dict, qids: list, answered_correct_ids: set) -> int:
         if uuid.UUID(qid) in answered_correct_ids:
             total += scores[position] if position < len(scores) else 1
     return total
+
+
+def _attempt_duration_seconds(cfg: dict, started, ended, *, finished: bool) -> int | None:
+    """v1.7: 用时 = active accumulated time once the session is finished (no
+    away-grace appended); wall clock only for sessions without a heartbeat
+    clock (legacy) or still in progress."""
+    if finished and cfg.get("last_seen_at") and cfg.get("elapsed_seconds") is not None:
+        return int(cfg["elapsed_seconds"])
+    return _duration_seconds(started, ended)
 
 
 def _duration_seconds(started, ended) -> int | None:
@@ -392,7 +448,10 @@ def list_paper_sessions(
             "score": None,
             "max_score": None,
             "passed": None,
-            "duration_seconds": _duration_seconds(ps.started_at, ps.ended_at),
+            "duration_seconds": _attempt_duration_seconds(
+                ps.config or {}, ps.started_at, ps.ended_at,
+                finished=ps.status == PracticeSessionStatus.completed,
+            ),
         })
     for es in exam_rows:
         cfg = es.config or {}
@@ -418,7 +477,12 @@ def list_paper_sessions(
             "score": raw,
             "max_score": max_score,
             "passed": (raw >= passing) if passing is not None else None,
-            "duration_seconds": _duration_seconds(es.started_at, es.ended_at),
+            "duration_seconds": _attempt_duration_seconds(
+                es.config or {}, es.started_at, es.ended_at,
+                finished=es.status in (
+                    ExamSessionStatus.completed, ExamSessionStatus.auto_submitted,
+                ),
+            ),
         })
     out.sort(key=lambda x: x["started_at"] or "", reverse=True)
     return out
@@ -488,6 +552,23 @@ def _exam_state(db: Session, es: ExamSession) -> dict:
         ).scalars().all()
         if (pos := pos_of.get(str(a.question_id))) is not None
     ]
+    # v1.7: active-time budget model — remaining = budget − accumulated
+    # active time; time away does not consume it. deadline_at is refreshed
+    # to now + remaining so legacy wall-deadline clients stay correct.
+    elapsed: int | None = None
+    deadline_at = cfg.get("deadline_at")
+    budget = cfg.get("duration_budget_seconds")
+    if budget is not None:
+        elapsed = practice_elapsed_seconds(es)
+        if es.status == ExamSessionStatus.in_progress:
+            remaining = max(0, int(budget) - elapsed)
+            deadline_at = (
+                datetime.now(timezone.utc) + timedelta(seconds=remaining)
+            ).isoformat()
+            new_cfg = dict(cfg)
+            new_cfg["deadline_at"] = deadline_at
+            es.config = new_cfg
+            db.flush()
     return {
         "session_id": str(es.id),
         "kind": "exam",
@@ -498,9 +579,54 @@ def _exam_state(db: Session, es: ExamSession) -> dict:
         "answered_positions": sorted(answered),
         # exam mode never leaks correctness to the answer sheet mid-exam
         "wrong_positions": [],
-        "elapsed_seconds": None,
-        "deadline_at": cfg.get("deadline_at"),
+        "elapsed_seconds": elapsed,
+        "duration_budget_seconds": (int(budget) if budget is not None else None),
+        "deadline_at": deadline_at,
     }
+
+
+def heartbeat_session(
+    session: Session, *, session_id, user_id, org_id, elapsed_seconds: int
+) -> dict:
+    """v1.7 FR-PAPER-12: unified active-time heartbeat for every session the
+    paper player hosts — paper/bank practice sessions AND paper exam
+    sessions. Accumulates with the same monotonic clamp as the practice
+    endpoint; for budget exams it also refreshes ``deadline_at`` to
+    now + remaining (active-time semantics — away time does not count)."""
+    from app.services.practice import HEARTBEAT_MAX_STEP_SECONDS
+
+    ps, es = _load_owned(session, session_id, user_id=user_id, org_id=org_id)
+    target = ps if ps is not None else es
+    in_progress = (
+        PracticeSessionStatus.in_progress
+        if ps is not None else ExamSessionStatus.in_progress
+    )
+    if target.status != in_progress:
+        raise ConflictError("session is not in progress")
+    cfg = dict(target.config or {})
+    prev = int(cfg.get("elapsed_seconds") or 0)
+    cfg["elapsed_seconds"] = max(
+        prev, min(int(elapsed_seconds), prev + HEARTBEAT_MAX_STEP_SECONDS)
+    )
+    cfg["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+    if es is not None:
+        budget = cfg.get("duration_budget_seconds")
+        if budget is not None:
+            remaining = max(0, int(budget) - cfg["elapsed_seconds"])
+            cfg["deadline_at"] = (
+                datetime.now(timezone.utc) + timedelta(seconds=remaining)
+            ).isoformat()
+    target.config = cfg
+    session.flush()
+    out = {
+        "session_id": str(target.id),
+        "elapsed_seconds": cfg["elapsed_seconds"],
+    }
+    if es is not None and cfg.get("duration_budget_seconds") is not None:
+        out["remaining_seconds"] = max(
+            0, int(cfg["duration_budget_seconds"]) - cfg["elapsed_seconds"]
+        )
+    return out
 
 
 def list_in_progress(session: Session, *, user_id, org_id) -> list[dict]:
@@ -679,6 +805,11 @@ def _switch_from_practice(
             "question_ids": qids,
             "scores": scores,
             "deadline_at": (now + timedelta(seconds=remaining)).isoformat(),
+            # v1.7: the exam's active-time budget is the paper duration minus
+            # the practice time already actively spent
+            "duration_budget_seconds": remaining,
+            "elapsed_seconds": 0,
+            "last_seen_at": now.isoformat(),
             "max_score": total_score,
             "passing_score": round(total_score * _PAPER_PASS_RATIO),
             "duration_minutes": duration,
@@ -719,10 +850,16 @@ def _switch_from_exam(
     if not paper_id:
         raise ValidationError("session is not attached to a paper")
     now = datetime.now(timezone.utc)
-    started = es.started_at
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    elapsed = max(0, int((now - started).total_seconds()))
+    # v1.7: seed the practice clock with the exam's ACTIVE elapsed time
+    # (budget − remaining); wall clock only for legacy exams without a budget
+    budget = cfg.get("duration_budget_seconds")
+    if budget is not None:
+        elapsed = min(int(budget), practice_elapsed_seconds(es))
+    else:
+        started = es.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        elapsed = max(0, int((now - started).total_seconds()))
     qids = [str(q) for q in (cfg.get("question_ids") or [])]
 
     from app.services.wrong_book import record_outcome
@@ -743,6 +880,7 @@ def _switch_from_exam(
             "shuffle_options": False,
             "question_ids": qids,
             "elapsed_seconds": elapsed,
+            "last_seen_at": now.isoformat(),
             "switched_from": str(es.id),
         },
     )

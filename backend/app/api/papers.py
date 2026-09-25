@@ -25,6 +25,10 @@ class SwitchModeIn(BaseModel):
     mode: Literal["practice", "exam"]
 
 
+class HeartbeatIn(BaseModel):
+    elapsed_seconds: int = 0
+
+
 @banks_router.get("")
 def list_banks(
     current: CurrentUser = Depends(require_permission("practice:read")),
@@ -80,6 +84,29 @@ def switch_session_mode(
         raise HTTPException(status_code=404, detail=str(e))
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    session.commit()
+    return result
+
+
+@router.post("/sessions/{session_id}/heartbeat")
+def heartbeat_paper_session(
+    session_id: uuid.UUID,
+    payload: HeartbeatIn,
+    current: CurrentUser = Depends(require_permission("practice:read")),
+    session: Session = Depends(get_session),
+):
+    """FR-PAPER-12 (v1.7): unified active-time heartbeat — works for paper
+    practice, bank practice, AND paper exam sessions (the exam countdown is
+    budget − accumulated active time)."""
+    try:
+        result = svc.heartbeat_session(
+            session, session_id=session_id, user_id=current.user.id,
+            org_id=current.org_id, elapsed_seconds=payload.elapsed_seconds,
+        )
+    except NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ConflictError as e:
         raise HTTPException(status_code=409, detail=str(e))
     session.commit()

@@ -400,6 +400,15 @@ def _deadline(es: ExamSession) -> datetime:
 
 
 def _time_remaining_ms(es: ExamSession) -> int:
+    # v1.7 FR-PAPER-12: paper exams carry an ACTIVE-time budget — remaining =
+    # budget − accumulated active time, so time away from the player does not
+    # consume the countdown. Legacy sessions (no budget) keep the wall
+    # deadline semantics.
+    budget = (es.config or {}).get("duration_budget_seconds")
+    if budget is not None:
+        from app.services.practice import practice_elapsed_seconds
+
+        return max(0, (int(budget) - practice_elapsed_seconds(es)) * 1000)
     return max(
         0, int((_deadline(es) - datetime.now(timezone.utc)).total_seconds() * 1000)
     )
@@ -428,10 +437,15 @@ def _apply_wrong_book_outcomes(session: Session, es: ExamSession) -> None:
 def _auto_submit_if_expired(session: Session, es: ExamSession) -> bool:
     if es.status != ExamSessionStatus.in_progress:
         return False
-    if datetime.now(timezone.utc) < _deadline(es):
+    # expired = no remaining time (active budget for paper exams, wall
+    # deadline otherwise — v1.7)
+    if _time_remaining_ms(es) > 0:
         return False
     es.status = ExamSessionStatus.auto_submitted
-    es.ended_at = _deadline(es)
+    if (es.config or {}).get("duration_budget_seconds") is not None:
+        es.ended_at = datetime.now(timezone.utc)
+    else:
+        es.ended_at = _deadline(es)
     session.flush()
     _apply_wrong_book_outcomes(session, es)
     return True

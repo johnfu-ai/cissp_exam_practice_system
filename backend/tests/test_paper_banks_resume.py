@@ -19,8 +19,10 @@ from app.db.session import get_session
 from app.dependencies import get_lockout_store, get_refresh_store
 from app.models.auth import OrganizationMembership, Role
 from app.models.enums import (
+    ExamSessionStatus,
     ImportFormat,
     PaperStatus,
+    PracticeSessionStatus,
     QuestionType,
     RoleName,
 )
@@ -379,7 +381,10 @@ def test_state_exam_session_hides_correctness(client):
     # exam mode never leaks correctness to the answer sheet
     assert body["wrong_positions"] == []
     assert body["deadline_at"] is not None
-    assert body["elapsed_seconds"] is None
+    # v1.7: active-time budget model — the bundle carries the accumulated
+    # ACTIVE time + the budget so the client can derive the countdown
+    assert isinstance(body["elapsed_seconds"], int)
+    assert body["duration_budget_seconds"] == 30 * 60
 
 
 def test_state_bank_practice_session(client):
@@ -457,8 +462,6 @@ def test_in_progress_lists_paper_and_bank_sessions(client):
     bs = c.post("/api/practice/sessions", headers=h, json={
         "dataset_slug": "osg10", "count": 10,
     }).json()["id"]
-    finished = _start_practice(client, h, paper).json()["id"]
-    c.post(f"/api/practice/sessions/{finished}/finish", headers=h)
     plain = c.post("/api/practice/sessions", headers=h, json={
         "count": 10,
     }).json()["id"]  # neither paper nor bank -> excluded
@@ -468,7 +471,7 @@ def test_in_progress_lists_paper_and_bank_sessions(client):
     items = r.json()["items"]
     ids = [i["session_id"] for i in items]
     assert set(ids) == {ps, es, bs}
-    assert finished not in ids and plain not in ids
+    assert plain not in ids
     by_id = {i["session_id"]: i for i in items}
     assert by_id[ps]["kind"] == "practice"
     assert by_id[ps]["source"] == "paper"
@@ -478,6 +481,19 @@ def test_in_progress_lists_paper_and_bank_sessions(client):
     assert by_id[bs]["source"] == "bank"
     assert by_id[bs]["dataset_slug"] == "osg10"
     assert by_id[bs]["dataset_name"] == "CISSP OSG v10"
+
+    # v1.7: starting the SAME paper+mode again (重新开始) abandons the old
+    # in-progress session — it leaves the resume list immediately
+    finished = _start_practice(client, h, paper).json()["id"]
+    assert db.get(PracticeSession, uuid.UUID(ps)).status == \
+        PracticeSessionStatus.abandoned
+    c.post(f"/api/practice/sessions/{finished}/finish", headers=h)
+    ids2 = [
+        i["session_id"]
+        for i in c.get("/api/papers/sessions/in-progress", headers=h).json()["items"]
+    ]
+    assert set(ids2) == {es, bs}
+    assert finished not in ids2
 
     # another user sees nothing
     assert c.get("/api/papers/sessions/in-progress", headers=h2).json()["items"] == []
@@ -552,6 +568,199 @@ def test_paper_sessions_passing_exam_scores_pass(client):
     ex = next(it for it in items if it["id"] == sid)
     assert ex["score"] == 5
     assert ex["passed"] is True
+
+
+# --- FR-PAPER-12 (v1.7): active-time model + start-over abandonment --------------
+
+
+def test_paper_session_creation_inits_active_clock(client):
+    """v1.7: paper sessions are created with elapsed_seconds=0 + last_seen_at
+    so an un-opened or interrupted session NEVER falls back to the wall
+    clock (中断即停表)."""
+    c, store, db = client
+    h, user = _headers(db, store, email="init@example.com")
+    _seed_blueprint(db)
+    qs = [_seed_choice(db, user, stem=f"IN{i}") for i in range(2)]
+    paper = _seed_paper(db, user, qs, name="INIT paper")
+
+    psid = _start_practice(client, h, paper).json()["id"]
+    ps = db.get(PracticeSession, uuid.UUID(psid))
+    assert ps.config["elapsed_seconds"] == 0
+    assert ps.config["last_seen_at"]
+
+    esid = _start_practice(client, h, paper, mode="exam").json()["id"]
+    es = db.get(ExamSession, uuid.UUID(esid))
+    assert es.config["elapsed_seconds"] == 0
+    assert es.config["last_seen_at"]
+    assert es.config["duration_budget_seconds"] == 30 * 60  # paper duration
+
+    # even with started_at backdated 2h, active time does not run away
+    ps.started_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+    db.flush()
+    from app.services.practice import practice_elapsed_seconds
+    assert practice_elapsed_seconds(ps) < 300
+
+
+def test_unified_heartbeat_exam_accumulates_and_refreshes_deadline(client):
+    """POST /api/papers/sessions/{id}/heartbeat works for exam sessions too:
+    accumulates active time and refreshes deadline_at = now + remaining."""
+    c, store, db = client
+    h, user = _headers(db, store, email="xhb@example.com")
+    _seed_blueprint(db)
+    qs = [_seed_choice(db, user, stem=f"X{i}") for i in range(2)]
+    paper = _seed_paper(db, user, qs, name="XHB paper", duration=30)
+    sid = _start_practice(client, h, paper, mode="exam").json()["id"]
+
+    r = c.post(f"/api/papers/sessions/{sid}/heartbeat",
+               json={"elapsed_seconds": 60}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["elapsed_seconds"] == 60
+
+    st = c.get(f"/api/papers/sessions/{sid}/state", headers=h).json()
+    assert st["duration_budget_seconds"] == 30 * 60
+    assert st["elapsed_seconds"] >= 60
+    # deadline refreshed to now + remaining (~29 min out, not the original 30)
+    dl = dt.datetime.fromisoformat(st["deadline_at"])
+    remaining = (dl - dt.datetime.now(dt.timezone.utc)).total_seconds()
+    assert (30 * 60 - 90) <= remaining <= 30 * 60
+
+
+def test_exam_away_time_not_counted(client):
+    """Exam countdown = budget − ACTIVE elapsed; away time does not consume
+    the budget and the frozen deadline never expires on its own."""
+    c, store, db = client
+    h, user = _headers(db, store, email="xaway@example.com")
+    _seed_blueprint(db)
+    qs = [_seed_choice(db, user, stem=f"XA{i}") for i in range(2)]
+    paper = _seed_paper(db, user, qs, name="XAWAY paper", duration=30)
+    sid = _start_practice(client, h, paper, mode="exam").json()["id"]
+    c.post(f"/api/papers/sessions/{sid}/heartbeat",
+           json={"elapsed_seconds": 60}, headers=h)
+
+    # simulate the player being closed for an hour
+    from sqlalchemy.orm.attributes import flag_modified
+    es = db.get(ExamSession, uuid.UUID(sid))
+    es.config["last_seen_at"] = (
+        dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
+    ).isoformat()
+    flag_modified(es, "config")
+    db.flush()
+
+    st = c.get(f"/api/papers/sessions/{sid}/state", headers=h).json()
+    assert 60 <= st["elapsed_seconds"] < 120  # only the grace window counted
+    dl = dt.datetime.fromisoformat(st["deadline_at"])
+    remaining = (dl - dt.datetime.now(dt.timezone.utc)).total_seconds()
+    assert remaining > 25 * 60  # still ~29 min left despite 1h away
+    # delivery still works (not lazily auto-submitted by wall time)
+    assert c.get(f"/api/exam/sessions/{sid}/questions/0",
+                 headers=h).status_code == 200
+
+
+def test_exam_active_budget_exhaustion_auto_submits(client):
+    """Time-up is judged on ACTIVE time: when accumulated >= budget, delivery
+    lazily auto-submits the exam."""
+    c, store, db = client
+    h, user = _headers(db, store, email="xup@example.com")
+    _seed_blueprint(db)
+    q = _seed_choice(db, user, stem="XUP")
+    paper = _seed_paper(db, user, [q], name="XUP paper", duration=30)
+    sid = _start_practice(client, h, paper, mode="exam").json()["id"]
+    es = db.get(ExamSession, uuid.UUID(sid))
+    es.config["elapsed_seconds"] = 30 * 60  # budget exhausted
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(es, "config")
+    db.flush()
+
+    r = c.get(f"/api/exam/sessions/{sid}/questions/0", headers=h)
+    assert r.status_code == 409
+    assert db.get(ExamSession, uuid.UUID(sid)).status == \
+        ExamSessionStatus.auto_submitted
+
+
+def test_start_over_abandons_previous_in_progress(client):
+    """v1.7: creating a new paper session abandons the user's previous
+    in-progress session for the SAME paper+mode (重新开始即废弃)."""
+    c, store, db = client
+    h, user = _headers(db, store, email="so@example.com")
+    _seed_blueprint(db)
+    qs = [_seed_choice(db, user, stem=f"SO{i}") for i in range(2)]
+    paper = _seed_paper(db, user, qs, name="SO paper")
+
+    old_p = _start_practice(client, h, paper).json()["id"]
+    old_e = _start_practice(client, h, paper, mode="exam").json()["id"]
+    new_p = _start_practice(client, h, paper).json()["id"]
+
+    assert db.get(PracticeSession, uuid.UUID(old_p)).status == \
+        PracticeSessionStatus.abandoned
+    # a different MODE is untouched
+    assert db.get(ExamSession, uuid.UUID(old_e)).status == \
+        ExamSessionStatus.in_progress
+    assert db.get(PracticeSession, uuid.UUID(new_p)).status == \
+        PracticeSessionStatus.in_progress
+
+
+def test_paper_attempts_count_only_finished(client):
+    """v1.7: the 已考 N 次 badge counts only finished sessions — in-progress
+    and abandoned practice sessions no longer inflate it."""
+    c, store, db = client
+    h, user = _headers(db, store, email="cnt@example.com")
+    _seed_blueprint(db)
+    qs = [_seed_choice(db, user, stem=f"CN{i}") for i in range(2)]
+    paper = _seed_paper(db, user, qs, name="CNT paper")
+
+    finished = _start_practice(client, h, paper).json()["id"]
+    c.post(f"/api/practice/sessions/{finished}/finish", headers=h)
+    _start_practice(client, h, paper)  # stays in_progress
+    _start_practice(client, h, paper)  # becomes abandoned by the next start
+
+    items = c.get("/api/papers", headers=h).json()["items"]
+    mine = next(p for p in items if p["id"] == str(paper.id))
+    assert mine["attempts"] == 1
+
+
+def test_records_duration_uses_active_time(client):
+    """做题记录「用时」= active accumulated time for finished sessions (no
+    away-time grace appended)."""
+    c, store, db = client
+    h, user = _headers(db, store, email="dur@example.com")
+    _seed_blueprint(db)
+    q = _seed_choice(db, user, stem="DUR")
+    paper = _seed_paper(db, user, [q], name="DUR paper")
+    sid = _start_practice(client, h, paper, mode="exam").json()["id"]
+    es = db.get(ExamSession, uuid.UUID(sid))
+    from sqlalchemy.orm.attributes import flag_modified
+    es.config["elapsed_seconds"] = 600
+    flag_modified(es, "config")
+    es.status = ExamSessionStatus.completed
+    es.ended_at = dt.datetime.now(dt.timezone.utc)
+    db.flush()
+
+    rows = c.get(f"/api/papers/{paper.id}/sessions", headers=h).json()["items"]
+    row = next(r for r in rows if r["id"] == sid)
+    assert row["duration_seconds"] == 600
+
+
+def test_switch_exam_to_practice_seeds_active_elapsed(client):
+    """exam→practice conversion seeds the practice clock with the exam's
+    ACTIVE elapsed time, not the wall clock."""
+    c, store, db = client
+    h, user = _headers(db, store, email="sw2@example.com")
+    _seed_blueprint(db)
+    qs = [_seed_choice(db, user, stem=f"SW{i}") for i in range(2)]
+    paper = _seed_paper(db, user, qs, name="SW2 paper", duration=30)
+    sid = _start_practice(client, h, paper, mode="exam").json()["id"]
+    # two heartbeats (single reports are clamped to +300s)
+    c.post(f"/api/papers/sessions/{sid}/heartbeat",
+           json={"elapsed_seconds": 300}, headers=h)
+    c.post(f"/api/papers/sessions/{sid}/heartbeat",
+           json={"elapsed_seconds": 600}, headers=h)
+
+    r = c.post(f"/api/papers/sessions/{sid}/switch-mode",
+               json={"mode": "practice"}, headers=h)
+    assert r.status_code == 200, r.text
+    pid = r.json()["session_id"]
+    ps = db.get(PracticeSession, uuid.UUID(pid))
+    assert 600 <= ps.config["elapsed_seconds"] < 720  # active, not wall
 
 
 # --- FR-PAPER-11: mode switch ----------------------------------------------------
