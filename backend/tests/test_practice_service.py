@@ -545,7 +545,15 @@ def test_finish_summary(db_session):
     assert summary.domains[0].answered == 2
     assert summary.domains[0].correct == 1
     assert len(summary.wrong_questions) == 1
-    assert summary.wrong_questions[0].question_id == q2.id
+    # q1/q2 share created_at (same transaction -> now()), so "sequential"
+    # order is only stable WITHIN the frozen session config — assert against
+    # the config's fixed order: position 1 is whichever question was answered
+    # wrong, not necessarily the second-created one.
+    import uuid as _uuid
+
+    assert summary.wrong_questions[0].question_id == _uuid.UUID(
+        s.config["question_ids"][1]
+    )
     assert db_session.get(PracticeSession, s.id).status == PracticeSessionStatus.completed
 
 

@@ -234,7 +234,14 @@ def _order_questions(
         return list(session.execute(
             select(Question.id)
             .where(Question.id.in_(ids))
-            .order_by(Question.difficulty.asc().nulls_last(), Question.created_at.asc())
+            .order_by(
+                Question.difficulty.asc().nulls_last(),
+                # id tiebreaker: created_at is the transaction timestamp
+                # (now()), so questions created in one transaction tie and
+                # the order must not depend on the planner's whim
+                Question.created_at.asc(),
+                Question.id.asc(),
+            )
         ).scalars().all())
     if order_mode == "weak_first" and user_id is not None:
         # Prefer previously missed / low mastery, then unpracticed, then remainder.
@@ -277,7 +284,8 @@ def _order_questions(
         remainder = [
             qid for qid in ids if qid not in set(weak) and qid not in set(unpracticed)
         ]
-        # Preserve relative order within buckets via sequential created_at.
+        # Preserve relative order within buckets via sequential created_at
+        # (id tiebreaker — see the sequential branch).
         def _by_created(bucket: list[uuid.UUID]) -> list[uuid.UUID]:
             if not bucket:
                 return []
@@ -285,7 +293,7 @@ def _order_questions(
                 session.execute(
                     select(Question.id)
                     .where(Question.id.in_(bucket))
-                    .order_by(Question.created_at.asc())
+                    .order_by(Question.created_at.asc(), Question.id.asc())
                 ).scalars().all()
             )
 
@@ -300,7 +308,7 @@ def _order_questions(
     return list(session.execute(
         select(Question.id)
         .where(Question.id.in_(ids))
-        .order_by(Question.created_at.asc())
+        .order_by(Question.created_at.asc(), Question.id.asc())
     ).scalars().all())
 
 

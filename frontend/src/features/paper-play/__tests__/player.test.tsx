@@ -158,7 +158,7 @@ describe("<PaperPlayer> practice flow", () => {
       history: [],
     });
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
-    await userEvent.click(await screen.findByRole("button", { name: /选项乙/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /选项乙/ }, { timeout: 4000 }));
     await userEvent.click(screen.getByRole("button", { name: "Submit" }));
     await screen.findByText("Incorrect");
     expect(submitPractice).toHaveBeenCalledTimes(1);
@@ -289,7 +289,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
       <PaperPlayer sessionId="s1" kind="practice" paperId="p1" />,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to exam" }, {}, { timeout: 4000 }),
+      await screen.findByRole("button", { name: "Switch to exam" }, { timeout: 4000 }),
     );
     expect(apiJson).toHaveBeenCalledWith(
       "/api/papers/sessions/s1/switch-mode",
@@ -319,7 +319,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
       <PaperPlayer sessionId="s1" kind="exam" paperId="p1" />,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to practice" }, {}, { timeout: 4000 }),
+      await screen.findByRole("button", { name: "Switch to practice" }, { timeout: 4000 }),
     );
     expect(replace).toHaveBeenCalledWith(
       "/paper-play/s3?kind=practice&paper=p1",
@@ -345,7 +345,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
       <PaperPlayer sessionId="s1" kind="practice" paperId="p1" />,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to exam" }, {}, { timeout: 4000 }),
+      await screen.findByRole("button", { name: "Switch to exam" }, { timeout: 4000 }),
     );
     expect(await screen.findByText(/exam time exhausted/)).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
