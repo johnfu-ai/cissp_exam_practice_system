@@ -483,6 +483,77 @@ def test_in_progress_lists_paper_and_bank_sessions(client):
     assert c.get("/api/papers/sessions/in-progress", headers=h2).json()["items"] == []
 
 
+# --- FR-PAPER-14: 做题记录 (attempt history with stats) ---------------------------
+
+
+def test_paper_sessions_carry_attempt_stats(client):
+    """GET /api/papers/{id}/sessions items carry answered/score/max_score/
+    passed/duration_seconds for the attempt-history modal (FR-PAPER-14)."""
+    c, store, db = client
+    h, user = _headers(db, store, email="records@example.com")
+    _seed_blueprint(db)
+    q1 = _seed_choice(db, user, stem="R1", correct=0)
+    q2 = _seed_choice(db, user, stem="R2", correct=1)
+    paper = _seed_paper(db, user, [q1, q2], name="REC", scores=[2, 3])
+
+    # exam: q1 right (2 points), q2 wrong (0) -> 2/5, below the 60% line (3)
+    sid = _start_practice(client, h, paper, mode="exam").json()["id"]
+    c.post(f"/api/exam/sessions/{sid}/answers",
+           json={"position": 0, "selected": [0], "started_at": _now_iso()},
+           headers=h)
+    c.post(f"/api/exam/sessions/{sid}/answers",
+           json={"position": 1, "selected": [0], "started_at": _now_iso()},
+           headers=h)
+    fin = c.post(f"/api/exam/sessions/{sid}/finish", headers=h)
+    assert fin.status_code == 200, fin.text
+
+    # practice: in progress with one answer (no score concept)
+    pid = _start_practice(client, h, paper).json()["id"]
+    c.post(f"/api/practice/sessions/{pid}/answers",
+           json={"position": 0, "selected": [0], "started_at": _now_iso()},
+           headers=h)
+
+    r = c.get(f"/api/papers/{paper.id}/sessions", headers=h)
+    assert r.status_code == 200, r.text
+    by_id = {it["id"]: it for it in r.json()["items"]}
+    ex = by_id[sid]
+    assert ex["kind"] == "exam"
+    assert ex["answered"] == 2
+    assert ex["score"] == 2
+    assert ex["max_score"] == 5
+    assert ex["passed"] is False
+    assert isinstance(ex["duration_seconds"], int)
+    assert ex["duration_seconds"] >= 0
+    pr = by_id[pid]
+    assert pr["kind"] == "practice"
+    assert pr["answered"] == 1
+    assert pr["score"] is None
+    assert pr["max_score"] is None
+    assert pr["passed"] is None
+
+
+def test_paper_sessions_passing_exam_scores_pass(client):
+    """A passing paper exam reports passed=True with the raw point score."""
+    c, store, db = client
+    h, user = _headers(db, store, email="pass@example.com")
+    _seed_blueprint(db)
+    q1 = _seed_choice(db, user, stem="PS1", correct=0)
+    q2 = _seed_choice(db, user, stem="PS2", correct=0)
+    paper = _seed_paper(db, user, [q1, q2], name="PASS", scores=[2, 3])
+
+    sid = _start_practice(client, h, paper, mode="exam").json()["id"]
+    for pos in (0, 1):
+        c.post(f"/api/exam/sessions/{sid}/answers",
+               json={"position": pos, "selected": [0], "started_at": _now_iso()},
+               headers=h)
+    c.post(f"/api/exam/sessions/{sid}/finish", headers=h)
+
+    items = c.get(f"/api/papers/{paper.id}/sessions", headers=h).json()["items"]
+    ex = next(it for it in items if it["id"] == sid)
+    assert ex["score"] == 5
+    assert ex["passed"] is True
+
+
 # --- FR-PAPER-11: mode switch ----------------------------------------------------
 
 

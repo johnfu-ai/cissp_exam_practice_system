@@ -313,19 +313,73 @@ def create_paper_session(
     return es
 
 
+def _paper_exam_score(cfg: dict, qids: list, answered_correct_ids: set) -> int:
+    """FR-PAPER-14: raw paper score for an exam attempt — mirrors the report
+    (`_build_paper_report`): per-question points for correct answers."""
+    scores = list(cfg.get("scores") or [1] * len(qids))
+    total = 0
+    for position, qid in enumerate(qids):
+        if uuid.UUID(qid) in answered_correct_ids:
+            total += scores[position] if position < len(scores) else 1
+    return total
+
+
+def _duration_seconds(started, ended) -> int | None:
+    if started is None or ended is None:
+        return None
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    if ended.tzinfo is None:
+        ended = ended.replace(tzinfo=timezone.utc)
+    return max(0, int((ended - started).total_seconds()))
+
+
 def list_paper_sessions(
     session: Session, *, paper_id, user_id, org_id
 ) -> list[dict]:
+    """FR-PAPER-14: the caller's attempt history for one paper. Exam rows
+    carry the raw point score / pass verdict; practice rows leave them null."""
     _load_paper(session, paper_id, org_id=org_id)
     out: list[dict] = []
-    for ps in session.execute(
-        select(PracticeSession)
-        .where(PracticeSession.user_id == user_id)
-        .order_by(PracticeSession.started_at.desc())
-        .limit(50)
-    ).scalars().all():
-        if (ps.config or {}).get("paper_id") != str(paper_id):
-            continue
+
+    practice_rows = [
+        ps for ps in session.execute(
+            select(PracticeSession)
+            .where(PracticeSession.user_id == user_id)
+            .order_by(PracticeSession.started_at.desc())
+            .limit(50)
+        ).scalars().all()
+        if (ps.config or {}).get("paper_id") == str(paper_id)
+    ]
+    exam_rows = [
+        es for es in session.execute(
+            select(ExamSession)
+            .where(ExamSession.user_id == user_id)
+            .order_by(ExamSession.started_at.desc())
+            .limit(50)
+        ).scalars().all()
+        if (es.config or {}).get("paper_id") == str(paper_id)
+    ]
+
+    # one bulk answers query per kind (no per-session N+1)
+    practice_answer_counts: dict = {}
+    if practice_rows:
+        for sid, n in session.execute(
+            select(PracticeAnswer.session_id, func.count())
+            .where(PracticeAnswer.session_id.in_([p.id for p in practice_rows]))
+            .group_by(PracticeAnswer.session_id)
+        ).all():
+            practice_answer_counts[sid] = n
+    exam_answers: dict = {}
+    if exam_rows:
+        for a in session.execute(
+            select(ExamAnswer).where(
+                ExamAnswer.session_id.in_([e.id for e in exam_rows])
+            )
+        ).scalars().all():
+            exam_answers.setdefault(a.session_id, []).append(a)
+
+    for ps in practice_rows:
         out.append({
             "id": str(ps.id),
             "kind": "practice",
@@ -334,15 +388,24 @@ def list_paper_sessions(
             "correct_count": ps.correct_count,
             "started_at": ps.started_at.isoformat() if ps.started_at else None,
             "ended_at": ps.ended_at.isoformat() if ps.ended_at else None,
+            "answered": practice_answer_counts.get(ps.id, 0),
+            "score": None,
+            "max_score": None,
+            "passed": None,
+            "duration_seconds": _duration_seconds(ps.started_at, ps.ended_at),
         })
-    for es in session.execute(
-        select(ExamSession)
-        .where(ExamSession.user_id == user_id)
-        .order_by(ExamSession.started_at.desc())
-        .limit(50)
-    ).scalars().all():
-        if (es.config or {}).get("paper_id") != str(paper_id):
-            continue
+    for es in exam_rows:
+        cfg = es.config or {}
+        qids = list(cfg.get("question_ids") or [])
+        answers = exam_answers.get(es.id, [])
+        correct_ids = {a.question_id for a in answers if a.is_correct}
+        raw = _paper_exam_score(cfg, qids, correct_ids)
+        max_score = cfg.get("max_score") or (
+            sum(cfg.get("scores") or []) if cfg.get("scores") else None
+        )
+        passing = cfg.get("passing_score") or (
+            round(max_score * _PAPER_PASS_RATIO) if max_score else None
+        )
         out.append({
             "id": str(es.id),
             "kind": "exam",
@@ -351,6 +414,11 @@ def list_paper_sessions(
             "correct_count": es.correct_count,
             "started_at": es.started_at.isoformat() if es.started_at else None,
             "ended_at": es.ended_at.isoformat() if es.ended_at else None,
+            "answered": len(answers),
+            "score": raw,
+            "max_score": max_score,
+            "passed": (raw >= passing) if passing is not None else None,
+            "duration_seconds": _duration_seconds(es.started_at, es.ended_at),
         })
     out.sort(key=lambda x: x["started_at"] or "", reverse=True)
     return out
