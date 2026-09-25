@@ -231,9 +231,12 @@ jobs:
         working-directory: backend
         run: |
           # Mirror the dev compose bind-mount of ./docs/questions so the
-          # seed registers mockpapers and the ETL can read it from backend CWD.
+          # seed registers mockpapers and the ETL can read it from backend CWD
+          # (absolute target — a relative one from backend/docs points at
+          # itself).
           mkdir -p docs
-          ln -sfn ../docs/questions docs/questions
+          ln -sfn "${GITHUB_WORKSPACE}/docs/questions" docs/questions
+          ls docs/questions
           alembic upgrade head
           python -m app.db.seed
           uvicorn app.main:app --host 127.0.0.1 --port 8000 &
