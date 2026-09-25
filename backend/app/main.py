@@ -13,7 +13,7 @@ from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.etl import router as etl_router
 from app.api.exam import router as exam_router
-from app.api.papers import router as papers_router
+from app.api.papers import banks_router, router as papers_router
 from app.api.practice import router as practice_router
 from app.api.questions import router as questions_router
 from app.api.taxonomy import router as taxonomy_router
@@ -183,6 +183,7 @@ def create_app() -> FastAPI:
     app.include_router(questions_router)
     app.include_router(practice_router)
     app.include_router(papers_router)
+    app.include_router(banks_router)
     app.include_router(wrong_book_router)
     app.include_router(exam_router)
     app.include_router(admin_router)

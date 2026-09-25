@@ -495,7 +495,13 @@ def get_question_at(session: Session, *, session_id, position: int, user_id) -> 
         "elapsed_ms": elapsed_ms,
         "time_remaining_ms": _time_remaining_ms(es),
         "previous_answer": (
-            {"selected": prev.user_answer.get("selected")} if prev else None
+            {
+                "selected": prev.user_answer.get("selected"),
+                # FR-PAPER-12: essay answers re-hydrate their saved text on re-entry
+                "text": prev.user_answer.get("text"),
+            }
+            if prev
+            else None
         ),
     }
 

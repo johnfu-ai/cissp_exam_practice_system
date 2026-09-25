@@ -48,6 +48,64 @@ from app.services.snapshot import localized_from_snapshot, snapshot_question
 
 from app.services.errors import ConflictError, NotFound, ValidationError
 
+# FR-PAPER-12 heartbeat knobs: away time beyond the grace window is not
+# counted, and a single report may not advance the accumulated clock by more
+# than MAX_STEP (monotonic anti-runaway clamp).
+HEARTBEAT_GRACE_SECONDS = 120
+HEARTBEAT_MAX_STEP_SECONDS = 300
+
+
+def practice_elapsed_seconds(ps: PracticeSession) -> int:
+    """Active practice time for a session, in whole seconds (FR-PAPER-12).
+
+    * heartbeated sessions: accumulated ``config.elapsed_seconds`` plus the
+      still-active window since ``last_seen_at`` (≤ grace) — time away from
+      the player does not count;
+    * sessions that never heartbeated: wall clock since ``started_at``
+      (the pre-v1.5 behavior, kept for older clients).
+    """
+    cfg = ps.config or {}
+    base = int(cfg.get("elapsed_seconds") or 0)
+    now = datetime.now(timezone.utc)
+    last_seen = cfg.get("last_seen_at")
+    if last_seen:
+        try:
+            ls = datetime.fromisoformat(last_seen)
+        except (TypeError, ValueError):
+            return base
+        if ls.tzinfo is None:
+            ls = ls.replace(tzinfo=timezone.utc)
+        delta = (now - ls).total_seconds()
+        if 0 <= delta <= HEARTBEAT_GRACE_SECONDS:
+            return base + int(delta)
+        return base
+    started = ps.started_at
+    if started is None:
+        return base
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return max(base, int((now - started).total_seconds()))
+
+
+def heartbeat(
+    session: Session, *, session_id, user_id, elapsed_seconds: int
+) -> dict:
+    """FR-PAPER-12: record the client's elapsed-time report on the session
+    config. Monotonic; a single report advances the accumulated value by at
+    most ``HEARTBEAT_MAX_STEP_SECONDS``."""
+    ps = _load_session(session, session_id, user_id)
+    if ps.status != PracticeSessionStatus.in_progress:
+        raise ConflictError("session is not in progress")
+    cfg = dict(ps.config or {})
+    prev = int(cfg.get("elapsed_seconds") or 0)
+    cfg["elapsed_seconds"] = max(
+        prev, min(int(elapsed_seconds), prev + HEARTBEAT_MAX_STEP_SECONDS)
+    )
+    cfg["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+    ps.config = cfg
+    session.flush()
+    return {"session_id": str(ps.id), "elapsed_seconds": cfg["elapsed_seconds"]}
+
 
 def _candidate_question_ids(
     session: Session, *, org_id, payload: SessionCreateIn, mode: str
@@ -96,6 +154,16 @@ def _candidate_question_ids(
         stmt = stmt.where(Question.question_type == payload.question_type)
     if payload.difficulty is not None:
         stmt = stmt.where(Question.difficulty == payload.difficulty)
+    if payload.dataset_slug is not None:
+        # FR-PAPER-10: free-practice bank scoping — questions whose external
+        # key belongs to the dataset (e.g. OSG v10).
+        from app.models.etl import QuestionExternalKey
+
+        stmt = stmt.where(Question.id.in_(
+            select(QuestionExternalKey.question_id).where(
+                QuestionExternalKey.dataset_slug == payload.dataset_slug
+            )
+        ))
     return [row[0] for row in session.execute(stmt).all()]
 
 
@@ -267,6 +335,8 @@ def create_session(
             "language_mode": mode,
             "shuffle_options": payload.shuffle_options,
             "question_ids": [str(qid) for qid in ordered],
+            **({"dataset_slug": payload.dataset_slug}
+               if payload.dataset_slug is not None else {}),
         },
     )
     session.add(ps)
@@ -310,12 +380,7 @@ def get_question_at(
         raise NotFound("question no longer available")
     options = _options_for(session, question.id)
     translations = translations_for(session, question.id)
-    started = ps.started_at
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    elapsed_ms = int(
-        (datetime.now(timezone.utc) - started).total_seconds() * 1000
-    )
+    elapsed_ms = practice_elapsed_seconds(ps) * 1000
     prev = session.execute(
         select(PracticeAnswer).where(
             PracticeAnswer.session_id == ps.id,
@@ -344,6 +409,7 @@ def get_question_at(
         "previous_answer": (
             {
                 "selected": prev.user_answer.get("selected"),
+                "text": prev.user_answer.get("text"),
                 "is_correct": prev.is_correct,
             }
             if prev

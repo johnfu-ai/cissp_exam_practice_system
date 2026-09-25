@@ -491,7 +491,8 @@ def test_delivery_returns_previous_answer(db_session):
     out = svc.get_question_at(
         db_session, session_id=s.id, position=0, user_id=actor.id
     )
-    assert out["previous_answer"] == {"selected": [1]}
+    # FR-PAPER-12: `text` rides along so essay answers re-hydrate on re-entry
+    assert out["previous_answer"] == {"selected": [1], "text": None}
 
 
 def test_lazy_auto_submit_after_deadline(db_session):

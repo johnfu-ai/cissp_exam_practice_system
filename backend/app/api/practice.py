@@ -10,6 +10,8 @@ from app.dependencies import CurrentUser, require_permission
 from app.schemas.practice import (
     AnswerIn,
     AnswerResultOut,
+    HeartbeatIn,
+    HeartbeatOut,
     QuestionDeliveryOut,
     QuestionStateIn,
     RelatedQuestionOut,
@@ -117,6 +119,28 @@ def self_assess(
         raise HTTPException(status_code=404, detail="session not found")
     except svc.ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except svc.ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    session.commit()
+    return result
+
+
+@router.post("/sessions/{session_id}/heartbeat", response_model=HeartbeatOut)
+def heartbeat(
+    session_id: uuid.UUID,
+    body: HeartbeatIn,
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("practice:read")),
+):
+    """FR-PAPER-12: report the client's active elapsed seconds so practice
+    time survives exits (away time is not counted)."""
+    try:
+        result = svc.heartbeat(
+            session, session_id=session_id, user_id=current.user.id,
+            elapsed_seconds=body.elapsed_seconds,
+        )
+    except svc.NotFound:
+        raise HTTPException(status_code=404, detail="session not found")
     except svc.ConflictError as e:
         raise HTTPException(status_code=409, detail=str(e))
     session.commit()

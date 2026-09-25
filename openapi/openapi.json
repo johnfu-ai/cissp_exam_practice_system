@@ -3639,6 +3639,65 @@
         }
       }
     },
+    "/api/practice/sessions/{session_id}/heartbeat": {
+      "post": {
+        "tags": [
+          "practice"
+        ],
+        "summary": "Heartbeat",
+        "description": "FR-PAPER-12: report the client's active elapsed seconds so practice\ntime survives exits (away time is not counted).",
+        "operationId": "heartbeat_api_practice_sessions__session_id__heartbeat_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/practice/sessions/{session_id}/pause": {
       "post": {
         "tags": [
@@ -3940,6 +3999,135 @@
         }
       }
     },
+    "/api/papers/sessions/in-progress": {
+      "get": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "List In Progress Sessions",
+        "description": "FR-PAPER-12: the caller's resumable paper/bank sessions.",
+        "operationId": "list_in_progress_sessions_api_papers_sessions_in_progress_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/papers/sessions/{session_id}/state": {
+      "get": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "Get Session State",
+        "description": "FR-PAPER-12: resume bundle — answer-sheet state, progress, time.",
+        "operationId": "get_session_state_api_papers_sessions__session_id__state_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/papers/sessions/{session_id}/switch-mode": {
+      "post": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "Switch Session Mode",
+        "description": "FR-PAPER-11: convert an in-progress paper session to the other mode,\npreserving answers, snapshots, and time.",
+        "operationId": "switch_session_mode_api_papers_sessions__session_id__switch_mode_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchModeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/papers": {
       "get": {
         "tags": [
@@ -4132,6 +4320,31 @@
             }
           }
         }
+      }
+    },
+    "/api/banks": {
+      "get": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "List Banks",
+        "description": "FR-PAPER-10: free-practice banks (datasets carrying published\nquestions), e.g. OSG v10 alongside the mock-paper papers.",
+        "operationId": "list_banks_api_banks_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
       }
     },
     "/api/wrong-book": {
@@ -7786,6 +7999,40 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HeartbeatIn": {
+        "properties": {
+          "elapsed_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Elapsed Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "elapsed_seconds"
+        ],
+        "title": "HeartbeatIn",
+        "description": "FR-PAPER-12: the client's accumulated active seconds for a session."
+      },
+      "HeartbeatOut": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "elapsed_seconds": {
+            "type": "integer",
+            "title": "Elapsed Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "elapsed_seconds"
+        ],
+        "title": "HeartbeatOut"
+      },
       "KnowledgePointIn": {
         "properties": {
           "name": {
@@ -9374,6 +9621,17 @@
             ],
             "title": "Tag Id"
           },
+          "dataset_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Slug"
+          },
           "shuffle_options": {
             "type": "boolean",
             "title": "Shuffle Options",
@@ -9505,6 +9763,23 @@
           "wrong_questions"
         ],
         "title": "SessionSummaryOut"
+      },
+      "SwitchModeIn": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "practice",
+              "exam"
+            ],
+            "title": "Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "SwitchModeIn"
       },
       "TagIn": {
         "properties": {

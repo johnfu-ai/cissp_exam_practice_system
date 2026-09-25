@@ -10,7 +10,7 @@ scoring (FR-PAPER-06).
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.queries import not_deleted
@@ -23,15 +23,64 @@ from app.models.enums import (
     QuestionStatus,
     QuestionType,
 )
-from app.models.exam import ExamSession
+from app.models.exam import ExamAnswer, ExamSession
 from app.models.paper import Paper, PaperQuestion
-from app.models.practice import PracticeSession
+from app.models.practice import PracticeAnswer, PracticeSession
 from app.models.taxonomy import ExamBlueprint
 from app.services.audit import log_audit
-from app.services.errors import NotFound, ValidationError
+from app.services.errors import ConflictError, NotFound, ValidationError
 from app.services.i18n import resolve_mode
+from app.services.practice import practice_elapsed_seconds
 
 _PAPER_PASS_RATIO = 0.6
+
+
+def list_banks(session: Session, *, org_id) -> list[dict]:
+    """FR-PAPER-10: learner-facing free-practice banks — datasets that carry
+    published questions. Datasets whose questions all sit in draft (e.g. a
+    paper-only import) are covered by their paper cards and are omitted."""
+    from app.models.etl import EtlDataset, QuestionExternalKey
+    from app.models.question import Question
+
+    out: list[dict] = []
+    for ds in session.execute(
+        select(EtlDataset)
+        .where(EtlDataset.organization_id == org_id)
+        .order_by(EtlDataset.created_at.asc())
+    ).scalars().all():
+        published = session.execute(
+            select(func.count())
+            .select_from(Question)
+            .join(
+                QuestionExternalKey,
+                QuestionExternalKey.question_id == Question.id,
+            )
+            .where(
+                QuestionExternalKey.dataset_slug == ds.slug,
+                Question.status == QuestionStatus.published,
+                not_deleted(Question),
+            )
+        ).scalar_one()
+        if published == 0:
+            continue
+        has_papers = session.execute(
+            select(func.count())
+            .select_from(Paper)
+            .where(
+                Paper.dataset_slug == ds.slug,
+                Paper.organization_id == org_id,
+                Paper.status == PaperStatus.published,
+                not_deleted(Paper),
+            )
+        ).scalar_one() > 0
+        out.append({
+            "dataset_slug": ds.slug,
+            "name": ds.name,
+            "question_count": published,
+            "languages": list(ds.languages or []),
+            "has_papers": has_papers,
+        })
+    return out
 
 
 def _load_paper(session: Session, paper_id, *, org_id, published_only=True) -> Paper:
@@ -305,3 +354,357 @@ def list_paper_sessions(
         })
     out.sort(key=lambda x: x["started_at"] or "", reverse=True)
     return out
+
+
+# --- FR-PAPER-12: resume bundle -------------------------------------------------
+
+
+def _positions_of(qids: list) -> dict:
+    return {str(q): i for i, q in enumerate(qids)}
+
+
+def session_state(session: Session, *, session_id, user_id, org_id) -> dict:
+    """Resume bundle for the paper player: answer-sheet state, progress, and
+    time. Accepts paper practice/exam sessions and bank (dataset) practice
+    sessions; never reveals another user's session (404)."""
+    ps = session.get(PracticeSession, session_id)
+    if ps is not None:
+        if ps.user_id != user_id or ps.organization_id != org_id:
+            raise NotFound(f"session {session_id} not found")
+        return _practice_state(session, ps)
+    es = session.get(ExamSession, session_id)
+    if es is not None:
+        if es.user_id != user_id or es.organization_id != org_id:
+            raise NotFound(f"session {session_id} not found")
+        return _exam_state(session, es)
+    raise NotFound(f"session {session_id} not found")
+
+
+def _practice_state(db: Session, ps: PracticeSession) -> dict:
+    cfg = ps.config or {}
+    qids = list(cfg.get("question_ids") or [])
+    pos_of = _positions_of(qids)
+    answered: list[int] = []
+    wrong: list[int] = []
+    for a in db.execute(
+        select(PracticeAnswer).where(PracticeAnswer.session_id == ps.id)
+    ).scalars().all():
+        pos = pos_of.get(str(a.question_id))
+        if pos is None:
+            continue
+        answered.append(pos)
+        if a.is_correct is False:
+            wrong.append(pos)
+    return {
+        "session_id": str(ps.id),
+        "kind": "practice",
+        "status": ps.status.value,
+        "paper_id": cfg.get("paper_id"),
+        "paper_name": cfg.get("paper_name"),
+        "total": len(qids),
+        "answered_positions": sorted(answered),
+        "wrong_positions": sorted(wrong),
+        "elapsed_seconds": practice_elapsed_seconds(ps),
+        "deadline_at": None,
+    }
+
+
+def _exam_state(db: Session, es: ExamSession) -> dict:
+    cfg = es.config or {}
+    qids = list(cfg.get("question_ids") or [])
+    pos_of = _positions_of(qids)
+    answered = [
+        pos
+        for a in db.execute(
+            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+        ).scalars().all()
+        if (pos := pos_of.get(str(a.question_id))) is not None
+    ]
+    return {
+        "session_id": str(es.id),
+        "kind": "exam",
+        "status": es.status.value,
+        "paper_id": cfg.get("paper_id"),
+        "paper_name": cfg.get("paper_name"),
+        "total": len(qids),
+        "answered_positions": sorted(answered),
+        # exam mode never leaks correctness to the answer sheet mid-exam
+        "wrong_positions": [],
+        "elapsed_seconds": None,
+        "deadline_at": cfg.get("deadline_at"),
+    }
+
+
+def list_in_progress(session: Session, *, user_id, org_id) -> list[dict]:
+    """FR-PAPER-12: the caller's resumable sessions — in-progress paper
+    practice/exam sessions plus bank (dataset) practice sessions, newest
+    first. Plain ad-hoc practice sessions (no paper, no dataset) are omitted."""
+    from app.models.etl import EtlDataset
+
+    out: list[dict] = []
+    dataset_slugs: set[str] = set()
+    rows: list[tuple] = []
+
+    for ps in session.execute(
+        select(PracticeSession).where(
+            PracticeSession.user_id == user_id,
+            PracticeSession.organization_id == org_id,
+            PracticeSession.status == PracticeSessionStatus.in_progress,
+        )
+    ).scalars().all():
+        rows.append((ps.started_at, "practice", ps))
+    for es in session.execute(
+        select(ExamSession).where(
+            ExamSession.user_id == user_id,
+            ExamSession.organization_id == org_id,
+            ExamSession.status == ExamSessionStatus.in_progress,
+        )
+    ).scalars().all():
+        rows.append((es.started_at, "exam", es))
+    rows.sort(key=lambda r: r[0] or datetime.min.replace(tzinfo=timezone.utc),
+              reverse=True)
+
+    for started, kind, s in rows:
+        cfg = s.config or {}
+        paper_id = cfg.get("paper_id")
+        dataset_slug = cfg.get("dataset_slug")
+        if not paper_id and not dataset_slug:
+            continue
+        if dataset_slug:
+            dataset_slugs.add(dataset_slug)
+        out.append({
+            "session_id": str(s.id),
+            "kind": kind,
+            "source": "paper" if paper_id else "bank",
+            "paper_id": paper_id,
+            "paper_name": cfg.get("paper_name"),
+            "dataset_slug": dataset_slug,
+            "dataset_name": None,
+            "total": len(cfg.get("question_ids") or []),
+            "answered": 0,
+            "started_at": started.isoformat() if started else None,
+            "_model": s,
+        })
+
+    names: dict[str, str] = {}
+    if dataset_slugs:
+        for ds in session.execute(
+            select(EtlDataset).where(
+                EtlDataset.slug.in_(dataset_slugs),
+                EtlDataset.organization_id == org_id,
+            )
+        ).scalars().all():
+            names[ds.slug] = ds.name
+
+    for entry in out:
+        entry["dataset_name"] = names.get(entry["dataset_slug"])
+        if entry["dataset_name"] is None and entry["dataset_slug"]:
+            entry["dataset_name"] = entry["dataset_slug"]
+        s = entry.pop("_model")
+        if entry["kind"] == "practice":
+            entry["answered"] = session.execute(
+                select(func.count()).select_from(PracticeAnswer).where(
+                    PracticeAnswer.session_id == s.id
+                )
+            ).scalar_one()
+        else:
+            entry["answered"] = session.execute(
+                select(func.count()).select_from(ExamAnswer).where(
+                    ExamAnswer.session_id == s.id
+                )
+            ).scalar_one()
+    return out
+
+
+# --- FR-PAPER-11: practice ⇄ exam mode switch -----------------------------------
+
+
+def _switch_audit(session: Session, *, org_id, user_id, entity_type, entity_id,
+                  switched_from, mode):
+    log_audit(
+        session, action=AuditAction.edit, actor_id=user_id,
+        organization_id=org_id, entity_type=entity_type,
+        entity_id=str(entity_id),
+        details={"switched_from": str(switched_from), "mode": mode},
+    )
+
+
+def _load_owned(session: Session, session_id, *, user_id, org_id):
+    """Fetch a practice- or exam-session by id, enforcing ownership."""
+    ps = session.get(PracticeSession, session_id)
+    if ps is not None:
+        if ps.user_id != user_id or ps.organization_id != org_id:
+            raise NotFound(f"session {session_id} not found")
+        return ps, None
+    es = session.get(ExamSession, session_id)
+    if es is not None:
+        if es.user_id != user_id or es.organization_id != org_id:
+            raise NotFound(f"session {session_id} not found")
+        return None, es
+    raise NotFound(f"session {session_id} not found")
+
+
+def switch_mode(
+    session: Session, *, session_id, user_id, org_id, mode: str
+) -> dict:
+    """FR-PAPER-11: convert an in-progress paper session to the other mode.
+
+    The conversion creates a NEW session of the target kind over the same
+    question order, copies every existing answer (snapshots included), and
+    abandons the source session. Time is preserved: practice→exam sets the
+    deadline to the paper duration minus the accumulated practice time;
+    exam→practice seeds the practice heartbeat clock with the exam's elapsed
+    wall clock."""
+    if mode not in ("practice", "exam"):
+        raise ValidationError("mode must be practice or exam")
+    ps, es = _load_owned(session, session_id, user_id=user_id, org_id=org_id)
+    if ps is not None:
+        return _switch_from_practice(
+            session, ps=ps, user_id=user_id, org_id=org_id, mode=mode
+        )
+    return _switch_from_exam(
+        session, es=es, user_id=user_id, org_id=org_id, mode=mode
+    )
+
+
+def _switch_from_practice(
+    session: Session, *, ps: PracticeSession, user_id, org_id, mode: str
+) -> dict:
+    cfg = ps.config or {}
+    paper_id = cfg.get("paper_id")
+    if mode == "practice":
+        return {"session_id": str(ps.id), "kind": "practice", "paper_id": paper_id}
+    if ps.status != PracticeSessionStatus.in_progress:
+        raise ConflictError("session is not in progress")
+    if not paper_id:
+        raise ValidationError("session is not attached to a paper")
+    paper = _load_paper(session, uuid.UUID(paper_id), org_id=org_id)
+    qids = [str(q) for q in (cfg.get("question_ids") or [])]
+    score_of = {str(pq.question_id): pq.score for pq in paper.questions}
+    scores = [score_of.get(q, 1) for q in qids]
+    elapsed = practice_elapsed_seconds(ps)
+    duration = paper.duration_minutes or 60
+    remaining = duration * 60 - elapsed
+    if remaining <= 0:
+        raise ValidationError("exam time for this paper is already exhausted")
+
+    bp = session.execute(
+        select(ExamBlueprint).where(ExamBlueprint.is_current.is_(True))
+    ).scalars().first()
+    if bp is None:
+        raise ValidationError("no current exam blueprint configured")
+    now = datetime.now(timezone.utc)
+    total_score = paper.total_score or sum(scores)
+    es = ExamSession(
+        user_id=user_id,
+        organization_id=org_id,
+        blueprint_id=bp.id,
+        session_kind=ExamSessionKind.fixed,
+        status=ExamSessionStatus.in_progress,
+        total_questions=len(qids),
+        correct_count=0,
+        config={
+            "paper_id": paper_id,
+            "paper_name": paper.name,
+            "scoring": "paper",
+            "count": len(qids),
+            "question_ids": qids,
+            "scores": scores,
+            "deadline_at": (now + timedelta(seconds=remaining)).isoformat(),
+            "max_score": total_score,
+            "passing_score": round(total_score * _PAPER_PASS_RATIO),
+            "duration_minutes": duration,
+            "language_mode": cfg.get("language_mode", "en"),
+            "switched_from": str(ps.id),
+        },
+    )
+    session.add(es)
+    session.flush()
+    for a in session.execute(
+        select(PracticeAnswer).where(PracticeAnswer.session_id == ps.id)
+    ).scalars().all():
+        session.add(ExamAnswer(
+            session_id=es.id, user_id=user_id, question_id=a.question_id,
+            question_snapshot=a.question_snapshot,
+            options_snapshot=a.options_snapshot,
+            user_answer=a.user_answer, is_correct=a.is_correct,
+            time_spent_ms=a.time_spent_ms,
+        ))
+    ps.status = PracticeSessionStatus.abandoned
+    ps.ended_at = now
+    session.flush()
+    _switch_audit(session, org_id=org_id, user_id=user_id,
+                  entity_type="exam_session", entity_id=es.id,
+                  switched_from=ps.id, mode=mode)
+    return {"session_id": str(es.id), "kind": "exam", "paper_id": paper_id}
+
+
+def _switch_from_exam(
+    session: Session, *, es: ExamSession, user_id, org_id, mode: str
+) -> dict:
+    cfg = es.config or {}
+    paper_id = cfg.get("paper_id")
+    if mode == "exam":
+        return {"session_id": str(es.id), "kind": "exam", "paper_id": paper_id}
+    if es.status != ExamSessionStatus.in_progress:
+        raise ConflictError("session is not in progress")
+    if not paper_id:
+        raise ValidationError("session is not attached to a paper")
+    now = datetime.now(timezone.utc)
+    started = es.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    elapsed = max(0, int((now - started).total_seconds()))
+    qids = [str(q) for q in (cfg.get("question_ids") or [])]
+
+    from app.services.wrong_book import record_outcome
+
+    ps = PracticeSession(
+        user_id=user_id,
+        organization_id=org_id,
+        status=PracticeSessionStatus.in_progress,
+        total_questions=len(qids),
+        correct_count=0,
+        config={
+            "paper_id": paper_id,
+            "paper_name": cfg.get("paper_name"),
+            "subset": "paper",
+            "order_mode": "sequential",
+            "count": len(qids),
+            "language_mode": cfg.get("language_mode", "en"),
+            "shuffle_options": False,
+            "question_ids": qids,
+            "elapsed_seconds": elapsed,
+            "switched_from": str(es.id),
+        },
+    )
+    session.add(ps)
+    session.flush()
+    correct = 0
+    for a in session.execute(
+        select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+    ).scalars().all():
+        session.add(PracticeAnswer(
+            session_id=ps.id, user_id=user_id, question_id=a.question_id,
+            question_snapshot=a.question_snapshot,
+            options_snapshot=a.options_snapshot,
+            user_answer=a.user_answer, is_correct=a.is_correct,
+            time_spent_ms=a.time_spent_ms,
+        ))
+        if a.is_correct:
+            correct += 1
+        # judged copies feed the wrong book exactly like a practice submit
+        # (the abandoned exam never applies its own outcomes)
+        if a.is_correct is not None:
+            record_outcome(
+                session, user_id=user_id, question_id=a.question_id,
+                is_correct=a.is_correct,
+            )
+    ps.correct_count = correct
+    es.status = ExamSessionStatus.aborted
+    es.ended_at = now
+    session.flush()
+    _switch_audit(session, org_id=org_id, user_id=user_id,
+                  entity_type="practice_session", entity_id=ps.id,
+                  switched_from=es.id, mode=mode)
+    return {"session_id": str(ps.id), "kind": "practice", "paper_id": paper_id}

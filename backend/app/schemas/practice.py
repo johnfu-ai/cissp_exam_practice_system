@@ -31,6 +31,9 @@ class SessionCreateIn(BaseModel):
     question_type: str | None = None
     difficulty: int | None = None
     tag_id: uuid.UUID | None = None
+    # FR-PAPER-10: free-practice bank scoping — restrict candidates to the
+    # questions of one dataset (e.g. `osg10`), regardless of book/chapter links.
+    dataset_slug: str | None = None
     # §8.1 practice config: shuffle the display order of options per question.
     # The backend stores the flag; the frontend applies the display permutation
     # (selection/submit stay canonical order_index, so judging is unaffected).
@@ -46,6 +49,16 @@ class SessionOut(BaseModel):
     ended_at: datetime | None = None
     paused_at: datetime | None = None
     config: dict
+
+
+class HeartbeatIn(BaseModel):
+    """FR-PAPER-12: the client's accumulated active seconds for a session."""
+    elapsed_seconds: int = Field(ge=0)
+
+
+class HeartbeatOut(BaseModel):
+    session_id: uuid.UUID
+    elapsed_seconds: int
 
 
 class Localized(BaseModel):
