@@ -105,7 +105,11 @@ export function PaperPlayer({
         for (const p of st.wrong_positions) wrong[p] = true;
         setSheet({ answered, wrong, flagged: {} });
         if (st.kind === "practice" && st.elapsed_seconds != null) {
-          setStartedEpoch(Date.now() - st.elapsed_seconds * 1000);
+          const base = Date.now() - st.elapsed_seconds * 1000;
+          setStartedEpoch(base);
+          // seed in the same batch so the first resumed render already shows
+          // the carried-over base (the ticker effect re-syncs afterwards)
+          setElapsed(Date.now() - base);
         }
         if (st.kind === "exam" && st.deadline_at) {
           setDeadline(new Date(st.deadline_at).getTime());

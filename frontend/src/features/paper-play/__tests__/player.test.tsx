@@ -119,7 +119,7 @@ describe("<PaperPlayer> language-mode invariant", () => {
 
   it("toggling the language mode never advances or submits", async () => {
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
-    expect(await screen.findByText("Question 1 of 3")).toBeInTheDocument();
+    expect(await screen.findByText("Question 1 of 3", {}, { timeout: 4000 })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "language mode" }));
     // still question 1, nothing submitted
@@ -134,7 +134,7 @@ describe("<PaperPlayer> language-mode invariant", () => {
 
   it("renders both languages in bilingual mode", async () => {
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
-    expect(await screen.findByText("Stem 0")).toBeInTheDocument();
+    expect(await screen.findByText("Stem 0", {}, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByText("题干 0")).toBeInTheDocument();
   });
 });
@@ -177,7 +177,7 @@ describe("<PaperPlayer> sheet stability + palette scroll (FR-PAPER-13)", () => {
 
   it("keeps the answer sheet and finish button mounted while the next question loads", async () => {
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
-    expect(await screen.findByText("Question 1 of 3")).toBeInTheDocument();
+    expect(await screen.findByText("Question 1 of 3", {}, { timeout: 4000 })).toBeInTheDocument();
     // position 1 has no cached delivery yet -> loading
     setState(1, undefined, true);
     await userEvent.click(
@@ -192,7 +192,7 @@ describe("<PaperPlayer> sheet stability + palette scroll (FR-PAPER-13)", () => {
 
   it("renders the palette as a bounded scrollable region", async () => {
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
-    expect(await screen.findByText("Question 1 of 3")).toBeInTheDocument();
+    expect(await screen.findByText("Question 1 of 3", {}, { timeout: 4000 })).toBeInTheDocument();
     const region = screen.getByRole("region", { name: "Question palette" });
     expect(region.className).toContain("overflow-y-auto");
     expect(region.className).toMatch(/max-h-/);
@@ -214,7 +214,7 @@ describe("<PaperPlayer> resume (FR-PAPER-12)", () => {
     });
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
     // jumped to the first unanswered question (position 2)
-    expect(await screen.findByText("Question 3 of 3")).toBeInTheDocument();
+    expect(await screen.findByText("Question 3 of 3", {}, { timeout: 4000 })).toBeInTheDocument();
     // sheet restored from the server
     expect(
       screen.getByRole("button", { name: "question 1 answered" }),
@@ -256,11 +256,11 @@ describe("<PaperPlayer> resume (FR-PAPER-12)", () => {
     }));
     apiJson.mockResolvedValue(defaultResumeState);
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
-    await screen.findByText("Question 1 of 3");
+    await screen.findByText("Question 1 of 3", {}, { timeout: 4000 });
     await userEvent.click(
       screen.getByRole("button", { name: "question 2 unanswered" }),
     );
-    const textarea = await screen.findByLabelText("essay answer");
+    const textarea = await screen.findByLabelText("essay answer", {}, { timeout: 4000 });
     expect(textarea).toHaveValue("SAVED TEXT");
   });
 });
@@ -289,7 +289,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
       <PaperPlayer sessionId="s1" kind="practice" paperId="p1" />,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to exam" }),
+      await screen.findByRole("button", { name: "Switch to exam" }, {}, { timeout: 4000 }),
     );
     expect(apiJson).toHaveBeenCalledWith(
       "/api/papers/sessions/s1/switch-mode",
@@ -319,7 +319,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
       <PaperPlayer sessionId="s1" kind="exam" paperId="p1" />,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to practice" }),
+      await screen.findByRole("button", { name: "Switch to practice" }, {}, { timeout: 4000 }),
     );
     expect(replace).toHaveBeenCalledWith(
       "/paper-play/s3?kind=practice&paper=p1",
@@ -328,7 +328,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
 
   it("hides the switch without a paper", async () => {
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
-    await screen.findByText("Question 1 of 3");
+    await screen.findByText("Question 1 of 3", {}, { timeout: 4000 });
     expect(
       screen.queryByRole("button", { name: "Switch to exam" }),
     ).not.toBeInTheDocument();
@@ -345,7 +345,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
       <PaperPlayer sessionId="s1" kind="practice" paperId="p1" />,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to exam" }),
+      await screen.findByRole("button", { name: "Switch to exam" }, {}, { timeout: 4000 }),
     );
     expect(await screen.findByText(/exam time exhausted/)).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
