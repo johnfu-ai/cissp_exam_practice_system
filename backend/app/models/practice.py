@@ -75,3 +75,7 @@ class UserQuestionState(UUIDPrimaryKey, TimestampMixin, Base):
     error_type: Mapped[ErrorType | None] = mapped_column(
         Enum(ErrorType, name="error_type", create_type=True), nullable=True
     )
+    # FR-WRONG-01: persistent wrong-book counters — cumulative wrong answers
+    # across practice/exam/paper sessions, and when the user last got it wrong.
+    wrong_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    last_wrong_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

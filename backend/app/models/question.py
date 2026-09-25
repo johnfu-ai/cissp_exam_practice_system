@@ -159,6 +159,10 @@ class QuestionTranslation(UUIDPrimaryKey, TimestampMixin, Base):
     key_point_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     further_reading: Mapped[str | None] = mapped_column(Text, nullable=True)
     options: Mapped[list] = mapped_column(JSONB, nullable=False)
+    # FR-ESSAY-01: per-language reference answer for essay questions
+    # (NULL for choice questions; at least one language must be non-empty
+    # before an essay question can be published).
+    reference_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class QuestionMapping(UUIDPrimaryKey, Base):

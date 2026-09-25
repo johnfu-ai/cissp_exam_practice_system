@@ -14,6 +14,7 @@ from app.models.auth import (  # noqa: F401
     User,
 )
 from app.models.exam import ExamAnswer, ExamSession  # noqa: F401
+from app.models.paper import Paper, PaperQuestion  # noqa: F401
 from app.models.practice import (  # noqa: F401
     PracticeAnswer,
     PracticeSession,
@@ -72,6 +73,8 @@ __all__ = [
     "UserQuestionState",
     "ExamSession",
     "ExamAnswer",
+    "Paper",
+    "PaperQuestion",
     "AuditLog",
     "SchemaMeta",
     "CatParamsVersion",

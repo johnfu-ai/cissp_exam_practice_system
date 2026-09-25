@@ -34,10 +34,19 @@ class QuestionType(str, enum.Enum):
     single_choice = "single_choice"
     multiple_choice = "multiple_choice"
     true_false = "true_false"
+    # 问答题 (FR-ESSAY): free-text answer + per-language reference answer,
+    # self-assessed; never auto-judged, excluded from CAT pools.
+    essay = "essay"
     scenario = "scenario"
     ordering = "ordering"
     drag_drop = "drag_drop"
     hotspot = "hotspot"
+
+
+class PaperStatus(str, enum.Enum):
+    draft = "draft"
+    published = "published"
+    archived = "archived"
 
 
 class QuestionStatus(str, enum.Enum):
