@@ -1,0 +1,11 @@
+{
+  "source": "paper_exam_exports (8 papers, mockpapers)",
+  "dataset_slug": "mockpapers",
+  "total_questions": 828,
+  "chapters": 8,
+  "type_counts": {
+    "single_choice": 828
+  },
+  "papers_count": 8,
+  "has_papers": true
+}
