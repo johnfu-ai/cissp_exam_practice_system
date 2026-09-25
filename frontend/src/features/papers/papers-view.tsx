@@ -137,7 +137,7 @@ export function PapersView() {
           {t("papersPage.empty")}
         </Card>
       )}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2" data-testid="papers-grid">
         {papers.map((p) => (
           <Card key={p.id} hover className="flex flex-col gap-3 p-5">
             <div className="flex items-start justify-between gap-2">
