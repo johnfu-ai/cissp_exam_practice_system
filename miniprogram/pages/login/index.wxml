@@ -1,0 +1,7 @@
+<view class="card login-card">
+  <view class="title">{{t('login')}}</view>
+  <input class="input" placeholder="{{t('email')}}" value="{{email}}" bindinput="onEmail" />
+  <input class="input" password placeholder="{{t('password')}}" value="{{password}}" bindinput="onPassword" />
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <button class="btn mt16" loading="{{busy}}" bindtap="submit">{{t('login')}}</button>
+</view>

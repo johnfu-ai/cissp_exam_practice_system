@@ -1,0 +1,48 @@
+<view wx:if="{{loading}}" class="muted center">{{t('loading')}}</view>
+<block wx:elif="{{report}}">
+  <view class="card">
+    <view class="score-row">
+      <text class="score">{{report.scaled_score}}</text>
+      <text class="muted">/ {{report.max_score}}</text>
+      <text class="badge {{report.passed ? 'badge-green' : 'badge-red'}}">
+        {{report.passed ? t('passed') : t('failed')}}
+      </text>
+    </view>
+    <view class="muted mt8">
+      {{t('correct')}} {{report.correct_count}} / {{report.total_questions}}
+    </view>
+    <button class="btn mt16" size="mini" bindtap="goPapers">{{t('tabPapers')}}</button>
+  </view>
+
+  <view wx:for="{{review}}" wx:key="position" class="card">
+    <view class="row">
+      <view class="badge">{{index + 1}}</view>
+      <text class="grow stem-preview">{{item.stem.zh || item.stem.en}}</text>
+      <button size="mini" data-position="{{item.position}}" bindtap="toggle">
+        {{openPosition === item.position ? '×' : t('viewAnswer')}}
+      </button>
+    </view>
+    <view wx:if="{{openPosition === item.position}}" class="detail">
+      <view class="stem">{{item.stem.zh || item.stem.en}}</view>
+      <view wx:if="{{item.your_answer && item.your_answer.text}}" class="mt8">
+        <view class="fb-title">{{t('referenceAnswer')}}</view>
+        <view class="muted">{{item.your_answer.text}}</view>
+      </view>
+      <view wx:if="{{item.reference_answer && (item.reference_answer.zh || item.reference_answer.en)}}" class="mt8">
+        <view class="fb-title">{{t('referenceAnswer')}}</view>
+        <view>{{item.reference_answer.zh || item.reference_answer.en}}</view>
+      </view>
+      <view wx:if="{{item.correct_rationale && (item.correct_rationale.zh || item.correct_rationale.en)}}" class="mt8">
+        <view class="fb-title">{{t('rationale')}}</view>
+        <view class="muted">{{item.correct_rationale.zh || item.correct_rationale.en}}</view>
+      </view>
+      <view
+        wx:if="{{item.question_type === 'essay' && item.your_answer && item.your_answer.is_correct === null}}"
+        class="row mt8"
+      >
+        <button class="btn grow" size="mini" data-position="{{item.position}}" data-correct="1" bindtap="assess">{{t('iWasRight')}}</button>
+        <button class="btn-outline grow" size="mini" data-position="{{item.position}}" data-correct="0" bindtap="assess">{{t('iWasWrong')}}</button>
+      </view>
+    </view>
+  </view>
+</block>

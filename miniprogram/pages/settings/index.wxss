@@ -1,0 +1,4 @@
+.fb-title { font-weight: 600; }
+.row { gap: 12rpx; }
+
+.input { border: 2rpx solid #e5e5ea; border-radius: 14rpx; padding: 16rpx; margin-top: 16rpx; }

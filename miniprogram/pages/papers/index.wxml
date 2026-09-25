@@ -1,0 +1,15 @@
+<view wx:if="{{loading}}" class="muted center">{{t('loading')}}</view>
+<view wx:elif="{{error}}" class="muted center">{{error}}</view>
+<view wx:elif="{{papers.length === 0}}" class="muted center">{{t('empty')}}</view>
+<view wx:for="{{papers}}" wx:key="id" class="card">
+  <view class="row">
+    <view class="grow">
+      <view class="name">{{item.name}}</view>
+      <view class="muted mt8">{{item.countText}} · {{item.durationText}} · {{item.scoreText}}</view>
+    </view>
+  </view>
+  <view class="row mt16">
+    <button class="btn grow" size="mini" data-id="{{item.id}}" data-mode="practice" bindtap="start">{{t('startPractice')}}</button>
+    <button class="btn-outline grow" size="mini" data-id="{{item.id}}" data-mode="exam" bindtap="start">{{t('startExam')}}</button>
+  </view>
+</view>

@@ -1,0 +1,28 @@
+{
+  "pages": [
+    "pages/papers/index",
+    "pages/wrong/index",
+    "pages/settings/index",
+    "pages/login/index",
+    "pages/play/index",
+    "pages/report/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "CISSP 刷题",
+    "navigationBarBackgroundColor": "#007AFF",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#F7F7FA"
+  },
+  "tabBar": {
+    "color": "#8E8E93",
+    "selectedColor": "#007AFF",
+    "backgroundColor": "#ffffff",
+    "list": [
+      { "pagePath": "pages/papers/index", "text": "题库" },
+      { "pagePath": "pages/wrong/index", "text": "错题" },
+      { "pagePath": "pages/settings/index", "text": "我的" }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

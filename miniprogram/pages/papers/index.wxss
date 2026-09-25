@@ -1,0 +1,2 @@
+.center { text-align: center; padding: 80rpx 0; }
+.name { font-size: 30rpx; font-weight: 600; }

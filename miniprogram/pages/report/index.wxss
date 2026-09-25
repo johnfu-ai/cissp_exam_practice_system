@@ -1,0 +1,7 @@
+.center { text-align: center; padding: 80rpx 0; }
+.score-row { display: flex; align-items: baseline; gap: 12rpx; }
+.score { font-size: 64rpx; font-weight: 700; font-family: monospace; }
+.stem-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail { border-top: 2rpx solid #e5e5ea; margin-top: 16rpx; padding-top: 16rpx; }
+.stem { line-height: 1.6; }
+.fb-title { font-weight: 600; }

@@ -1,0 +1,66 @@
+/* Global styles — light Apple-ish palette matching the web design tokens. */
+page {
+  background: #f7f7fa;
+  color: #1c1c1e;
+  font-size: 28rpx;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 24rpx;
+  padding: 24rpx;
+  margin: 16rpx 24rpx;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.btn {
+  background: #007aff;
+  color: #ffffff;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  padding: 18rpx 32rpx;
+  text-align: center;
+}
+
+.btn-outline {
+  background: #ffffff;
+  color: #007aff;
+  border: 2rpx solid #007aff;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  padding: 16rpx 32rpx;
+  text-align: center;
+}
+
+.btn-danger {
+  background: #ff3b30;
+  color: #ffffff;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  padding: 18rpx 32rpx;
+  text-align: center;
+}
+
+.muted {
+  color: #8e8e93;
+  font-size: 24rpx;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 20rpx;
+  border-radius: 8rpx;
+  padding: 4rpx 12rpx;
+  margin-right: 12rpx;
+  background: #e5e5ea;
+  color: #3a3a3c;
+}
+
+.badge-blue { background: #007aff; color: #fff; }
+.badge-red { background: #ff3b30; color: #fff; }
+.badge-green { background: #34c759; color: #fff; }
+
+.row { display: flex; align-items: center; }
+.grow { flex: 1; }
+.mt8 { margin-top: 16rpx; }
+.mt16 { margin-top: 32rpx; }

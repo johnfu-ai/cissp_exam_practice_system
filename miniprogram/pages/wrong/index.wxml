@@ -1,0 +1,50 @@
+<view class="row tabs">
+  <button
+    wx:for="{{tabs}}"
+    wx:key="key"
+    size="mini"
+    class="{{tab === item.key ? 'btn' : 'btn-outline'}}"
+    data-tab="{{item.key}}"
+    bindtap="switchTab"
+  >{{t(item.labelKey)}}</button>
+  <view class="grow"></view>
+  <button wx:if="{{tab === 'wrong'}}" size="mini" class="btn" bindtap="rePractice">{{t('rePractice')}}</button>
+</view>
+
+<view wx:if="{{loading}}" class="muted center">{{t('loading')}}</view>
+<view wx:elif="{{items.length === 0}}" class="muted center">{{t('empty')}}</view>
+
+<view wx:for="{{items}}" wx:key="question_id" class="card">
+  <view class="row">
+    <view class="badge">{{item.question_type === 'essay' ? '问答' : '单选'}}</view>
+    <view wx:if="{{item.wrong_count > 0}}" class="badge badge-red">{{item.wrongText}}</view>
+    <view wx:if="{{item.is_mastered}}" class="badge badge-green">{{t('mastered')}}</view>
+  </view>
+  <view class="stem-preview mt8">{{item.stem.zh || item.stem.en}}</view>
+  <view wx:if="{{item.papersText}}" class="muted mt8">{{item.papersText}}</view>
+  <view class="row mt8">
+    <button size="mini" class="btn-outline" data-id="{{item.question_id}}" bindtap="toggle">
+      {{openId === item.question_id ? '×' : t('viewAnswer')}}
+    </button>
+    <button
+      wx:if="{{tab === 'wrong' && !item.is_mastered}}"
+      size="mini" class="btn" data-id="{{item.question_id}}" bindtap="markMastered"
+    >{{t('markMastered')}}</button>
+  </view>
+  <view wx:if="{{openId === item.question_id}}" class="detail">
+    <view class="stem">{{item.stem.zh || item.stem.en}}</view>
+    <view wx:for="{{item.options}}" wx:for-item="opt" wx:key="order_index"
+      class="option {{item.correct_indexes.indexOf(opt.order_index) >= 0 ? 'right' : ''}}">
+      <text class="opt-label">{{opt.order_index + 1}}.</text>
+      <text>{{opt.content.zh || opt.content.en}}</text>
+    </view>
+    <view wx:if="{{item.reference_answer && (item.reference_answer.zh || item.reference_answer.en)}}">
+      <view class="fb-title mt8">{{t('referenceAnswer')}}</view>
+      <view>{{item.reference_answer.zh || item.reference_answer.en}}</view>
+    </view>
+    <view wx:if="{{item.rationale && (item.rationale.zh || item.rationale.en)}}">
+      <view class="fb-title mt8">{{t('rationale')}}</view>
+      <view class="muted">{{item.rationale.zh || item.rationale.en}}</view>
+    </view>
+  </view>
+</view>

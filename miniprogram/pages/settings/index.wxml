@@ -1,0 +1,25 @@
+<view class="card">
+  <view class="fb-title">{{t('interfaceLanguage')}}</view>
+  <view class="row mt8">
+    <button size="mini" class="{{locale === 'en' ? 'btn' : 'btn-outline'}}" data-locale="en" bindtap="setLocale">English</button>
+    <button size="mini" class="{{locale === 'zh' ? 'btn' : 'btn-outline'}}" data-locale="zh" bindtap="setLocale">中文</button>
+  </view>
+</view>
+<view class="card">
+  <view class="fb-title">{{t('contentLanguage')}}</view>
+  <view class="row mt8">
+    <button wx:for="{{['en', 'zh', 'bilingual']}}" wx:key="*this" size="mini"
+      class="{{languageMode === item ? 'btn' : 'btn-outline'}}"
+      data-mode="{{item}}" bindtap="setMode">{{item}}</button>
+  </view>
+</view>
+<view class="card">
+  <view class="fb-title">{{t('changePassword')}}</view>
+  <input class="input" password placeholder="current" value="{{currentPassword}}" bindinput="onCurrent" />
+  <input class="input" password placeholder="new" value="{{newPassword}}" bindinput="onNew" />
+  <view wx:if="{{pwMsg}}" class="muted mt8">{{pwMsg}}</view>
+  <button class="btn mt8" size="mini" bindtap="changePassword">{{t('submit')}}</button>
+</view>
+<view class="card">
+  <button class="btn-danger" bindtap="logout">{{t('logout')}}</button>
+</view>

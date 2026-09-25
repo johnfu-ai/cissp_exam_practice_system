@@ -1,0 +1,100 @@
+<view class="page">
+  <!-- left rail: timer + answer sheet + submit -->
+  <view class="rail card">
+    <view class="muted">{{kind === 'exam' ? t('remaining') : t('elapsed')}}</view>
+    <view class="clock">{{clock}}</view>
+    <view class="badge {{kind === 'exam' ? 'badge-blue' : ''}}">{{kind === 'exam' ? t('examMode') : t('practiceMode')}}</view>
+    <scroll-view scroll-y class="sheet">
+      <view class="grid">
+        <view
+          wx:for="{{cells}}"
+          wx:key="position"
+          class="cell cell-{{item.status}} {{item.position === position ? 'current' : ''}}"
+          data-position="{{item.position}}"
+          bindtap="goto"
+        >{{item.position + 1}}</view>
+      </view>
+    </scroll-view>
+    <view class="legend muted">
+      <view>{{t('answered')}} {{counts.answered}}</view>
+      <view class="red">{{t('wrong')}} {{counts.wrong}}</view>
+      <view>{{t('unanswered')}} {{counts.unanswered}}</view>
+      <view class="amber">{{t('flagged')}} {{counts.flagged}}</view>
+    </view>
+    <button class="btn-danger" bindtap="submitPaper" disabled="{{finished}}">
+      {{kind === 'exam' ? t('submitPaper') : t('finish')}}
+    </button>
+  </view>
+
+  <!-- main: question -->
+  <view class="main">
+    <view wx:if="{{summary}}" class="card">
+      <view class="title-sm">{{t('reportTitle')}}</view>
+      <view class="muted mt8">{{t('answered')}} {{summary.answered}} · {{t('correct')}} {{summary.correct}} · {{summary.accuracy}}%</view>
+      <view class="row mt16">
+        <button class="btn-outline grow" size="mini" bindtap="goWrongBook">{{t('tabWrong')}}</button>
+        <button class="btn grow" size="mini" bindtap="goPapers">{{t('tabPapers')}}</button>
+      </view>
+    </view>
+
+    <view wx:if="{{loading}}" class="muted center">{{t('loading')}}</view>
+    <view wx:elif="{{q}}" class="card">
+      <view class="row">
+        <view class="badge">{{q.position + 1}} / {{q.total}}</view>
+        <view class="grow"></view>
+        <button size="mini" bindtap="toggleMode">{{modeLabel}}</button>
+        <button size="mini" bindtap="toggleFlag">{{t('flagged')}}</button>
+      </view>
+      <view class="stem">{{q.stemText}}</view>
+
+      <textarea
+        wx:if="{{q.isEssay}}"
+        class="essay"
+        value="{{essayText}}"
+        placeholder="..."
+        disabled="{{kind === 'practice' && result}}"
+        bindinput="onEssay"
+      />
+
+      <view wx:else class="options">
+        <view
+          wx:for="{{q.options}}"
+          wx:key="order_index"
+          class="option {{selection.indexOf(item.order_index) >= 0 ? 'picked' : ''}} {{result && result.correct_indexes.indexOf(item.order_index) >= 0 ? 'right' : ''}} {{result && selection.indexOf(item.order_index) >= 0 && result.correct_indexes.indexOf(item.order_index) < 0 ? 'bad' : ''}}"
+          data-index="{{item.order_index}}"
+          bindtap="selectOption"
+        >
+          <text class="opt-label">{{item.label}}</text>
+          <text>{{item.text}}</text>
+        </view>
+      </view>
+
+      <!-- practice feedback -->
+      <view wx:if="{{result}}" class="feedback">
+        <view wx:if="{{result.is_correct === true}}" class="ok">{{t('correct')}}</view>
+        <view wx:elif="{{result.is_correct === false}}" class="bad-text">{{t('incorrect')}}</view>
+
+        <block wx:if="{{q.isEssay && result.reference}}">
+          <view class="fb-title">{{t('referenceAnswer')}}</view>
+          <view>{{result.reference.zh || result.reference.en}}</view>
+        </block>
+        <block wx:if="{{result.correct_rationale && (result.correct_rationale.zh || result.correct_rationale.en)}}">
+          <view class="fb-title">{{t('rationale')}}</view>
+          <view class="muted">{{result.correct_rationale.zh || result.correct_rationale.en}}</view>
+        </block>
+
+        <view wx:if="{{q.isEssay && result.is_correct === null}}" class="row mt8">
+          <button class="btn grow" size="mini" data-correct="1" bindtap="assess">{{t('iWasRight')}}</button>
+          <button class="btn-outline grow" size="mini" data-correct="0" bindtap="assess">{{t('iWasWrong')}}</button>
+        </view>
+      </view>
+
+      <view class="row nav mt16">
+        <button class="btn-outline" size="mini" disabled="{{position === 0}}" data-position="{{position - 1}}" bindtap="goto">{{t('prev')}}</button>
+        <button wx:if="{{kind === 'practice' && !result && !q.isEssay}}" class="btn" size="mini" disabled="{{selection.length === 0}}" bindtap="submitAnswer">{{t('submit')}}</button>
+        <button wx:if="{{kind === 'practice' && !result && q.isEssay}}" class="btn" size="mini" disabled="{{!essayText}}" bindtap="submitAnswer">{{t('submit')}}</button>
+        <button class="btn-outline" size="mini" disabled="{{position >= total - 1}}" data-position="{{position + 1}}" bindtap="goto">{{t('next')}}</button>
+      </view>
+    </view>
+  </view>
+</view>

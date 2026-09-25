@@ -1,0 +1,13 @@
+{
+  "description": "CISSP learner client (native WeChat mini program, PRD v1.4)",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "postcss": true,
+    "minified": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "3.7.12",
+  "appid": "touristappid",
+  "projectname": "cissp-papers"
+}
