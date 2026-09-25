@@ -63,6 +63,7 @@ def run_preview(session: Session, org_id: uuid.UUID, dataset: EtlDataset, initia
     raws, extract_errors, content_hash = DatasetReader(dataset.source_path).read()
     pending_ids = set()  # translate_queue.json empty for osg10; read from manifest if present
     cleaned, transform_errors = _build_cleaned(raws, pending_ids)
+    papers = DatasetReader(dataset.source_path).read_papers()
 
     summary = apply_dry_run(session, org_id, dataset.slug, cleaned)
     all_errors = (
@@ -83,6 +84,8 @@ def run_preview(session: Session, org_id: uuid.UUID, dataset: EtlDataset, initia
         # FR-IMP-06 (lite): trigram near-duplicate warnings for would-create
         # stems (non-blocking; exact dedup is `duplicates` above).
         "near_duplicates": summary.near_duplicates,
+        # FR-ETL-18: papers that will load with this dataset.
+        "papers": len(papers),
         "content_hash": content_hash,
     }
     run.preview_summary = preview_summary
@@ -106,7 +109,10 @@ def run_commit(session: Session, org_id: uuid.UUID, run_id: uuid.UUID) -> EtlRun
 
     pending_ids = set()
     cleaned, transform_errors = _build_cleaned(raws, pending_ids)
-    load_result = apply_load(session, org_id, dataset.slug, run.import_job_id, cleaned)
+    papers = DatasetReader(dataset.source_path).read_papers()
+    load_result = apply_load(
+        session, org_id, dataset.slug, run.import_job_id, cleaned, papers=papers
+    )
 
     run.phase = EtlRunPhase.committed
     run.committed_at = datetime.now(timezone.utc)

@@ -33,6 +33,7 @@ from app.models.enums import (
     ExamSessionKind,
     ExamSessionStatus,
     QuestionStatus,
+    QuestionType,
 )
 from app.models.exam import ExamAnswer, ExamSession
 from app.models.question import Question, QuestionMapping, QuestionOption, QuestionTranslation
@@ -125,6 +126,8 @@ def _domain_question_ids(
                         Question.status == QuestionStatus.published,
                         not_deleted(Question),
                         language_filter(mode),
+                        # FR-ESSAY-04: essays never enter auto-assembled exams.
+                        Question.question_type != QuestionType.essay,
                     )
                 ),
             )
@@ -252,6 +255,8 @@ def _cat_candidate_pool(
             Question.status == QuestionStatus.published,
             not_deleted(Question),
             language_filter(mode),
+            # FR-ESSAY-04: essays never enter the CAT candidate pool.
+            Question.question_type != QuestionType.essay,
             QuestionMapping.domain_id.in_(
                 select(ExamDomain.id).where(ExamDomain.blueprint_id == blueprint.id)
             ),
@@ -400,6 +405,26 @@ def _time_remaining_ms(es: ExamSession) -> int:
     )
 
 
+def _apply_wrong_book_outcomes(session: Session, es: ExamSession) -> None:
+    """FR-WRONG-01: feed every judged answer of a finished exam session into
+    the persistent wrong book. Called exactly once per session, at the
+    in_progress -> finished transition (manual finish or lazy auto-submit)."""
+    from app.services.wrong_book import record_outcome
+
+    answers = list(
+        session.execute(
+            select(ExamAnswer).where(ExamAnswer.session_id == es.id)
+        ).scalars().all()
+    )
+    for a in answers:
+        if a.is_correct is None:
+            continue
+        record_outcome(
+            session, user_id=a.user_id, question_id=a.question_id,
+            is_correct=a.is_correct,
+        )
+
+
 def _auto_submit_if_expired(session: Session, es: ExamSession) -> bool:
     if es.status != ExamSessionStatus.in_progress:
         return False
@@ -408,6 +433,7 @@ def _auto_submit_if_expired(session: Session, es: ExamSession) -> bool:
     es.status = ExamSessionStatus.auto_submitted
     es.ended_at = _deadline(es)
     session.flush()
+    _apply_wrong_book_outcomes(session, es)
     return True
 
 
@@ -421,7 +447,11 @@ def _options_for(session: Session, question_id) -> list[QuestionOption]:
     )
 
 
-def _judge(snapshot: dict, selected: list[int]) -> bool:
+def _judge(snapshot: dict, selected: list[int]) -> bool | None:
+    # FR-ESSAY-03: essays are never auto-judged; is_correct stays None until
+    # the learner self-assesses during post-finish review.
+    if snapshot.get("question_type") == "essay":
+        return None
     correct_indexes = [
         o["order_index"] for o in snapshot["options"] if o["is_correct"]
     ]
@@ -484,6 +514,15 @@ def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnsw
     question = session.get(Question, question_id)
     if question is None or question.deleted_at is not None:
         raise NotFound("question no longer available")
+    is_essay = question.question_type == QuestionType.essay
+    if is_essay:
+        if not (body.answer_text or "").strip():
+            raise ValidationError("essay questions require answer_text")
+        if body.selected:
+            raise ValidationError("essay questions do not accept selected indexes")
+    else:
+        if not body.selected:
+            raise ValidationError("selected must not be empty")
     options = _options_for(session, question_id)
     translations = translations_for(session, question_id)
     snap = snapshot_question(
@@ -496,6 +535,9 @@ def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnsw
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
     time_spent_ms = max(0, int((now - started).total_seconds() * 1000))
+    user_answer = (
+        {"text": body.answer_text} if is_essay else {"selected": body.selected}
+    )
     existing = session.execute(
         select(ExamAnswer).where(
             ExamAnswer.session_id == es.id,
@@ -509,7 +551,7 @@ def submit_answer(session: Session, *, session_id, user_id, payload) -> ExamAnsw
         session.add(existing)
     existing.question_snapshot = snap
     existing.options_snapshot = snap["options"]
-    existing.user_answer = {"selected": body.selected}
+    existing.user_answer = user_answer
     existing.is_correct = is_correct
     existing.time_spent_ms = time_spent_ms
     existing.answered_at = now
@@ -695,7 +737,8 @@ def _domain_and_wrong(session: Session, es: ExamSession, qids, answers):
     ]
     wrong = []
     for a in answers:
-        if a.is_correct:
+        # FR-ESSAY-03: unassessed essay answers are neither wrong nor correct.
+        if a.is_correct is not False:
             continue
         snap = a.question_snapshot or {}
         view = localized_from_snapshot(snap, snap.get("language_mode") or "en")
@@ -716,8 +759,6 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
     if es.session_kind == ExamSessionKind.cat:
         return _build_cat_report(session, es)
     cfg = es.config or {}
-    max_score = cfg.get("max_score", 1000)
-    passing_score = cfg.get("passing_score", 700)
     qids = [uuid.UUID(q) for q in cfg.get("question_ids", [])]
     total = len(qids) or es.total_questions
 
@@ -728,10 +769,18 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
     )
     answered = len(answers)
     correct = sum(1 for a in answers if a.is_correct)
+    assessed = [a for a in answers if a.is_correct is not None]
 
+    if cfg.get("scoring") == "paper":
+        # FR-PAPER-06: raw paper scoring — sum of per-question scores for
+        # correct answers (essays count once self-assessed; unscored = 0).
+        return _build_paper_report(session, es, cfg, qids, answers)
+
+    max_score = cfg.get("max_score", 1000)
+    passing_score = cfg.get("passing_score", 700)
     scaled_score = round(correct / total * max_score) if total else 0
     passed = scaled_score >= passing_score
-    accuracy = correct / answered if answered else 0.0
+    accuracy = correct / len(assessed) if assessed else 0.0
     total_time = sum(a.time_spent_ms or 0 for a in answers)
     avg_time = total_time / answered if answered else 0.0
 
@@ -747,6 +796,49 @@ def _build_report(session: Session, es: ExamSession) -> ExamReportOut:
         max_score=max_score,
         passing_score=passing_score,
         passed=passed,
+        accuracy=accuracy,
+        total_time_ms=total_time,
+        avg_time_ms=avg_time,
+        domains=domains,
+        wrong_questions=wrong,
+    )
+
+
+def _build_paper_report(
+    session: Session, es: ExamSession, cfg: dict, qids, answers
+) -> ExamReportOut:
+    """FR-PAPER-06: score = sum of the paper's per-question scores for correct
+    answers; unscored (unassessed essay) answers contribute 0. Pass line is
+    60% of the paper's total score."""
+    scores: list[int] = list(cfg.get("scores") or [1] * len(qids))
+    max_score = cfg.get("max_score") or sum(scores)
+    passing_score = cfg.get("passing_score") or round(max_score * 0.6)
+    answer_by_qid = {a.question_id: a for a in answers}
+
+    raw_score = 0
+    for position, qid in enumerate(qids):
+        a = answer_by_qid.get(qid)
+        if a is not None and a.is_correct:
+            raw_score += scores[position] if position < len(scores) else 1
+
+    answered = len(answers)
+    correct = sum(1 for a in answers if a.is_correct)
+    assessed = [a for a in answers if a.is_correct is not None]
+    accuracy = correct / len(assessed) if assessed else 0.0
+    total_time = sum(a.time_spent_ms or 0 for a in answers)
+    avg_time = total_time / answered if answered else 0.0
+
+    domains, wrong = _domain_and_wrong(session, es, qids, answers)
+    return ExamReportOut(
+        session_id=es.id,
+        status=es.status.value if hasattr(es.status, "value") else es.status,
+        total_questions=len(qids),
+        answered_count=answered,
+        correct_count=correct,
+        scaled_score=raw_score,
+        max_score=max_score,
+        passing_score=passing_score,
+        passed=raw_score >= passing_score,
         accuracy=accuracy,
         total_time_ms=total_time,
         avg_time_ms=avg_time,
@@ -817,6 +909,7 @@ def finish_session(session: Session, *, session_id, user_id) -> ExamReportOut:
             cfg["next_question_id"] = None
             flag_modified(es, "config")
         session.flush()
+        _apply_wrong_book_outcomes(session, es)
     # Recompute correct_count from stored answers.
     answers = list(
         session.execute(
@@ -839,6 +932,53 @@ def get_report(session: Session, *, session_id, user_id) -> ExamReportOut:
     if es.status == ExamSessionStatus.in_progress:
         raise ConflictError("exam session is not finished")
     return _build_report(session, es)
+
+
+def self_assess(
+    session: Session, *, session_id, user_id, position: int, correct: bool
+) -> dict:
+    """FR-ESSAY-03: post-finish self-assessment of an essay answer.
+
+    Only after the session finished (409 otherwise). Updates the answer's
+    ``is_correct`` + the persistent wrong book; the report recomputes on read.
+    """
+    es = _load_session(session, session_id, user_id, for_update=True)
+    if es.status == ExamSessionStatus.in_progress:
+        raise ConflictError("exam session is not finished")
+    qids = es.config.get("question_ids", [])
+    if position < 0 or position >= len(qids):
+        raise ValidationError("position out of range")
+    question_id = uuid.UUID(qids[position])
+    ans = session.execute(
+        select(ExamAnswer).where(
+            ExamAnswer.session_id == es.id,
+            ExamAnswer.question_id == question_id,
+        )
+    ).scalars().first()
+    if ans is None:
+        raise ConflictError("this question was not answered in this session")
+    snap = ans.question_snapshot or {}
+    if snap.get("question_type") != "essay":
+        raise ConflictError("self-assessment is only available for essay questions")
+    previous = ans.is_correct
+    ans.is_correct = correct
+    if previous is None or previous != correct:
+        from app.services.wrong_book import record_outcome
+
+        record_outcome(session, user_id=user_id, question_id=question_id,
+                       is_correct=correct)
+    session.flush()
+    log_audit(
+        session, action=AuditAction.edit, actor_id=user_id,
+        organization_id=es.organization_id, entity_type="exam_answer",
+        entity_id=str(ans.id), details={"self_assessment": correct},
+    )
+    return {
+        "session_id": str(es.id),
+        "position": position,
+        "question_id": str(question_id),
+        "is_correct": correct,
+    }
 
 
 def _opt_localized(order_index: int, translations, field: str) -> dict:
@@ -923,6 +1063,7 @@ def get_review(session: Session, *, session_id, user_id) -> list:
             qtype = snap.get("question_type", "")
             rationale = view["correct_rationale"]
             key_point = view["key_point_summary"]
+            reference = view.get("reference_answer")
             avail = view["available_languages"]
         else:
             # Never answered (lazy auto-submit / manual finish mid-exam):
@@ -960,6 +1101,16 @@ def get_review(session: Session, *, session_id, user_id) -> list:
                     None,
                 ),
             }
+            reference = {
+                "en": next(
+                    (t.reference_answer for t in translations if t.language == "en"),
+                    None,
+                ),
+                "zh": next(
+                    (t.reference_answer for t in translations if t.language == "zh"),
+                    None,
+                ),
+            }
             avail = list(question.available_languages or []) if question else []
         items.append(
             ReviewItemOut(
@@ -971,9 +1122,11 @@ def get_review(session: Session, *, session_id, user_id) -> list:
                 options=opts,
                 correct_rationale=rationale,
                 key_point_summary=key_point,
+                reference_answer=reference,
                 your_answer=(
                     {
                         "selected": ans.user_answer.get("selected"),
+                        "text": ans.user_answer.get("text"),
                         "is_correct": ans.is_correct,
                     }
                     if ans

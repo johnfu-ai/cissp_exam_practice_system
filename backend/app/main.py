@@ -13,10 +13,12 @@ from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.etl import router as etl_router
 from app.api.exam import router as exam_router
+from app.api.papers import router as papers_router
 from app.api.practice import router as practice_router
 from app.api.questions import router as questions_router
 from app.api.taxonomy import router as taxonomy_router
 from app.api.users import router as users_router
+from app.api.wrong_book import router as wrong_book_router
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.core.metrics import metrics_response
@@ -180,6 +182,8 @@ def create_app() -> FastAPI:
     app.include_router(taxonomy_router)
     app.include_router(questions_router)
     app.include_router(practice_router)
+    app.include_router(papers_router)
+    app.include_router(wrong_book_router)
     app.include_router(exam_router)
     app.include_router(admin_router)
     app.include_router(users_router)

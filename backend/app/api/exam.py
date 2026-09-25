@@ -15,6 +15,7 @@ from app.schemas.exam import (
     ExamSessionOut,
     QuestionDeliveryOut,
     ReviewItemOut,
+    SelfAssessmentIn,
 )
 from app.services import exam as svc
 
@@ -138,6 +139,30 @@ def submit_exam_answer(
         raise HTTPException(status_code=409, detail=str(e))
     session.commit()
     return ack
+
+
+@router.post("/sessions/{session_id}/answers/{position}/self-assessment")
+def self_assess_exam_answer(
+    session_id: uuid.UUID,
+    position: int,
+    body: SelfAssessmentIn,
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("exam:read")),
+):
+    """FR-ESSAY-03: post-finish essay self-assessment (report recomputes)."""
+    try:
+        result = svc.self_assess(
+            session, session_id=session_id, user_id=current.user.id,
+            position=position, correct=body.correct,
+        )
+    except svc.NotFound:
+        raise HTTPException(status_code=404, detail="session not found")
+    except svc.ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except svc.ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    session.commit()
+    return result
 
 
 @router.post("/sessions/{session_id}/finish", response_model=ExamReportOut)

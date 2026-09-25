@@ -16,6 +16,7 @@ from app.models.enums import (
     MasteryLevel,
     PracticeSessionStatus,
     QuestionStatus,
+    QuestionType,
 )
 from app.models.practice import (
     PracticeAnswer,
@@ -351,7 +352,11 @@ def get_question_at(
     }
 
 
-def _judge(snapshot: dict, selected: list[int]) -> tuple[bool, list[int]]:
+def _judge(snapshot: dict, selected: list[int]) -> tuple[bool | None, list[int]]:
+    # FR-ESSAY-02: essays are never auto-judged — the learner self-assesses
+    # against the reference answer after submitting free text.
+    if snapshot.get("question_type") == "essay":
+        return None, []
     correct_indexes = [
         o["order_index"] for o in snapshot["options"] if o["is_correct"]
     ]
@@ -438,6 +443,17 @@ def submit_answer(
     question = session.get(Question, question_id)
     if question is None or question.deleted_at is not None:
         raise NotFound("question no longer available")
+    is_essay = question.question_type == QuestionType.essay
+    if is_essay:
+        if not (payload.answer_text or "").strip():
+            raise ValidationError("essay questions require answer_text")
+        if payload.selected:
+            raise ValidationError("essay questions do not accept selected indexes")
+    else:
+        if not payload.selected:
+            raise ValidationError("selected must not be empty")
+        if payload.answer_text is not None:
+            raise ValidationError("choice questions do not accept answer_text")
     options = _options_for(session, question_id)
     translations = translations_for(session, question_id)
     snap = snapshot_question(
@@ -450,33 +466,30 @@ def submit_answer(
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
     time_spent_ms = max(0, int((now - started).total_seconds() * 1000))
+    user_answer = (
+        {"text": payload.answer_text}
+        if is_essay
+        else {"selected": payload.selected}
+    )
     ans = PracticeAnswer(
         session_id=ps.id,
         user_id=user_id,
         question_id=question_id,
         question_snapshot=snap,
         options_snapshot=snap["options"],
-        user_answer={"selected": payload.selected},
+        user_answer=user_answer,
         is_correct=is_correct,
         time_spent_ms=time_spent_ms,
     )
     session.add(ans)
     if is_correct:
         ps.correct_count = (ps.correct_count or 0) + 1
-    state = session.execute(
-        select(UserQuestionState).where(
-            UserQuestionState.user_id == user_id,
-            UserQuestionState.question_id == question_id,
-        )
-    ).scalars().first()
-    new_level = MasteryLevel.mastered if is_correct else MasteryLevel.learning
-    if state is None:
-        state = UserQuestionState(
-            user_id=user_id, question_id=question_id, mastery_level=new_level
-        )
-        session.add(state)
-    else:
-        state.mastery_level = new_level
+    # FR-WRONG-01 + FR-ESSAY-02: judged outcomes feed the persistent wrong
+    # book (essay outcomes are recorded at self-assessment time, not now).
+    from app.services.wrong_book import record_outcome
+
+    record_outcome(session, user_id=user_id, question_id=question_id,
+                   is_correct=is_correct)
     session.flush()
     log_audit(
         session, action=AuditAction.edit, actor_id=user_id,
@@ -509,6 +522,7 @@ def submit_answer(
         selected_indexes=list(payload.selected),
         correct_rationale=loc("correct_answer_rationale"),
         key_point_summary=loc("key_point_summary"),
+        reference_answer=(loc("reference_answer") if is_essay else None),
         per_option=per_option,
         mapping=_mapping_out(session, question_id),
         history=_history_out(
@@ -516,6 +530,60 @@ def submit_answer(
             exclude_session_id=ps.id,
         ),
     )
+
+
+def self_assess(
+    session: Session, *, session_id, user_id, position: int, correct: bool
+) -> dict:
+    """FR-ESSAY-02: record the learner's self-assessment of an essay answer.
+
+    Only allowed for already-answered essay questions; updates the answer's
+    ``is_correct``, the session's ``correct_count``, the mastery level, and the
+    persistent wrong book (a False assessment counts as a wrong outcome).
+    """
+    ps = _load_session(session, session_id, user_id, for_update=True)
+    qids = ps.config.get("question_ids", [])
+    if position < 0 or position >= len(qids):
+        raise ValidationError("position out of range")
+    question_id = uuid.UUID(qids[position])
+    ans = session.execute(
+        select(PracticeAnswer).where(
+            PracticeAnswer.session_id == ps.id,
+            PracticeAnswer.question_id == question_id,
+        )
+    ).scalars().first()
+    if ans is None:
+        raise ConflictError("this question has not been answered in this session")
+    snap = ans.question_snapshot or {}
+    if snap.get("question_type") != "essay":
+        raise ConflictError("self-assessment is only available for essay questions")
+    previous = ans.is_correct
+    ans.is_correct = correct
+    # Re-derive the session counter from stored answers (handles both first
+    # assessment and any change of mind).
+    all_answers = list(
+        session.execute(
+            select(PracticeAnswer).where(PracticeAnswer.session_id == ps.id)
+        ).scalars().all()
+    )
+    ps.correct_count = sum(1 for a in all_answers if a.is_correct)
+    if previous is None or previous != correct:
+        from app.services.wrong_book import record_outcome
+
+        record_outcome(session, user_id=user_id, question_id=question_id,
+                       is_correct=correct)
+    session.flush()
+    log_audit(
+        session, action=AuditAction.edit, actor_id=user_id,
+        organization_id=ps.organization_id, entity_type="practice_answer",
+        entity_id=str(ans.id), details={"self_assessment": correct},
+    )
+    return {
+        "session_id": str(ps.id),
+        "position": position,
+        "question_id": str(question_id),
+        "is_correct": correct,
+    }
 
 
 def pause_session(session: Session, *, session_id, user_id) -> PracticeSession:
@@ -545,6 +613,9 @@ def _build_summary(session: Session, ps: PracticeSession) -> SessionSummaryOut:
             select(PracticeAnswer).where(PracticeAnswer.session_id == ps.id)
         ).scalars().all()
     )
+    # FR-ESSAY-02: unassessed (is_correct=None) essay answers are excluded
+    # from the accuracy denominator; the wrong list holds judged-wrong items.
+    assessed = [a for a in answers if a.is_correct is not None]
     correct = sum(1 for a in answers if a.is_correct)
     total_time = sum((a.time_spent_ms or 0) for a in answers)
 
@@ -580,7 +651,7 @@ def _build_summary(session: Session, ps: PracticeSession) -> SessionSummaryOut:
 
     wrong = []
     for a in answers:
-        if a.is_correct:
+        if a.is_correct is not False:
             continue
         snap = a.question_snapshot or {}
         view = localized_from_snapshot(snap, snap.get("language_mode") or "en")
@@ -601,7 +672,7 @@ def _build_summary(session: Session, ps: PracticeSession) -> SessionSummaryOut:
         total_questions=ps.total_questions,
         answered_count=len(answers),
         correct_count=correct,
-        accuracy=(correct / len(answers)) if answers else 0.0,
+        accuracy=(correct / len(assessed)) if assessed else 0.0,
         total_time_spent_ms=total_time,
         domains=[
             DomainBreakdown(

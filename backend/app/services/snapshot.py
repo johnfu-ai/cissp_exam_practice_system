@@ -42,6 +42,10 @@ def snapshot_question(
             "correct_answer_rationale": t.correct_answer_rationale,
             "key_point_summary": t.key_point_summary,
             "further_reading": t.further_reading,
+            # FR-ESSAY: freeze the per-language reference answer so post-answer
+            # / post-exam self-assessment renders the historical answer even if
+            # the question is edited later.
+            "reference_answer": t.reference_answer,
         }
     return {
         "question_id": str(question.id),
@@ -106,6 +110,9 @@ def localized_from_snapshot(snap: dict, mode: str) -> dict:
             "key_point_summary": {
                 l: (tmap.get(l) or {}).get("key_point_summary") for l in ("en", "zh")
             },
+            "reference_answer": {
+                l: (tmap.get(l) or {}).get("reference_answer") for l in ("en", "zh")
+            },
             "available_languages": langs,
         }
     # Legacy snapshot fallback (pre-translation shape: flat stem/options).
@@ -126,5 +133,6 @@ def localized_from_snapshot(snap: dict, mode: str) -> dict:
         ],
         "correct_rationale": {"en": None, "zh": None},
         "key_point_summary": {"en": None, "zh": None},
+        "reference_answer": {"en": None, "zh": None},
         "available_languages": ["en"],
     }

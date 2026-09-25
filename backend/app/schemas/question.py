@@ -49,6 +49,9 @@ class TranslationIn(BaseModel):
     key_point_summary: str | None = None
     further_reading: str | None = None
     options: list[TranslationOptionIn]
+    # FR-ESSAY-01: per-language reference answer for essay questions
+    # (empty/None for choice questions).
+    reference_answer: str | None = None
 
     @model_validator(mode="after")
     def _sanitize_rich_text(self):
@@ -60,6 +63,10 @@ class TranslationIn(BaseModel):
             self.key_point_summary = sanitize_rich_text(self.key_point_summary, self.stem_format)
         if self.further_reading is not None:
             self.further_reading = sanitize_rich_text(self.further_reading, self.stem_format)
+        if self.reference_answer is not None:
+            self.reference_answer = sanitize_rich_text(
+                self.reference_answer, self.stem_format
+            )
         return self
 
 
@@ -78,6 +85,7 @@ class TranslationOut(BaseModel):
     key_point_summary: str | None = None
     further_reading: str | None = None
     options: list[TranslationOptionOut]
+    reference_answer: str | None = None
 
 
 # --- Canonical answer-key schemas (language-independent) ---------------------

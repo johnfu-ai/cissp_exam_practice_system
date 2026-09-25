@@ -3573,6 +3573,72 @@
         }
       }
     },
+    "/api/practice/sessions/{session_id}/questions/{position}/self-assessment": {
+      "post": {
+        "tags": [
+          "practice"
+        ],
+        "summary": "Self Assess",
+        "description": "FR-ESSAY-02: self-assess an essay answer (答对了/答错了).",
+        "operationId": "self_assess_api_practice_sessions__session_id__questions__position__self_assessment_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "position",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Position"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__schemas__practice__SelfAssessmentIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/practice/sessions/{session_id}/pause": {
       "post": {
         "tags": [
@@ -3874,6 +3940,331 @@
         }
       }
     },
+    "/api/papers": {
+      "get": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "List Papers",
+        "description": "FR-PAPER-03: published papers for learners (content managers may pass\n``include_unpublished`` with question:read).",
+        "operationId": "list_papers_api_papers_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "include_unpublished",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Unpublished"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/papers/{paper_id}": {
+      "get": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "Get Paper",
+        "operationId": "get_paper_api_papers__paper_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "paper_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Paper Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/papers/{paper_id}/sessions": {
+      "post": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "Create Paper Session",
+        "description": "FR-PAPER-04: one-click practice/exam session over the paper's fixed\nquestion order. Practice sessions continue via the practice API; exam\nsessions via the exam API.",
+        "operationId": "create_paper_session_api_papers__paper_id__sessions_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "paper_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Paper Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaperSessionCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "papers"
+        ],
+        "summary": "List Paper Sessions",
+        "operationId": "list_paper_sessions_api_papers__paper_id__sessions_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "paper_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Paper Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wrong-book": {
+      "get": {
+        "tags": [
+          "wrong-book"
+        ],
+        "summary": "Get Wrong Book",
+        "description": "FR-WRONG-02/03: tab=wrong|bookmarked|flagged with an optional paper\nfilter. Items carry the question content so clients render inline.",
+        "operationId": "get_wrong_book_api_wrong_book_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tab",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "wrong",
+              "title": "Tab"
+            }
+          },
+          {
+            "name": "paper_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Paper Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wrong-book/practice": {
+      "post": {
+        "tags": [
+          "wrong-book"
+        ],
+        "summary": "Create Wrong Book Practice",
+        "description": "FR-WRONG-03: launch a practice session over the current wrong tab\n(optionally filtered to one paper).",
+        "operationId": "create_wrong_book_practice_api_wrong_book_practice_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WrongBookPracticeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
     "/api/exam/sessions": {
       "post": {
         "tags": [
@@ -4116,6 +4507,72 @@
                 "schema": {
                   "$ref": "#/components/schemas/ExamAnswerAck"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exam/sessions/{session_id}/answers/{position}/self-assessment": {
+      "post": {
+        "tags": [
+          "exam"
+        ],
+        "summary": "Self Assess Exam Answer",
+        "description": "FR-ESSAY-03: post-finish essay self-assessment (report recomputes).",
+        "operationId": "self_assess_exam_answer_api_exam_sessions__session_id__answers__position__self_assessment_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "position",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Position"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__schemas__exam__SelfAssessmentIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -5839,6 +6296,17 @@
             "type": "array",
             "title": "Selected"
           },
+          "answer_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Text"
+          },
           "started_at": {
             "type": "string",
             "format": "date-time",
@@ -5848,7 +6316,6 @@
         "type": "object",
         "required": [
           "position",
-          "selected",
           "started_at"
         ],
         "title": "AnswerIn"
@@ -5856,7 +6323,14 @@
       "AnswerResultOut": {
         "properties": {
           "is_correct": {
-            "type": "boolean",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Is Correct"
           },
           "correct_indexes": {
@@ -5878,6 +6352,16 @@
           },
           "key_point_summary": {
             "$ref": "#/components/schemas/Localized"
+          },
+          "reference_answer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Localized"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "per_option": {
             "items": {
@@ -6958,6 +7442,17 @@
             "type": "array",
             "title": "Selected"
           },
+          "answer_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Text"
+          },
           "started_at": {
             "type": "string",
             "format": "date-time",
@@ -6967,7 +7462,6 @@
         "type": "object",
         "required": [
           "position",
-          "selected",
           "started_at"
         ],
         "title": "ExamAnswerIn"
@@ -7753,6 +8247,34 @@
         ],
         "title": "PaginatedAudit"
       },
+      "PaperSessionCreateIn": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "practice",
+              "exam"
+            ],
+            "title": "Mode"
+          },
+          "language_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "PaperSessionCreateIn"
+      },
       "PasswordChangeIn": {
         "properties": {
           "current_password": {
@@ -8233,6 +8755,7 @@
           "single_choice",
           "multiple_choice",
           "true_false",
+          "essay",
           "scenario",
           "ordering",
           "drag_drop",
@@ -8593,6 +9116,16 @@
           },
           "key_point_summary": {
             "$ref": "#/components/schemas/Localized"
+          },
+          "reference_answer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Localized"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "your_answer": {
             "anyOf": [
@@ -9084,6 +9617,17 @@
             },
             "type": "array",
             "title": "Options"
+          },
+          "reference_answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Answer"
           }
         },
         "type": "object",
@@ -9206,6 +9750,17 @@
             },
             "type": "array",
             "title": "Options"
+          },
+          "reference_answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Answer"
           }
         },
         "type": "object",
@@ -9293,6 +9848,42 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WrongBookPracticeIn": {
+        "properties": {
+          "paper_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Id"
+          },
+          "count": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "default": 50
+          },
+          "language_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language Mode"
+          }
+        },
+        "type": "object",
+        "title": "WrongBookPracticeIn"
       },
       "WrongQuestion": {
         "properties": {
@@ -9622,6 +10213,20 @@
         ],
         "title": "QuestionDeliveryOut"
       },
+      "app__schemas__exam__SelfAssessmentIn": {
+        "properties": {
+          "correct": {
+            "type": "boolean",
+            "title": "Correct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "correct"
+        ],
+        "title": "SelfAssessmentIn",
+        "description": "FR-ESSAY-03: learner self-assesses an essay answer after finishing."
+      },
       "app__schemas__practice__QuestionDeliveryOut": {
         "properties": {
           "session_id": {
@@ -9709,6 +10314,20 @@
           "elapsed_ms"
         ],
         "title": "QuestionDeliveryOut"
+      },
+      "app__schemas__practice__SelfAssessmentIn": {
+        "properties": {
+          "correct": {
+            "type": "boolean",
+            "title": "Correct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "correct"
+        ],
+        "title": "SelfAssessmentIn",
+        "description": "FR-ESSAY-02: learner self-assesses an essay answer right after\nsubmitting it (reference answer shown by the client first)."
       },
       "app__schemas__question__FeedbackOut": {
         "properties": {

@@ -60,7 +60,12 @@ class IllegalTransition(ValueError):
 def _validate_options(qtype: QuestionType, options: list[OptionIn]) -> None:
     n = len(options)
     correct = [o for o in options if o.is_correct]
-    if qtype == QuestionType.true_false:
+    if qtype == QuestionType.essay:
+        # FR-ESSAY-01: essays have no options; the answer key is the
+        # per-language reference answer on the translation rows.
+        if n != 0:
+            raise ValidationError("essay questions must not have options")
+    elif qtype == QuestionType.true_false:
         if n != 2 or len(correct) != 1:
             raise ValidationError(
                 "true_false requires exactly 2 options with exactly 1 correct"
@@ -101,12 +106,15 @@ def _recompute_available_languages(session: Session, q: Question) -> None:
     q.available_languages = sorted(langs)
 
 
-def _translation_is_complete(t: TranslationIn, n_options: int) -> bool:
+def _translation_is_complete(t: TranslationIn, n_options: int, *, qtype=None) -> bool:
     """FR-LANG-09: a translation is publishable when stem + rationale are
     non-empty, option count matches the canonical key, and every option has
-    non-empty content."""
+    non-empty content. FR-ESSAY-01: essay translations additionally require a
+    non-empty reference answer (in lieu of options)."""
     if not t.stem.strip() or not t.correct_answer_rationale.strip():
         return False
+    if getattr(qtype, "value", qtype) == "essay":
+        return bool((t.reference_answer or "").strip())
     if len(t.options) != n_options:
         return False
     return all(o.content.strip() for o in t.options)
@@ -133,6 +141,7 @@ def _write_translation_rows(
                 key_point_summary=t.key_point_summary,
                 further_reading=t.further_reading,
                 options=[o.model_dump() for o in t.options],
+                reference_answer=(t.reference_answer or None) or None,
             )
         )
 
@@ -501,11 +510,18 @@ def submit_review(
                     stem=t.stem,
                     correct_answer_rationale=t.correct_answer_rationale,
                     options=t.options,
+                    reference_answer=t.reference_answer,
                 ),
                 n,
+                qtype=q.question_type,
             )
         ]
         if not complete:
+            if q.question_type == QuestionType.essay:
+                raise ValidationError(
+                    "cannot publish: essay questions require a non-empty "
+                    "reference answer in the translation"
+                )
             raise ValidationError("cannot publish: no complete translation")
         if len(translations) >= 2 and len(complete) < len(translations):
             raise ValidationError("cannot publish: present translations must all be complete")

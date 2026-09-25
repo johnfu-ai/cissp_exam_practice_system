@@ -70,6 +70,8 @@ class RawQuestion:
     difficulty: int | None = None
     option_explanations: dict[str, Bilingual] | None = None
     license_status: str | None = None
+    # FR-ETL-19: essay reference answer (per language); None for choice types.
+    reference_answer: Bilingual | None = None
 
 
 @dataclass
@@ -157,6 +159,11 @@ def _parse_option_explanations(rec: dict) -> dict[str, Bilingual] | None:
 
 def _parse_record(rec: dict) -> RawQuestion:
     src = rec["source"]
+    meta = dict(rec.get("meta", {}) or {})
+    # FR-PAPER/mock-paper: source.domain_number flows into meta["domain"] so the
+    # transform/load path resolves the CISSP domain without a mapping row.
+    if "domain" not in meta and src.get("domain_number") is not None:
+        meta["domain"] = src["domain_number"]
     raw = RawQuestion(
         id=rec["id"],
         source=RawSource(
@@ -171,11 +178,11 @@ def _parse_record(rec: dict) -> RawQuestion:
         stem=_bilingual(rec["stem"]),
         options=[
             RawOption(key=o["key"], text=_bilingual(o["text"]))
-            for o in rec["options"]
+            for o in rec.get("options", [])
         ],
-        correct_keys=list(rec["correct_keys"]),
+        correct_keys=list(rec.get("correct_keys", [])),
         explanation=_bilingual(rec["explanation"]),
-        meta=rec.get("meta", {}),
+        meta=meta,
         prompt_items=(
             [
                 RawPromptItem(key=p["key"], text=_bilingual(p["text"]))
@@ -189,6 +196,10 @@ def _parse_record(rec: dict) -> RawQuestion:
         license_status=(
             rec.get("license_status")
             or (rec.get("meta", {}) or {}).get("license_status")
+        ),
+        # FR-ETL-19: essay reference answer (optional, essays only).
+        reference_answer=(
+            _bilingual(rec["reference_answer"]) if rec.get("reference_answer") else None
         ),
     )
     return raw
@@ -233,7 +244,11 @@ class DatasetReader:
     def _read_jsonl(self) -> tuple[list[RawQuestion], list[ExtractError], str]:
         raws: list[RawQuestion] = []
         errors: list[ExtractError] = []
-        content_hash = self._content_hash(["manifest.json", "questions.jsonl"])
+        hashed = ["manifest.json", "questions.jsonl"]
+        # FR-ETL-18: papers.json participates in drift detection when present.
+        if (self.path / "papers.json").exists():
+            hashed.append("papers.json")
+        content_hash = self._content_hash(hashed)
 
         manifest = json.loads((self.path / "manifest.json").read_text())
         expected = manifest.get("total_questions")
@@ -275,6 +290,17 @@ class DatasetReader:
             h.update(name.encode())
             h.update((self.path / name).read_bytes())
         return h.hexdigest()
+
+    # FR-ETL-18: papers.json — list of paper rows referencing question
+    # external ids (§10.3 v1.4). Returns [] when the dataset has no papers.
+    def read_papers(self) -> list[dict]:
+        papers_file = self.path / "papers.json"
+        if not papers_file.exists():
+            return []
+        doc = json.loads(papers_file.read_text(encoding="utf-8"))
+        if isinstance(doc, dict):
+            return list(doc.get("papers", []))
+        return list(doc)
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ from app.schemas.practice import (
     QuestionDeliveryOut,
     QuestionStateIn,
     RelatedQuestionOut,
+    SelfAssessmentIn,
     SessionCreateIn,
     SessionOut,
     SessionSummaryOut,
@@ -90,6 +91,30 @@ def submit_answer(
         )
     except svc.NotFound:
         raise HTTPException(status_code=404, detail="session or question not found")
+    except svc.ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except svc.ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    session.commit()
+    return result
+
+
+@router.post("/sessions/{session_id}/questions/{position}/self-assessment")
+def self_assess(
+    session_id: uuid.UUID,
+    position: int,
+    body: SelfAssessmentIn,
+    session: Session = Depends(get_session),
+    current: CurrentUser = Depends(require_permission("practice:read")),
+):
+    """FR-ESSAY-02: self-assess an essay answer (答对了/答错了)."""
+    try:
+        result = svc.self_assess(
+            session, session_id=session_id, user_id=current.user.id,
+            position=position, correct=body.correct,
+        )
+    except svc.NotFound:
+        raise HTTPException(status_code=404, detail="session not found")
     except svc.ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except svc.ConflictError as e:

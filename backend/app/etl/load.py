@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 
 from app.core.sanitize import sanitize_rich_text
 from app.db.queries import not_deleted
-from app.models.enums import LicenseStatus, QuestionStatus, TextFormat
+from app.models.enums import LicenseStatus, QuestionStatus, QuestionType, TextFormat
 from app.models.etl import ChapterDomainMapping, QuestionExternalKey
+from app.models.paper import Paper, PaperQuestion
 from app.models.question import (
     Book,
     Chapter,
@@ -40,6 +41,9 @@ class LoadResult:
     # collision under a NEW external_id) are surfaced here for manual review —
     # {"external_id": ..., "reason": "duplicate_stem"}.
     conflicts: list[dict] = field(default_factory=list)
+    # FR-ETL-18: papers loaded from papers.json.
+    papers_created: int = 0
+    papers_updated: int = 0
 
 
 @dataclass
@@ -192,6 +196,21 @@ def _translation_payload(cleaned, language):
     return stem, rationale, list(zip(opts, expls))
 
 
+def _reference_for(cleaned, language: str) -> str | None:
+    """FR-ETL-19: per-language essay reference answer (zh falls back to en),
+    sanitized; None for choice questions."""
+    if cleaned.question_type != QuestionType.essay:
+        return None
+    if language == "en":
+        value = cleaned.reference_answer_en or ""
+    else:
+        value = cleaned.reference_answer_zh or cleaned.reference_answer_en or ""
+    value = value.strip()
+    if not value:
+        return None
+    return sanitize_rich_text(value, TextFormat.markdown)
+
+
 def _write_translations(session, q, cleaned):
     """Write one QuestionTranslation per language in cleaned.available_languages."""
     langs = list(cleaned.available_languages)
@@ -203,6 +222,7 @@ def _write_translations(session, q, cleaned):
             stem=stem,
             stem_format=TextFormat.markdown,
             correct_answer_rationale=rationale,
+            reference_answer=_reference_for(cleaned, lang),
             options=[
                 {
                     "order_index": i,
@@ -287,6 +307,9 @@ def _differs(q: Question, options: list[QuestionOption],
         _stem, exp_rationale, exp_opt_pairs = _translation_payload(cleaned, lang)
         if t.correct_answer_rationale != exp_rationale:
             return True
+        # FR-ETL-19: essay reference answer change.
+        if (t.reference_answer or None) != _reference_for(cleaned, lang):
+            return True
         exp_contents = [c for c, _ in exp_opt_pairs]
         if [o.get("content") for o in (t.options or [])] != exp_contents:
             return True
@@ -299,8 +322,16 @@ def _differs(q: Question, options: list[QuestionOption],
 
 def _dedup_hashes(cleaned) -> tuple[str, str]:
     """Three-level dedup (PRD §10.4 rule 6 / FR-ETL-08): stem hash + option-set
-    fingerprint, both sha256. Computed from the en text (canonical)."""
-    stem_hash = hashlib.sha256((cleaned.stem_en or "").strip().encode("utf-8")).hexdigest()
+    fingerprint, both sha256.
+
+    The stem hash covers BOTH languages: mock-paper scenario questions use a
+    generic EN lead-in ("Bob", "Alice") while the actual question lives in the
+    zh stem/options — an EN-only hash would collide distinct questions (and,
+    at the other extreme, empty EN stems on zh-only records would all collide
+    on sha256("")). Bilingual stems are unique in every shipped dataset.
+    """
+    stem_material = f"{(cleaned.stem_en or '').strip()}\x1f{(cleaned.stem_zh or '').strip()}"
+    stem_hash = hashlib.sha256(stem_material.encode("utf-8")).hexdigest()
     opt_texts = sorted((o.text_en or "").strip() for o in cleaned.options)
     option_fingerprint = hashlib.sha256("|".join(opt_texts).encode("utf-8")).hexdigest()
     return stem_hash, option_fingerprint
@@ -344,11 +375,14 @@ def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
     status = QuestionStatus.needs_revision if cleaned.needs_revision else QuestionStatus.draft
     stem_hash, option_fingerprint = _dedup_hashes(cleaned)
     license_status = _resolve_license(cleaned)
+    # Stem-hash dedup is only meaningful for records with real EN content —
+    # zh-only records (empty stem_en) would all collide on sha256("").
+    has_en_stem = bool((cleaned.stem_en or "").strip())
 
     if existing is None:
         # Three-level dedup: a question imported under a NEW external_id but with
         # a duplicate stem (same org) is skipped, not re-created.
-        if _find_duplicate(session, resolvers.org_id, stem_hash) is not None:
+        if has_en_stem and _find_duplicate(session, resolvers.org_id, stem_hash) is not None:
             return "duplicate"
         q = Question(
             organization_id=resolvers.org_id,
@@ -437,7 +471,111 @@ def _apply_one(session, resolvers, dataset_slug, import_job_id, cleaned) -> str:
     return "updated"
 
 
-def apply_load(session, org_id, dataset_slug, import_job_id, cleaned_list) -> LoadResult:
+def apply_papers(
+    session: Session,
+    org_id: uuid.UUID,
+    dataset_slug: str,
+    papers: list[dict],
+    result: LoadResult,
+) -> LoadResult:
+    """FR-ETL-18: idempotently upsert Paper + PaperQuestion rows from
+    papers.json rows, keyed by (dataset_slug, paper external id).
+
+    Question references resolve via QuestionExternalKey; a paper referencing
+    any missing external id is skipped whole with an error entry (§10.4
+    rule 11). Paper questions keep the file's order + per-question scores.
+    """
+    from app.models.enums import PaperStatus
+
+    for paper_row in papers:
+        try:
+            sp = session.begin_nested()
+            external_id = str(paper_row["id"])
+            question_ext_ids = list(paper_row.get("question_ids", []))
+            rows = session.execute(
+                select(QuestionExternalKey).where(
+                    QuestionExternalKey.dataset_slug == dataset_slug,
+                    QuestionExternalKey.external_id.in_(question_ext_ids),
+                )
+            ).scalars().all()
+            by_ext = {r.external_id: r.question_id for r in rows}
+            missing = [e for e in question_ext_ids if e not in by_ext]
+            if missing:
+                raise LookupError(
+                    f"paper references unknown question ids: {missing[:5]}"
+                    + ("..." if len(missing) > 5 else "")
+                )
+
+            existing = session.execute(
+                select(Paper).where(
+                    Paper.dataset_slug == dataset_slug,
+                    Paper.paper_external_id == external_id,
+                )
+            ).scalars().first()
+            scores = list(paper_row.get("scores") or [1] * len(question_ext_ids))
+            total_score = paper_row.get("total_score")
+            if total_score is None:
+                total_score = sum(scores)
+            status = PaperStatus(paper_row.get("status") or "published")
+
+            if existing is None:
+                paper = Paper(
+                    organization_id=org_id,
+                    name=paper_row["name"],
+                    description=paper_row.get("description"),
+                    duration_minutes=paper_row.get("duration_minutes"),
+                    total_score=total_score,
+                    question_count=len(question_ext_ids),
+                    status=status,
+                    dataset_slug=dataset_slug,
+                    paper_external_id=external_id,
+                    domain_number=paper_row.get("domain_number"),
+                )
+                session.add(paper)
+                session.flush()
+                created = True
+            else:
+                paper = existing
+                paper.name = paper_row["name"]
+                paper.description = paper_row.get("description")
+                paper.duration_minutes = paper_row.get("duration_minutes")
+                paper.total_score = total_score
+                paper.question_count = len(question_ext_ids)
+                paper.status = status
+                paper.domain_number = paper_row.get("domain_number")
+                for pq in list(paper.questions):
+                    session.delete(pq)
+                session.flush()
+                created = False
+
+            for position, ext_id in enumerate(question_ext_ids, start=1):
+                session.add(PaperQuestion(
+                    paper_id=paper.id,
+                    question_id=by_ext[ext_id],
+                    position=position,
+                    score=scores[position - 1] if position - 1 < len(scores) else 1,
+                ))
+            sp.commit()
+            if created:
+                result.papers_created += 1
+            else:
+                result.papers_updated += 1
+        except Exception as exc:
+            try:
+                sp.rollback()
+            except Exception:
+                pass
+            result.errors.append({
+                "external_id": str(paper_row.get("id")),
+                "language": None,
+                "reason": f"paper: {type(exc).__name__}: {exc}",
+            })
+    return result
+
+
+def apply_load(
+    session, org_id, dataset_slug, import_job_id, cleaned_list, papers=None
+) -> LoadResult:
     resolvers = _Resolvers(session, org_id, dataset_slug)
     result = LoadResult()
     for cleaned in cleaned_list:
@@ -469,6 +607,8 @@ def apply_load(session, org_id, dataset_slug, import_job_id, cleaned_list) -> Lo
                 "language": None,
                 "reason": f"{type(exc).__name__}: {exc}",
             })
+    if papers:
+        apply_papers(session, org_id, dataset_slug, papers, result)
     return result
 
 
@@ -527,10 +667,15 @@ def apply_dry_run(session, org_id, dataset_slug, cleaned_list) -> DryRunSummary:
         existing = _existing_key(session, dataset_slug, cleaned.external_id)
         if existing is None:
             # Stem-hash dedup (PRD §10.4 rule 6): collision in the DB or earlier in
-            # this same batch -> flag conflict, skip.
+            # this same batch -> flag conflict, skip. Empty EN stems (zh-only
+            # records) never participate — they'd all collide on sha256("").
+            has_en_stem = bool((cleaned.stem_en or "").strip())
             if (
-                _find_duplicate(session, org_id, stem_hash) is not None
-                or stem_hash in seen_stems
+                has_en_stem
+                and (
+                    _find_duplicate(session, org_id, stem_hash) is not None
+                    or stem_hash in seen_stems
+                )
             ):
                 summary.duplicates += 1
                 summary.conflicts.append({
@@ -563,5 +708,6 @@ def apply_dry_run(session, org_id, dataset_slug, cleaned_list) -> DryRunSummary:
                 summary.would_update += 1
             else:
                 summary.unchanged += 1
-        seen_stems.add(stem_hash)
+        if (cleaned.stem_en or "").strip():
+            seen_stems.add(stem_hash)
     return summary

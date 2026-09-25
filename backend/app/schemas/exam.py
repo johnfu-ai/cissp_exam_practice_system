@@ -62,7 +62,11 @@ class QuestionDeliveryOut(BaseModel):
 
 class ExamAnswerIn(BaseModel):
     position: int = Field(ge=0)
-    selected: list[int]
+    # FR-ESSAY: choice questions submit `selected`; essay questions submit
+    # `answer_text` (selected stays empty and judging is deferred to the
+    # post-finish self-assessment).
+    selected: list[int] = Field(default_factory=list)
+    answer_text: str | None = None
     started_at: datetime
 
 
@@ -129,8 +133,15 @@ class ReviewItemOut(BaseModel):
     options: list[ReviewOption]
     correct_rationale: Localized
     key_point_summary: Localized
+    # FR-ESSAY-03: essay reference answer, only surfaced post-finish.
+    reference_answer: Localized | None = None
     your_answer: dict | None = None
     time_spent_ms: int | None = None
+
+
+class SelfAssessmentIn(BaseModel):
+    """FR-ESSAY-03: learner self-assesses an essay answer after finishing."""
+    correct: bool
 
 
 class ExamHistoryItemOut(BaseModel):

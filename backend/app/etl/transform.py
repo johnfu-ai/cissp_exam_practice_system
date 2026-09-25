@@ -52,6 +52,9 @@ class CleanedQuestion:
     domain_number: int | None = None
     knowledge_points: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
+    # FR-ETL-19: essay reference answers (empty for choice types).
+    reference_answer_en: str = ""
+    reference_answer_zh: str = ""
 
 
 def _normalize_type(raw_type: str) -> QuestionType:
@@ -82,6 +85,15 @@ def _resolve_difficulty(raw: RawQuestion) -> int:
 
 def validate(raw: RawQuestion) -> list[str]:
     issues: list[str] = []
+    # FR-ETL-19: essays carry a per-language reference answer instead of
+    # options/correct keys.
+    if raw.type == "essay":
+        if raw.options or raw.correct_keys:
+            issues.append("essay must not carry options or correct_keys")
+        ref = raw.reference_answer
+        if ref is None or not ((ref.en or "").strip() or (ref.zh or "").strip()):
+            issues.append("essay requires reference_answer in at least one language")
+        return issues
     option_keys = {o.key for o in raw.options}
     for k in raw.correct_keys:
         if k not in option_keys:
@@ -92,6 +104,8 @@ def validate(raw: RawQuestion) -> list[str]:
     elif raw.type == "multiple_choice":
         if len(raw.correct_keys) < 2:
             issues.append("multiple_choice requires at least 2 correct keys")
+    if not raw.options:
+        issues.append("choice questions require at least 2 options")
     return issues
 
 
@@ -131,22 +145,29 @@ def transform(raw: RawQuestion, pending_translation_ids: set[str] | None = None)
     # #18: attach per-option explanations when the source carries them.
     opt_expl = raw.option_explanations or {}
 
+    is_essay = _normalize_type(raw.type) == QuestionType.essay
+    ref = raw.reference_answer
+
     return CleanedQuestion(
         external_id=raw.id,
         question_type=_normalize_type(raw.type),
         stem_en=raw.stem.en,
         stem_zh=raw.stem.zh,
-        options=[
-            CleanedOption(
-                key=o.key,
-                text_en=o.text.en,
-                text_zh=o.text.zh,
-                is_correct=o.key in raw.correct_keys,
-                explanation_en=(opt_expl[o.key].en if o.key in opt_expl else ""),
-                explanation_zh=(opt_expl[o.key].zh if o.key in opt_expl else ""),
-            )
-            for o in raw.options
-        ],
+        options=(
+            []
+            if is_essay
+            else [
+                CleanedOption(
+                    key=o.key,
+                    text_en=o.text.en,
+                    text_zh=o.text.zh,
+                    is_correct=o.key in raw.correct_keys,
+                    explanation_en=(opt_expl[o.key].en if o.key in opt_expl else ""),
+                    explanation_zh=(opt_expl[o.key].zh if o.key in opt_expl else ""),
+                )
+                for o in raw.options
+            ]
+        ),
         explanation_en=raw.explanation.en,
         explanation_zh=raw.explanation.zh,
         prompt_items=prompt_items,
@@ -162,4 +183,6 @@ def transform(raw: RawQuestion, pending_translation_ids: set[str] | None = None)
         domain_number=raw.meta.get("domain"),
         knowledge_points=list(raw.meta.get("knowledge_points") or []),
         tags=list(raw.meta.get("tags") or []),
+        reference_answer_en=((ref.en or "") if ref is not None else ""),
+        reference_answer_zh=((ref.zh or "") if ref is not None else ""),
     )

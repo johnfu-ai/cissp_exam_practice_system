@@ -79,7 +79,10 @@ class QuestionDeliveryOut(BaseModel):
 
 class AnswerIn(BaseModel):
     position: int = Field(ge=0)
-    selected: list[int]
+    # FR-ESSAY-02: choice questions submit `selected`; essay questions submit
+    # `answer_text` and self-assess afterwards.
+    selected: list[int] = Field(default_factory=list)
+    answer_text: str | None = None
     started_at: datetime
 
 
@@ -90,14 +93,23 @@ class PerOptionExplanation(BaseModel):
 
 
 class AnswerResultOut(BaseModel):
-    is_correct: bool
+    # FR-ESSAY-02: None while an essay answer awaits self-assessment.
+    is_correct: bool | None
     correct_indexes: list[int]
     selected_indexes: list[int]
     correct_rationale: Localized
     key_point_summary: Localized
+    # FR-ESSAY-02: essay reference answer, surfaced with the practice result.
+    reference_answer: Localized | None = None
     per_option: list[PerOptionExplanation]
     mapping: dict
     history: list[dict]
+
+
+class SelfAssessmentIn(BaseModel):
+    """FR-ESSAY-02: learner self-assesses an essay answer right after
+    submitting it (reference answer shown by the client first)."""
+    correct: bool
 
 
 class DomainBreakdown(BaseModel):
