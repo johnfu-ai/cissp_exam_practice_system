@@ -34,3 +34,7 @@ out/
 
 # AI collaboration log (local only, never commit)
 ai-log.md
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
