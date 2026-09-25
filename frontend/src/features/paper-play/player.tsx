@@ -11,19 +11,41 @@
 // loads (stable total), the palette scrolls inside a bounded region, mount
 // restores sheet/timer/progress from the server resume bundle, practice time
 // heartbeats to the server, and paper sessions can switch mode mid-flight.
+//
+// PRD v1.6 (FR-PAPER-05 restyle): big blue timer, a segmented practice⇄exam
+// mode switch, current-question outline on the palette, a green auto-save
+// pill, a paper-title header, type tag + 纠错/标记/收藏 icon actions, radio
+// option indicators, and a bottom prev/next bar — matching the mock-paper
+// reference layout.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Bookmark, Flag, MessageSquareWarning } from "lucide-react";
 import { apiJson } from "@/lib/api";
 import { useT } from "@/lib/i18n/provider";
 import { BilingualText, localizedText } from "@/components/bilingual-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loading } from "@/components/loading";
 import { enumLabel } from "@/features/shared/enum-label";
 import { usePreferences } from "@/lib/api/preferences";
+import { usePaperDetail } from "@/lib/api/papers";
 import {
   useExamQuestion,
   useExamSelfAssess,
@@ -37,6 +59,7 @@ import {
 } from "@/lib/api/sessions";
 import type {
   AnswerResult,
+  FeedbackType,
   LanguageMode,
   PaperSessionState,
   QuestionDelivery,
@@ -53,6 +76,14 @@ import {
 const nowIso = () => new Date().toISOString();
 const HEARTBEAT_INTERVAL_MS = 20_000;
 
+const FEEDBACK_TYPES: FeedbackType[] = [
+  "unclear_explanation",
+  "suspected_wrong_answer",
+  "ambiguous_stem",
+  "copyright_issue",
+  "other",
+];
+
 export function PaperPlayer({
   sessionId,
   kind,
@@ -65,6 +96,7 @@ export function PaperPlayer({
   const t = useT();
   const router = useRouter();
   const { data: prefs } = usePreferences();
+  const paperDetail = usePaperDetail(paperId ?? null);
   const [mode, setMode] = useState<LanguageMode>("en");
   useEffect(() => {
     if (prefs?.language_mode) setMode(prefs.language_mode);
@@ -86,6 +118,12 @@ export function PaperPlayer({
   } | null>(null);
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [fbOpen, setFbOpen] = useState(false);
+  const [fbType, setFbType] = useState<FeedbackType>("unclear_explanation");
+  const [fbComment, setFbComment] = useState("");
+  const [fbSent, setFbSent] = useState(false);
+  const [fbSending, setFbSending] = useState(false);
   const questionStart = useRef(0);
 
   // FR-PAPER-12: fetch the resume bundle once on mount — restores the answer
@@ -188,6 +226,7 @@ export function PaperPlayer({
     hydratedFor.current = key;
     setSelection(q.previous_answer?.selected ?? []);
     setEssayText(q.previous_answer?.text ?? "");
+    setBookmarked(false);
     if (q.previous_answer && (q.previous_answer.selected?.length || q.previous_answer.text)) {
       setSheet((s) => ({ ...s, answered: { ...s.answered, [q.position]: true } }));
     }
@@ -327,45 +366,107 @@ export function PaperPlayer({
     setState.mutate({ question_id: q.question_id, is_flagged_review: next });
   }
 
+  function toggleBookmark() {
+    if (!q) return;
+    const next = !bookmarked;
+    setBookmarked(next);
+    setState.mutate({ question_id: q.question_id, is_bookmarked: next });
+  }
+
+  // FR-PAPER-05 (v1.6): 纠错 — send correction feedback for the current
+  // question straight from the player.
+  async function sendFeedback() {
+    if (!q || fbSending) return;
+    setFbSending(true);
+    try {
+      await apiJson(`/api/questions/${q.question_id}/feedback`, {
+        method: "POST",
+        body: JSON.stringify({
+          feedback_type: fbType,
+          comment: fbComment.trim() ? fbComment.trim() : null,
+        }),
+      });
+      setFbSent(true);
+    } catch {
+      /* keep the dialog open so the learner can retry */
+    } finally {
+      setFbSending(false);
+    }
+  }
+
   const stemCell = q ? { en: q.stem.en, zh: q.stem.zh } : null;
 
   return (
     <div className="mx-auto flex w-full max-w-6xl gap-6 p-6">
-      {/* Left rail: timer + answer sheet + submit (mock-paper layout) */}
-      <Card className="sticky top-6 h-fit w-60 shrink-0 space-y-4 p-4">
-        <div className="text-xs text-muted-foreground">
-          {kind === "exam" ? t("paperPlay.remaining") : t("paperPlay.elapsed")}
+      {/* Left rail: big timer + mode switch + answer sheet + submit (mock-paper) */}
+      <Card className="sticky top-6 h-fit w-64 shrink-0 space-y-4 p-5">
+        <div>
+          <div className="text-xs text-muted-foreground">
+            {kind === "exam" ? t("paperPlay.remaining") : t("paperPlay.elapsed")}
+          </div>
+          <div
+            className="font-mono text-3xl font-semibold tabular-nums text-primary"
+            aria-label="timer"
+            data-testid="paper-timer"
+          >
+            {kind === "exam"
+              ? deadline === null
+                ? "--:--"
+                : formatClock(remainingMs(deadline, startedEpoch + elapsed))
+              : formatClock(elapsed)}
+          </div>
         </div>
-        <div className="font-mono text-2xl font-semibold tabular-nums" aria-label="timer">
-          {kind === "exam"
-            ? deadline === null
-              ? "--:--"
-              : formatClock(remainingMs(deadline, startedEpoch + elapsed))
-            : formatClock(elapsed)}
-        </div>
-        <Badge variant={kind === "exam" ? "default" : "secondary"}>
-          {kind === "exam" ? t("paperPlay.examMode") : t("paperPlay.practiceMode")}
-        </Badge>
-        {paperId && !finished && (
+
+        {paperId && !finished ? (
           <div className="space-y-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              disabled={switching}
-              onClick={switchMode}
+            <div
+              role="group"
+              aria-label={t("paperPlay.modeSwitch")}
+              className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
             >
-              {kind === "practice"
-                ? t("paperPlay.switchToExam")
-                : t("paperPlay.switchToPractice")}
-            </Button>
+              <button
+                type="button"
+                disabled={kind === "practice" || switching}
+                aria-pressed={kind === "practice"}
+                onClick={() => {
+                  if (kind !== "practice") void switchMode();
+                }}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  kind === "practice"
+                    ? "bg-background text-primary shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t("paperPlay.practiceMode")}
+              </button>
+              <button
+                type="button"
+                disabled={kind === "exam" || switching}
+                aria-pressed={kind === "exam"}
+                onClick={() => {
+                  if (kind !== "exam") void switchMode();
+                }}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  kind === "exam"
+                    ? "bg-background text-primary shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t("paperPlay.examMode")}
+              </button>
+            </div>
             {switchError && (
               <p className="text-xs text-destructive" role="alert">
                 {switchError}
               </p>
             )}
           </div>
+        ) : (
+          <Badge variant={kind === "exam" ? "default" : "secondary"}>
+            {kind === "exam" ? t("paperPlay.examMode") : t("paperPlay.practiceMode")}
+          </Badge>
         )}
+
         {total > 0 && (
           <div>
             <div
@@ -373,7 +474,7 @@ export function PaperPlayer({
               aria-label={t("paperPlay.palette")}
               className="max-h-[50vh] overflow-y-auto pr-1"
             >
-              <div className="mb-2 grid grid-cols-6 gap-1.5">
+              <div className="mb-2 grid grid-cols-5 gap-1.5">
                 {Array.from({ length: total }, (_, i) => {
                   const status = cellStatus(sheet, i);
                   const cls =
@@ -391,7 +492,9 @@ export function PaperPlayer({
                       aria-label={`question ${i + 1} ${status}`}
                       onClick={() => goto(i)}
                       className={`h-8 rounded text-xs font-medium transition-colors ${cls} ${
-                        i === position ? "ring-2 ring-ring" : ""
+                        i === position
+                          ? "border-2 border-primary bg-background font-semibold text-primary"
+                          : ""
                       }`}
                     >
                       {i + 1}
@@ -401,14 +504,30 @@ export function PaperPlayer({
               </div>
             </div>
             <div className="space-y-1 text-xs text-muted-foreground">
-              <div>{t("paperPlay.answered")} ({counts.answered})</div>
-              <div className="text-destructive">{t("paperPlay.wrong")} ({counts.wrong})</div>
-              <div>{t("paperPlay.unanswered")} ({counts.unanswered})</div>
-              <div className="text-amber-500">{t("paperPlay.flagged")} ({counts.flagged})</div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-primary" />
+                {t("paperPlay.answered")} ({counts.answered})
+              </div>
+              <div className="flex items-center gap-1.5 text-destructive">
+                <span className="h-2 w-2 rounded-full bg-destructive" />
+                {t("paperPlay.wrong")} ({counts.wrong})
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-muted-foreground/40" />
+                {t("paperPlay.unanswered")} ({counts.unanswered})
+              </div>
+              <div className="flex items-center gap-1.5 text-amber-500">
+                <span className="h-2 w-2 rounded-amber-400 bg-amber-400" />
+                {t("paperPlay.flagged")} ({counts.flagged})
+              </div>
             </div>
           </div>
         )}
-        <div className="text-xs text-muted-foreground">{t("paperPlay.autoSave")}</div>
+
+        <div className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
+          {t("paperPlay.autoSave")}
+        </div>
         <Button
           variant="destructive"
           className="w-full"
@@ -425,6 +544,30 @@ export function PaperPlayer({
 
       {/* Main column */}
       <div className="min-w-0 flex-1 space-y-4">
+        {/* paper-style paper header (FR-PAPER-05, v1.6) */}
+        {paperId && paperDetail.data && !practiceSummary && (
+          <Card className="space-y-1 p-4">
+            <h1 className="text-base font-semibold leading-snug">
+              {paperDetail.data.name}
+            </h1>
+            <p className="flex flex-wrap gap-x-4 text-xs text-muted-foreground">
+              {paperDetail.data.duration_minutes != null && (
+                <span>
+                  {t("papersPage.duration", {
+                    minutes: paperDetail.data.duration_minutes,
+                  })}
+                </span>
+              )}
+              <span>{t("papersPage.score", { score: paperDetail.data.total_score })}</span>
+              <span>
+                {t("papersPage.questionCount", {
+                  count: paperDetail.data.question_count,
+                })}
+              </span>
+            </p>
+          </Card>
+        )}
+
         {practiceSummary && (
           <Card className="space-y-2 p-6">
             <h2 className="font-semibold">{t("paperPlay.summaryTitle")}</h2>
@@ -453,9 +596,9 @@ export function PaperPlayer({
           <Card className="space-y-4 p-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Badge variant="outline">
+                <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
                   {enumLabel(t, "qType", q.question_type as never)}
-                </Badge>
+                </span>
                 <span className="text-sm font-medium">
                   {t("paperPlay.question", { n: q.position + 1, total: q.total })}
                 </span>
@@ -477,10 +620,34 @@ export function PaperPlayer({
                 )}
                 <Button
                   size="sm"
-                  variant={sheet.flagged[q.position] ? "default" : "ghost"}
-                  onClick={toggleFlag}
+                  variant="ghost"
+                  aria-label={t("paperPlay.reportError")}
+                  onClick={() => {
+                    setFbSent(false);
+                    setFbOpen(true);
+                  }}
                 >
-                  {t("paperPlay.flag")}
+                  <MessageSquareWarning className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={t("paperPlay.flag")}
+                  onClick={toggleFlag}
+                  className={sheet.flagged[q.position] ? "text-amber-500" : ""}
+                >
+                  <Flag className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={
+                    bookmarked ? t("paperPlay.bookmarked") : t("paperPlay.bookmark")
+                  }
+                  onClick={toggleBookmark}
+                  className={bookmarked ? "text-primary" : ""}
+                >
+                  <Bookmark className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -513,6 +680,7 @@ export function PaperPlayer({
                     : false;
                   const wrongPick =
                     result && chosen && !result.correct_indexes.includes(o.order_index);
+                  const multi = q.question_type === "multiple_choice";
                   return (
                     <button
                       key={o.order_index}
@@ -527,7 +695,7 @@ export function PaperPlayer({
                             : [o.order_index],
                         )
                       }
-                      className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
+                      className={`flex w-full items-start gap-3 rounded-lg border p-3 text-left text-sm transition-colors ${
                         reveal
                           ? "border-success bg-success/10"
                           : wrongPick
@@ -537,10 +705,28 @@ export function PaperPlayer({
                               : "hover:bg-accent"
                       }`}
                     >
-                      <span className="mr-2 font-semibold">
-                        {String.fromCharCode(65 + o.order_index)}.
+                      <span
+                        aria-hidden
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center border-2 ${
+                          multi ? "rounded-[4px]" : "rounded-full"
+                        } ${
+                          chosen
+                            ? "border-primary bg-primary"
+                            : "border-muted-foreground/40"
+                        }`}
+                      >
+                        {chosen && (
+                          <span
+                            className={`${multi ? "" : "rounded-full"} h-1.5 w-1.5 bg-primary-foreground`}
+                          />
+                        )}
                       </span>
-                      {localizedText(mode, { en: o.content.en, zh: o.content.zh })}
+                      <span className="min-w-0 flex-1">
+                        <span className="mr-2 font-semibold">
+                          {String.fromCharCode(65 + o.order_index)}.
+                        </span>
+                        {localizedText(mode, { en: o.content.en, zh: o.content.zh })}
+                      </span>
                     </button>
                   );
                 })}
@@ -615,7 +801,7 @@ export function PaperPlayer({
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center justify-between gap-2 pt-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -632,9 +818,10 @@ export function PaperPlayer({
                 >
                   {t("common.submit")}
                 </Button>
-              ) : null}
+              ) : (
+                <span aria-hidden />
+              )}
               <Button
-                variant="outline"
                 size="sm"
                 disabled={total > 0 && position >= total - 1}
                 onClick={() => goto(position + 1)}
@@ -645,6 +832,56 @@ export function PaperPlayer({
           </Card>
         )}
       </div>
+
+      {/* 纠错 feedback dialog (FR-PAPER-05, v1.6) */}
+      <Dialog open={fbOpen} onOpenChange={setFbOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("paperPlay.feedbackTitle")}</DialogTitle>
+          </DialogHeader>
+          {fbSent ? (
+            <div className="space-y-3">
+              <p className="text-sm text-success">{t("paperPlay.feedbackSent")}</p>
+              <DialogFooter>
+                <Button size="sm" variant="outline" onClick={() => setFbOpen(false)}>
+                  {t("common.cancel")}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Select value={fbType} onValueChange={(v) => setFbType(v as FeedbackType)}>
+                <SelectTrigger className="w-full" aria-label={t("paperPlay.feedbackType")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FEEDBACK_TYPES.map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {enumLabel(t, "feedbackType", v)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <textarea
+                aria-label={t("paperPlay.feedbackComment")}
+                value={fbComment}
+                onChange={(e) => setFbComment(e.target.value)}
+                rows={3}
+                placeholder={t("paperPlay.feedbackComment")}
+                className="w-full rounded-md border bg-background p-3 text-sm"
+              />
+              <DialogFooter>
+                <Button size="sm" variant="outline" onClick={() => setFbOpen(false)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button size="sm" disabled={fbSending} onClick={sendFeedback}>
+                  {t("common.submit")}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

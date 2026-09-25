@@ -38,3 +38,7 @@ ai-log.md
 # Playwright
 frontend/test-results/
 frontend/playwright-report/
+
+# local seed convenience: symlink to ../docs/questions so a backend-CWD
+# process (bare uvicorn / scripts) can seed mockpapers — CI creates its own
+backend/docs/

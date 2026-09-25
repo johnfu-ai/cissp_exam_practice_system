@@ -820,6 +820,12 @@ export interface PaperSessionSummary {
   correct_count: number;
   started_at: string | null;
   ended_at: string | null;
+  // PRD v1.6 FR-PAPER-14: attempt-history stats (score/pass only for exams)
+  answered: number;
+  score: number | null;
+  max_score: number | null;
+  passed: boolean | null;
+  duration_seconds: number | null;
 }
 
 export interface PaperSessionsResponse {

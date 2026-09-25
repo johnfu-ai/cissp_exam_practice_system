@@ -6,6 +6,7 @@ import {
   enforceEnglishUi,
   ensureMockPapersImported,
   restoreUiLanguage,
+  startPaperSession,
   uiLogin,
 } from "./helpers";
 
@@ -28,9 +29,9 @@ test("learner core journey: papers -> practice -> wrong book", async ({ page }) 
   await expect(firstCard).toContainText("CISSP 模拟试卷");
   await expect(firstCard).toContainText("questions");
 
-  // Start practice on the first paper
-  await firstCard.getByRole("button", { name: /Practice:/ }).click();
-  await page.waitForURL(/\/paper-play\/[0-9a-f-]+/);
+  // Start practice on the first paper (Start over if an old run left an
+  // in-progress session for it)
+  await startPaperSession(page, "Practice");
 
   // Player: timer + answer sheet + bilingual stem
   await expect(page.getByText("Practice", { exact: true })).toBeVisible();

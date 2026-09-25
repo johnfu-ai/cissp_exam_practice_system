@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { screen, act } from "@testing-library/react";
+import { screen, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render-with-providers";
 
@@ -12,12 +12,17 @@ import { renderWithProviders } from "@/test/render-with-providers";
 //  * the palette is a bounded scrollable region;
 //  * resume state seeds the sheet/timer/position and the player heartbeats;
 //  * mode switch posts and routes to the converted session.
+// PRD v1.6 additions (FR-PAPER-05 restyle):
+//  * the mode switch is a segmented control (practice|exam segments);
+//  * big blue timer, green auto-save pill, paper-title header;
+//  * bookmark toggles the question state; 纠错 submits question feedback.
 
 const submitPractice = vi.fn();
 const submitExam = vi.fn();
 const push = vi.fn();
 const replace = vi.fn();
 const apiJson = vi.fn();
+const setStateMutate = vi.fn();
 
 function makeQuestion(position: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -70,11 +75,31 @@ const defaultResumeState = {
   deadline_at: null as string | null,
 };
 
+const paperDetail = {
+  id: "p1",
+  name: "Paper One",
+  description: null,
+  duration_minutes: 60,
+  total_score: 100,
+  question_count: 3,
+  status: "published" as const,
+  domain_number: null,
+  created_at: null,
+  attempts: 0,
+  best_score: null,
+  max_score: 100,
+  type_counts: {},
+  questions: [],
+};
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace }),
 }));
 vi.mock("@/lib/api/preferences", () => ({
   usePreferences: () => ({ data: { language_mode: "bilingual" } }),
+}));
+vi.mock("@/lib/api/papers", () => ({
+  usePaperDetail: () => ({ data: paperDetail }),
 }));
 vi.mock("@/lib/api/sessions", () => ({
   usePracticeQuestion: (_sid: string, position: number) =>
@@ -97,7 +122,7 @@ vi.mock("@/lib/api/sessions", () => ({
     isPending: false,
   }),
   useFinishExam: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useSetQuestionState: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetQuestionState: () => ({ mutate: setStateMutate, isPending: false }),
 }));
 vi.mock("@/lib/api", () => ({
   apiJson: (...args: unknown[]) => apiJson(...args),
@@ -199,6 +224,81 @@ describe("<PaperPlayer> sheet stability + palette scroll (FR-PAPER-13)", () => {
   });
 });
 
+describe("<PaperPlayer> mock-paper layout (FR-PAPER-05, v1.6)", () => {
+  beforeEach(() => {
+    setupDefaultQuestion();
+    apiJson.mockResolvedValue(defaultResumeState);
+    setStateMutate.mockReset();
+  });
+
+  it("renders the big blue timer, auto-save pill, and paper header", async () => {
+    renderWithProviders(
+      <PaperPlayer sessionId="s1" kind="practice" paperId="p1" />,
+    );
+    expect(await screen.findByText("Question 1 of 3", {}, { timeout: 4000 })).toBeInTheDocument();
+    const timer = screen.getByLabelText("timer");
+    expect(timer.className).toContain("text-primary");
+    // green auto-save pill
+    const pill = screen.getByText("Auto-save on");
+    expect(pill.className).toContain("text-success");
+    // paper-title header with duration/score/count meta
+    expect(screen.getByText("Paper One")).toBeInTheDocument();
+    expect(screen.getByText("60 min")).toBeInTheDocument();
+    expect(screen.getByText("100 points")).toBeInTheDocument();
+    expect(screen.getByText("3 questions")).toBeInTheDocument();
+  });
+
+  it("shows the type tag, 纠错/标记/收藏 icon actions, and radio options", async () => {
+    renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
+    expect(await screen.findByText("Question 1 of 3", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByText("Single Choice")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Report error" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Flag" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bookmark" })).toBeInTheDocument();
+    // radio indicators render inside the options
+    const option = screen.getByRole("button", { name: /选项甲/ });
+    expect(option.querySelector("span.rounded-full")).not.toBeNull();
+  });
+
+  it("bookmark toggle PUTs the question state", async () => {
+    renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
+    expect(await screen.findByText("Question 1 of 3", {}, { timeout: 4000 })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Bookmark" }));
+    expect(setStateMutate).toHaveBeenCalledWith({
+      question_id: "q0",
+      is_bookmarked: true,
+    });
+    expect(
+      screen.getByRole("button", { name: "Bookmarked" }),
+    ).toBeInTheDocument();
+  });
+
+  it("纠错 submits question feedback via the dialog", async () => {
+    renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
+    expect(await screen.findByText("Question 1 of 3", {}, { timeout: 4000 })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Report error" }));
+    const dialog = await screen.findByRole("dialog");
+    const comment = within(dialog).getByLabelText("Details (optional)");
+    await userEvent.type(comment, "typo in option B");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Submit" }),
+    );
+    await screen.findByText(/Thanks — the editors will review it/);
+    expect(apiJson).toHaveBeenCalledWith(
+      "/api/questions/q0/feedback",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          feedback_type: "unclear_explanation",
+          comment: "typo in option B",
+        }),
+      }),
+    );
+  });
+});
+
 describe("<PaperPlayer> resume (FR-PAPER-12)", () => {
   beforeEach(() => {
     setupDefaultQuestion();
@@ -274,7 +374,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
     apiJson.mockResolvedValue(defaultResumeState);
   });
 
-  it("switches practice to exam and routes to the converted session", async () => {
+  it("switches practice to exam via the segment and routes to the converted session", async () => {
     apiJson.mockImplementation((url: string) => {
       if (String(url).includes("/switch-mode")) {
         return Promise.resolve({
@@ -288,8 +388,14 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
     renderWithProviders(
       <PaperPlayer sessionId="s1" kind="practice" paperId="p1" />,
     );
+    // segmented control: practice active (pressed), exam clickable
+    const group = await screen.findByRole("group", { name: "Mode switch" }, { timeout: 4000 });
+    expect(group).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Practice" }),
+    ).toHaveAttribute("aria-pressed", "true");
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to exam" }, { timeout: 4000 }),
+      screen.getByRole("button", { name: "Exam" }),
     );
     expect(apiJson).toHaveBeenCalledWith(
       "/api/papers/sessions/s1/switch-mode",
@@ -319,18 +425,18 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
       <PaperPlayer sessionId="s1" kind="exam" paperId="p1" />,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to practice" }, { timeout: 4000 }),
+      await screen.findByRole("button", { name: "Practice" }, { timeout: 4000 }),
     );
     expect(replace).toHaveBeenCalledWith(
       "/paper-play/s3?kind=practice&paper=p1",
     );
   });
 
-  it("hides the switch without a paper", async () => {
+  it("hides the segmented switch without a paper", async () => {
     renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
     await screen.findByText("Question 1 of 3", {}, { timeout: 4000 });
     expect(
-      screen.queryByRole("button", { name: "Switch to exam" }),
+      screen.queryByRole("group", { name: "Mode switch" }),
     ).not.toBeInTheDocument();
   });
 
@@ -345,7 +451,7 @@ describe("<PaperPlayer> mode switch (FR-PAPER-11)", () => {
       <PaperPlayer sessionId="s1" kind="practice" paperId="p1" />,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: "Switch to exam" }, { timeout: 4000 }),
+      await screen.findByRole("button", { name: "Exam" }, { timeout: 4000 }),
     );
     expect(await screen.findByText(/exam time exhausted/)).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();

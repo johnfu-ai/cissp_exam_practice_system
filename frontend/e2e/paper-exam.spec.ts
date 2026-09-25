@@ -6,6 +6,7 @@ import {
   enforceEnglishUi,
   ensureMockPapersImported,
   restoreUiLanguage,
+  startPaperSession,
   uiLogin,
 } from "./helpers";
 
@@ -22,9 +23,9 @@ test("paper exam: answer, submit, report", async ({ page }) => {
   await uiLogin(page);
 
   await page.goto("/papers");
-  const firstCard = page.getByTestId("papers-grid").locator("> div").first();
-  await firstCard.getByRole("button", { name: /Exam:/ }).click();
-  await page.waitForURL(/\/paper-play\/[0-9a-f-]+/);
+  // Start exam mode on the first paper (Start over if an old run left an
+  // in-progress session for it)
+  await startPaperSession(page, "Exam");
 
   // exam mode badge + countdown timer + red submit
   await expect(page.getByText("Exam", { exact: true })).toBeVisible();
