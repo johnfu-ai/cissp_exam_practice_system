@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { screen, act, within } from "@testing-library/react";
+import { screen, act, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/render-with-providers";
 
@@ -326,26 +326,62 @@ describe("<PaperPlayer> resume (FR-PAPER-12)", () => {
     expect(screen.getByLabelText("timer").textContent).toMatch(/^10:0/);
   });
 
-  it("posts a practice heartbeat with the accumulated elapsed seconds", async () => {
+  it("posts heartbeats to the unified papers endpoint, immediately and every 20s", async () => {
     vi.useFakeTimers();
     try {
       apiJson.mockResolvedValue(defaultResumeState);
       renderWithProviders(<PaperPlayer sessionId="s1" kind="practice" />);
+      // the mount heartbeat fires right away (truncates the away window)
+      await act(async () => {});
+      const mountCall = apiJson.mock.calls.find(
+        (c) => String(c[0]).includes("/heartbeat"),
+      );
+      expect(mountCall).toBeDefined();
+      expect(String(mountCall![0])).toBe("/api/papers/sessions/s1/heartbeat");
+      expect(mountCall![1]).toMatchObject({ method: "POST" });
+
       await act(async () => {
         vi.advanceTimersByTime(21_000);
       });
-      const call = apiJson.mock.calls.find(
-        (c) => String(c[0]).includes("/heartbeat"),
+      const calls = apiJson.mock.calls.filter((c) =>
+        String(c[0]).includes("/heartbeat"),
       );
-      expect(call).toBeDefined();
-      expect(String(call![0])).toBe("/api/practice/sessions/s1/heartbeat");
-      expect(call![1]).toMatchObject({ method: "POST" });
-      const body = JSON.parse(call![1].body);
+      const last = calls[calls.length - 1];
+      expect(last).toBeDefined();
+      const body = JSON.parse(last![1].body);
       expect(body.elapsed_seconds).toBeGreaterThanOrEqual(20);
       expect(body.elapsed_seconds).toBeLessThan(120);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("heartbeats for exam sessions too (active-time budget)", async () => {
+    apiJson.mockResolvedValue(defaultResumeState);
+    renderWithProviders(<PaperPlayer sessionId="s1" kind="exam" />);
+    await act(async () => {});
+    const call = apiJson.mock.calls.find((c) =>
+      String(c[0]).includes("/heartbeat"),
+    );
+    expect(call).toBeDefined();
+    expect(String(call![0])).toBe("/api/papers/sessions/s1/heartbeat");
+  });
+
+  it("derives the exam countdown from the active-time budget (v1.7)", async () => {
+    setState(0, makeQuestion(0));
+    apiJson.mockResolvedValue({
+      ...defaultResumeState,
+      kind: "exam",
+      elapsed_seconds: 600,
+      duration_budget_seconds: 3600,
+      deadline_at: new Date(Date.now() + 3600_000).toISOString(),
+    });
+    renderWithProviders(<PaperPlayer sessionId="s1" kind="exam" />);
+    // 3600 − 600 = 50 minutes remaining, NOT the 60-minute wall deadline
+    await waitFor(
+      () => expect(screen.getByLabelText("timer").textContent).toMatch(/^50:0/),
+      { timeout: 4000 },
+    );
   });
 
   it("re-hydrates a saved essay answer text", async () => {

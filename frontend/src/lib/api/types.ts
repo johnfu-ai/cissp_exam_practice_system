@@ -858,6 +858,8 @@ export interface PaperSessionState {
   answered_positions: number[];
   wrong_positions: number[];
   elapsed_seconds: number | null;
+  /** PRD v1.7: exam active-time budget — countdown = budget − elapsed. */
+  duration_budget_seconds?: number | null;
   deadline_at: string | null;
 }
 

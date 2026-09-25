@@ -1207,6 +1207,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/papers/sessions/{session_id}/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Heartbeat Paper Session
+         * @description FR-PAPER-12 (v1.7): unified active-time heartbeat — works for paper
+         *     practice, bank practice, AND paper exam sessions (the exam countdown is
+         *     budget − accumulated active time).
+         */
+        post: operations["heartbeat_paper_session_api_papers_sessions__session_id__heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/papers": {
         parameters: {
             query?: never;
@@ -2429,14 +2451,6 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /**
-         * HeartbeatIn
-         * @description FR-PAPER-12: the client's accumulated active seconds for a session.
-         */
-        HeartbeatIn: {
-            /** Elapsed Seconds */
-            elapsed_seconds: number;
-        };
         /** HeartbeatOut */
         HeartbeatOut: {
             /**
@@ -3166,6 +3180,14 @@ export interface components {
              */
             user_id: string;
         };
+        /** HeartbeatIn */
+        app__api__papers__HeartbeatIn: {
+            /**
+             * Elapsed Seconds
+             * @default 0
+             */
+            elapsed_seconds: number;
+        };
         /** FeedbackOut */
         app__schemas__admin__FeedbackOut: {
             /**
@@ -3278,6 +3300,14 @@ export interface components {
         app__schemas__exam__SelfAssessmentIn: {
             /** Correct */
             correct: boolean;
+        };
+        /**
+         * HeartbeatIn
+         * @description FR-PAPER-12: the client's accumulated active seconds for a session.
+         */
+        app__schemas__practice__HeartbeatIn: {
+            /** Elapsed Seconds */
+            elapsed_seconds: number;
         };
         /** QuestionDeliveryOut */
         app__schemas__practice__QuestionDeliveryOut: {
@@ -5739,7 +5769,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["HeartbeatIn"];
+                "application/json": components["schemas"]["app__schemas__practice__HeartbeatIn"];
             };
         };
         responses: {
@@ -6016,6 +6046,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SwitchModeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    heartbeat_paper_session_api_papers_sessions__session_id__heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["app__api__papers__HeartbeatIn"];
             };
         };
         responses: {

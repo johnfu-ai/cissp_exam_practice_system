@@ -99,12 +99,19 @@ test("continue prompt + resume keeps answers, progress, and mode switch carries 
   await page.keyboard.press("Escape");
   await expect(records).toBeHidden();
 
-  // FR-PAPER-11: switch to exam mode; answers and the paper carry over.
-  // Go back into the original (still in-progress) practice session via the
-  // continue prompt.
+  // v1.7: Start over also ABANDONED the original in-progress session — with
+  // nothing in progress, starting practice again goes straight to a fresh
+  // session (no continue prompt)
   await firstCard.getByRole("button", { name: /^Practice:/ }).click();
-  await page.getByRole("button", { name: "Continue last attempt" }).click();
-  await page.waitForURL((u) => u.pathname + u.search === sessionPath);
+  await page.waitForURL(/\/paper-play\/[0-9a-f-]+\?kind=practice/);
+
+  // FR-PAPER-11: answer q1, then switch to exam via the segment — answers
+  // and the paper carry over
+  await page.locator("button", { hasText: /^B\./ }).first().click();
+  await page.getByRole("button", { name: "Submit", exact: true }).click();
+  await expect(
+    page.getByText("Correct").or(page.getByText("Incorrect")),
+  ).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: "Exam", exact: true }).click();
   await page.waitForURL(/\/paper-play\/[0-9a-f-]+\?kind=exam/);
   await expect(

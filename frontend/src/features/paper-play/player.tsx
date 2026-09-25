@@ -9,8 +9,13 @@
 //
 // PRD v1.5 (FR-PAPER-11..13): the sheet never collapses while a question
 // loads (stable total), the palette scrolls inside a bounded region, mount
-// restores sheet/timer/progress from the server resume bundle, practice time
-// heartbeats to the server, and paper sessions can switch mode mid-flight.
+// restores sheet/timer/progress from the server resume bundle, and paper
+// sessions can switch mode mid-flight.
+//
+// PRD v1.7 (FR-PAPER-12): timing is ACTIVE time for both modes — the player
+// heartbeats on mount / every 20s / pagehide (keepalive) to the unified
+// papers endpoint, and the exam countdown derives from the server's
+// duration_budget_seconds − elapsed (away time never counts).
 //
 // PRD v1.6 (FR-PAPER-05 restyle): big blue timer, a segmented practice⇄exam
 // mode switch, current-question outline on the palette, a green auto-save
@@ -150,8 +155,21 @@ export function PaperPlayer({
           // the carried-over base (the ticker effect re-syncs afterwards)
           setElapsed(Date.now() - base);
         }
-        if (st.kind === "exam" && st.deadline_at) {
-          setDeadline(new Date(st.deadline_at).getTime());
+        if (st.kind === "exam") {
+          // v1.7 active-time budget: countdown = budget − accumulated active
+          // time (away time never consumed it). Legacy exams fall back to the
+          // server deadline.
+          if (st.duration_budget_seconds != null && st.elapsed_seconds != null) {
+            setDeadline(
+              Date.now() +
+                Math.max(
+                  0,
+                  (st.duration_budget_seconds - st.elapsed_seconds) * 1000,
+                ),
+            );
+          } else if (st.deadline_at) {
+            setDeadline(new Date(st.deadline_at).getTime());
+          }
         }
         if (st.total > 0) {
           const answeredSet = new Set(st.answered_positions);
@@ -170,16 +188,18 @@ export function PaperPlayer({
     return () => window.clearInterval(timer);
   }, [startedEpoch]);
 
-  // FR-PAPER-12: report accumulated practice time so exits don't lose it;
-  // time away from the player is not counted (server grace window).
+  // FR-PAPER-12 (v1.7): unified active-time heartbeat for BOTH modes — the
+  // exam countdown is budget − accumulated active time. Fires immediately on
+  // mount (truncating any away-window grace), then every 20s, and a
+  // keepalive fetch on pagehide reports the final elapsed so the clock
+  // stops at exit. Time away from the player is never counted.
   const startedRef = useRef(startedEpoch);
   useEffect(() => {
     startedRef.current = startedEpoch;
   }, [startedEpoch]);
-  useEffect(() => {
-    if (kind !== "practice" || finished) return;
-    const id = window.setInterval(() => {
-      apiJson(`/api/practice/sessions/${sessionId}/heartbeat`, {
+  const reportElapsed = useCallback(
+    (keepalive = false) => {
+      apiJson(`/api/papers/sessions/${sessionId}/heartbeat`, {
         method: "POST",
         body: JSON.stringify({
           elapsed_seconds: Math.max(
@@ -187,10 +207,27 @@ export function PaperPlayer({
             Math.floor((Date.now() - startedRef.current) / 1000),
           ),
         }),
+        ...(keepalive ? { keepalive: true } : {}),
       }).catch(() => {});
-    }, HEARTBEAT_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [kind, finished, sessionId]);
+    },
+    [sessionId],
+  );
+  useEffect(() => {
+    if (finished) return;
+    reportElapsed();
+    const id = window.setInterval(() => reportElapsed(), HEARTBEAT_INTERVAL_MS);
+    const onPageHide = () => reportElapsed(true);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") reportElapsed(true);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [finished, reportElapsed]);
 
   const practiceQ = usePracticeQuestion(sessionId, position, kind === "practice" && !finished);
   const examQ = useExamQuestion(sessionId, position, kind === "exam" && !finished);
