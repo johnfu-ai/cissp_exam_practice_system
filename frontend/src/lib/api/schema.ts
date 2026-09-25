@@ -817,6 +817,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/questions/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Questions
+         * @description Export the question bank (FR-IMP-09).
+         *
+         *     CSV mirrors the PRD §10.1 import template (round-trips into
+         *     /api/etl/upload); JSON carries full structured records. Gated by
+         *     question:import because it includes answer keys and licensed content.
+         */
+        get: operations["export_questions_api_questions_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/questions/language-coverage": {
         parameters: {
             query?: never;
@@ -976,6 +1000,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/practice/sessions/{session_id}/questions/{position}/self-assessment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Self Assess
+         * @description FR-ESSAY-02: self-assess an essay answer (答对了/答错了).
+         */
+        post: operations["self_assess_api_practice_sessions__session_id__questions__position__self_assessment_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/practice/sessions/{session_id}/pause": {
         parameters: {
             query?: never;
@@ -1081,6 +1125,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/papers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Papers
+         * @description FR-PAPER-03: published papers for learners (content managers may pass
+         *     ``include_unpublished`` with question:read).
+         */
+        get: operations["list_papers_api_papers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/papers/{paper_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Paper */
+        get: operations["get_paper_api_papers__paper_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/papers/{paper_id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Paper Sessions */
+        get: operations["list_paper_sessions_api_papers__paper_id__sessions_get"];
+        put?: never;
+        /**
+         * Create Paper Session
+         * @description FR-PAPER-04: one-click practice/exam session over the paper's fixed
+         *     question order. Practice sessions continue via the practice API; exam
+         *     sessions via the exam API.
+         */
+        post: operations["create_paper_session_api_papers__paper_id__sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/wrong-book": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Wrong Book
+         * @description FR-WRONG-02/03: tab=wrong|bookmarked|flagged with an optional paper
+         *     filter. Items carry the question content so clients render inline.
+         */
+        get: operations["get_wrong_book_api_wrong_book_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/wrong-book/practice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Wrong Book Practice
+         * @description FR-WRONG-03: launch a practice session over the current wrong tab
+         *     (optionally filtered to one paper).
+         */
+        post: operations["create_wrong_book_practice_api_wrong_book_practice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/exam/sessions": {
         parameters: {
             query?: never;
@@ -1163,6 +1310,26 @@ export interface paths {
         put?: never;
         /** Submit Exam Answer */
         post: operations["submit_exam_answer_api_exam_sessions__session_id__answers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exam/sessions/{session_id}/answers/{position}/self-assessment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Self Assess Exam Answer
+         * @description FR-ESSAY-03: post-finish essay self-assessment (report recomputes).
+         */
+        post: operations["self_assess_exam_answer_api_exam_sessions__session_id__answers__position__self_assessment_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1375,6 +1542,26 @@ export interface paths {
         put?: never;
         /** Add Class Member */
         post: operations["add_class_member_api_admin_classes__class_id__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/classes/{class_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Class Report
+         * @description FR-ANA-08: per-student learning report for a class (30/90-day window).
+         */
+        get: operations["class_report_api_admin_classes__class_id__report_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1610,7 +1797,9 @@ export interface components {
             /** Position */
             position: number;
             /** Selected */
-            selected: number[];
+            selected?: number[];
+            /** Answer Text */
+            answer_text?: string | null;
             /**
              * Started At
              * Format: date-time
@@ -1620,13 +1809,14 @@ export interface components {
         /** AnswerResultOut */
         AnswerResultOut: {
             /** Is Correct */
-            is_correct: boolean;
+            is_correct: boolean | null;
             /** Correct Indexes */
             correct_indexes: number[];
             /** Selected Indexes */
             selected_indexes: number[];
             correct_rationale: components["schemas"]["Localized"];
             key_point_summary: components["schemas"]["Localized"];
+            reference_answer?: components["schemas"]["Localized"] | null;
             /** Per Option */
             per_option: components["schemas"]["PerOptionExplanation"][];
             /** Mapping */
@@ -1902,6 +2092,44 @@ export interface components {
             /** Member Count */
             member_count: number;
         };
+        /** ClassReportMemberOut */
+        ClassReportMemberOut: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name?: string | null;
+            /** Answered */
+            answered: number;
+            /** Correct */
+            correct: number;
+            /** Accuracy */
+            accuracy: number;
+            /** Study Time Ms */
+            study_time_ms: number;
+            /** Exam Sessions */
+            exam_sessions: number;
+            /** Last Active At */
+            last_active_at?: string | null;
+        };
+        /** ClassReportOut */
+        ClassReportOut: {
+            /**
+             * Class Id
+             * Format: uuid
+             */
+            class_id: string;
+            /** Class Name */
+            class_name: string;
+            /** Window Days */
+            window_days: number;
+            /** Members */
+            members: components["schemas"]["ClassReportMemberOut"][];
+        };
         /** CreateRunIn */
         CreateRunIn: {
             /** Dataset Slug */
@@ -1985,7 +2213,9 @@ export interface components {
             /** Position */
             position: number;
             /** Selected */
-            selected: number[];
+            selected?: number[];
+            /** Answer Text */
+            answer_text?: string | null;
             /**
              * Started At
              * Format: date-time
@@ -2257,6 +2487,16 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** PaperSessionCreateIn */
+        PaperSessionCreateIn: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "practice" | "exam";
+            /** Language Mode */
+            language_mode?: string | null;
+        };
         /** PasswordChangeIn */
         PasswordChangeIn: {
             /** Current Password */
@@ -2285,6 +2525,10 @@ export interface components {
             language_mode?: ("en" | "zh" | "bilingual") | null;
             /** Interface Language */
             interface_language?: ("en" | "zh") | null;
+            /** Exam Target Date */
+            exam_target_date?: string | null;
+            /** Daily Goal Answers */
+            daily_goal_answers?: number | null;
         };
         /** PreferencesOut */
         PreferencesOut: {
@@ -2292,6 +2536,10 @@ export interface components {
             language_mode: string;
             /** Interface Language */
             interface_language: string;
+            /** Exam Target Date */
+            exam_target_date?: string | null;
+            /** Daily Goal Answers */
+            daily_goal_answers?: number | null;
         };
         /** QualityDashboardOut */
         QualityDashboardOut: {
@@ -2390,7 +2638,7 @@ export interface components {
          * QuestionType
          * @enum {string}
          */
-        QuestionType: "single_choice" | "multiple_choice" | "true_false" | "scenario" | "ordering" | "drag_drop" | "hotspot";
+        QuestionType: "single_choice" | "multiple_choice" | "true_false" | "essay" | "scenario" | "ordering" | "drag_drop" | "hotspot";
         /** QuestionUpdateIn */
         QuestionUpdateIn: {
             question_type?: components["schemas"]["QuestionType"] | null;
@@ -2511,6 +2759,7 @@ export interface components {
             options: components["schemas"]["ReviewOption"][];
             correct_rationale: components["schemas"]["Localized"];
             key_point_summary: components["schemas"]["Localized"];
+            reference_answer?: components["schemas"]["Localized"] | null;
             /** Your Answer */
             your_answer?: {
                 [key: string]: unknown;
@@ -2678,6 +2927,8 @@ export interface components {
             further_reading?: string | null;
             /** Options */
             options: components["schemas"]["TranslationOptionIn"][];
+            /** Reference Answer */
+            reference_answer?: string | null;
         };
         /** TranslationOptionIn */
         TranslationOptionIn: {
@@ -2715,6 +2966,8 @@ export interface components {
             further_reading?: string | null;
             /** Options */
             options: components["schemas"]["TranslationOptionOut"][];
+            /** Reference Answer */
+            reference_answer?: string | null;
         };
         /** UserRolesIn */
         UserRolesIn: {
@@ -2742,6 +2995,18 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WrongBookPracticeIn */
+        WrongBookPracticeIn: {
+            /** Paper Id */
+            paper_id?: string | null;
+            /**
+             * Count
+             * @default 50
+             */
+            count: number;
+            /** Language Mode */
+            language_mode?: string | null;
         };
         /** WrongQuestion */
         WrongQuestion: {
@@ -2836,6 +3101,10 @@ export interface components {
              * @default en
              */
             interface_language: string;
+            /** Exam Target Date */
+            exam_target_date?: string | null;
+            /** Daily Goal Answers */
+            daily_goal_answers?: number | null;
         };
         /** QuestionDeliveryOut */
         app__schemas__exam__QuestionDeliveryOut: {
@@ -2871,6 +3140,14 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /**
+         * SelfAssessmentIn
+         * @description FR-ESSAY-03: learner self-assesses an essay answer after finishing.
+         */
+        app__schemas__exam__SelfAssessmentIn: {
+            /** Correct */
+            correct: boolean;
+        };
         /** QuestionDeliveryOut */
         app__schemas__practice__QuestionDeliveryOut: {
             /**
@@ -2904,6 +3181,15 @@ export interface components {
             } | null;
             /** Note */
             note?: string | null;
+        };
+        /**
+         * SelfAssessmentIn
+         * @description FR-ESSAY-02: learner self-assesses an essay answer right after
+         *     submitting it (reference answer shown by the client first).
+         */
+        app__schemas__practice__SelfAssessmentIn: {
+            /** Correct */
+            correct: boolean;
         };
         /** FeedbackOut */
         app__schemas__question__FeedbackOut: {
@@ -4861,6 +5147,38 @@ export interface operations {
             };
         };
     };
+    export_questions_api_questions_export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     language_coverage_api_questions_language_coverage_get: {
         parameters: {
             query?: never;
@@ -5243,6 +5561,42 @@ export interface operations {
             };
         };
     };
+    self_assess_api_practice_sessions__session_id__questions__position__self_assessment_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                position: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["app__schemas__practice__SelfAssessmentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     pause_session_api_practice_sessions__session_id__pause_post: {
         parameters: {
             query?: never;
@@ -5433,6 +5787,201 @@ export interface operations {
             };
         };
     };
+    list_papers_api_papers_get: {
+        parameters: {
+            query?: {
+                include_unpublished?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_paper_api_papers__paper_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                paper_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_paper_sessions_api_papers__paper_id__sessions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                paper_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_paper_session_api_papers__paper_id__sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                paper_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaperSessionCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_wrong_book_api_wrong_book_get: {
+        parameters: {
+            query?: {
+                tab?: string;
+                paper_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_wrong_book_practice_api_wrong_book_practice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WrongBookPracticeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_exam_api_exam_sessions_post: {
         parameters: {
             query?: never;
@@ -5582,6 +6131,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExamAnswerAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    self_assess_exam_answer_api_exam_sessions__session_id__answers__position__self_assessment_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                position: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["app__schemas__exam__SelfAssessmentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -6101,6 +6686,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    class_report_api_admin_classes__class_id__report_get: {
+        parameters: {
+            query?: {
+                window_days?: number;
+            };
+            header?: never;
+            path: {
+                class_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassReportOut"];
+                };
             };
             /** @description Validation Error */
             422: {

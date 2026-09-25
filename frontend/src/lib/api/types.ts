@@ -14,6 +14,7 @@ export type QuestionType =
   | "single_choice"
   | "multiple_choice"
   | "true_false"
+  | "essay"
   | "scenario"
   | "ordering"
   | "drag_drop"
@@ -70,8 +71,9 @@ export interface OptionDelivery {
 }
 
 export interface PreviousAnswer {
-  selected: number[];
-  is_correct: boolean;
+  selected: number[] | null;
+  is_correct: boolean | null;
+  text?: string | null;
 }
 
 export interface QuestionDelivery {
@@ -85,6 +87,7 @@ export interface QuestionDelivery {
   stem: Localized;
   options: OptionDelivery[];
   elapsed_ms: number;
+  time_remaining_ms?: number;
   previous_answer: PreviousAnswer | null;
   note: string | null;
 }
@@ -108,11 +111,12 @@ export interface PerOptionExplanation {
 }
 
 export interface AnswerResult {
-  is_correct: boolean;
+  is_correct: boolean | null;
   correct_indexes: number[];
   selected_indexes: number[];
   correct_rationale: Localized;
   key_point_summary: Localized;
+  reference_answer?: Localized | null;
   per_option: PerOptionExplanation[];
   mapping: Record<string, unknown>;
   history: Array<Record<string, unknown>>;
@@ -537,7 +541,8 @@ export interface ReviewItem {
   options: ReviewOption[];
   correct_rationale: Localized;
   key_point_summary: Localized;
-  your_answer: { selected: number[] } | null;
+  reference_answer?: Localized | null;
+  your_answer: { selected: number[] | null; text?: string | null; is_correct?: boolean | null } | null;
   time_spent_ms: number | null;
 }
 
@@ -768,4 +773,103 @@ export interface KnowledgePointInput {
 export interface TagInput {
   name: string;
   description?: string | null;
+}
+
+// --- PRD v1.4: papers / paper sessions / wrong book --------------------------
+
+export type QuestionTypeV14 = QuestionType | "essay";
+export type PaperStatus = "draft" | "published" | "archived";
+
+export interface PaperListItem {
+  id: string;
+  name: string;
+  description: string | null;
+  duration_minutes: number | null;
+  total_score: number;
+  question_count: number;
+  status: PaperStatus;
+  domain_number: number | null;
+  created_at: string | null;
+  attempts: number;
+  best_score: number | null;
+  max_score: number;
+}
+
+export interface PapersResponse {
+  items: PaperListItem[];
+  total: number;
+}
+
+export interface PaperQuestionMeta {
+  position: number;
+  question_id: string;
+  question_type: string;
+  score: number;
+}
+
+export interface PaperDetail extends PaperListItem {
+  type_counts: Record<string, number>;
+  questions: PaperQuestionMeta[];
+}
+
+export interface PaperSessionSummary {
+  id: string;
+  kind: "practice" | "exam";
+  status: string;
+  total_questions: number;
+  correct_count: number;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+export interface PaperSessionsResponse {
+  items: PaperSessionSummary[];
+}
+
+
+
+
+
+
+
+
+
+export interface ExamReportWrongQuestion {
+  question_id: string;
+  stem: Localized;
+  selected_indexes: number[];
+  correct_indexes: number[];
+}
+
+
+export interface ExamReviewOption {
+  order_index: number;
+  content: Localized;
+  is_correct: boolean;
+  explanation: Localized;
+}
+
+
+// --- wrong book -------------------------------------------------------------------
+
+export interface WrongBookItem {
+  question_id: string;
+  question_type: string;
+  stem: Localized;
+  options: { order_index: number; content: Localized; explanation: Localized }[];
+  correct_indexes: number[];
+  rationale: Localized;
+  reference_answer?: Localized | null;
+  wrong_count: number;
+  last_wrong_at: string | null;
+  is_mastered: boolean;
+  is_bookmarked: boolean;
+  is_flagged_review: boolean;
+  mastery_level: string;
+  papers: string[];
+}
+
+export interface WrongBookResponse {
+  items: WrongBookItem[];
+  total: number;
 }

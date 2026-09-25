@@ -34,4 +34,22 @@ export const qk = {
     report: (windowDays: number) => ["admin", "report", windowDays] as const,
     languageCoverage: ["admin", "language-coverage"] as const,
   },
+  papers: {
+    list: (all: boolean) => ["papers", "list", all] as const,
+    detail: (id: string) => ["papers", "detail", id] as const,
+    sessions: (id: string) => ["papers", id, "sessions"] as const,
+  },
+  practice: {
+    question: (sessionId: string, position: number) =>
+      ["practice", "session", sessionId, "question", position] as const,
+  },
+  exam: {
+    question: (sessionId: string, position: number) =>
+      ["exam", "session", sessionId, "question", position] as const,
+    report: (sessionId: string) => ["exam", "session", sessionId, "report"] as const,
+    review: (sessionId: string) => ["exam", "session", sessionId, "review"] as const,
+  },
+  wrongBook: {
+    list: (tab: string, paperId: string) => ["wrong-book", tab, paperId] as const,
+  },
 };

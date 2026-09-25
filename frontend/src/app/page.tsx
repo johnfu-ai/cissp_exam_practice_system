@@ -18,12 +18,13 @@ export default function Home() {
       router.replace("/login");
       return;
     }
-    const perms = user?.perms ?? [];
-    if (!hasAdminPortalAccess(perms)) {
-      router.replace("/access-required");
+    // v1.4: admins keep landing on their first manage route; learners land on
+    // the paper library (题库).
+    if (!hasAdminPortalAccess(user?.perms)) {
+      router.replace("/papers");
       return;
     }
-    router.replace(firstAdminRoute(perms) ?? "/access-required");
+    router.replace(firstAdminRoute(user?.perms) ?? "/papers");
   }, [hydrated, accessToken, user, router]);
 
   return (

@@ -9,6 +9,8 @@ import {
   Shield,
   Settings,
   LogOut,
+  BookOpen,
+  BookX,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
 import { BACKEND } from "@/lib/config";
@@ -16,7 +18,13 @@ import { useT } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-// Admin portal only — learner UX lives in the Flutter app under `mobile/`.
+// Web carries both flows (PRD v1.4): the learner library is open to every
+// authenticated user; the manage section stays permission-gated.
+const LEARNER: { href: string; key: string; icon: typeof BookOpen }[] = [
+  { href: "/papers", key: "papers", icon: BookOpen },
+  { href: "/wrong-book", key: "wrongBook", icon: BookX },
+];
+
 type ManageKey = "import" | "questions" | "taxonomy";
 
 const MANAGE: { href: string; key: ManageKey; icon: typeof Upload; perm: string }[] = [
@@ -61,6 +69,21 @@ export function AppSidebar() {
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r bg-card">
       <div className="px-5 py-4 text-lg font-semibold tracking-tight">{t("brand")}</div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3">
+        <div>
+          <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
+            {t("nav.learn")}
+          </div>
+          {LEARNER.map(({ href, key, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className={linkClass(pathname === href || pathname.startsWith(`${href}/`))}
+            >
+              <Icon className="h-4 w-4" />
+              {t(`nav.${key}`)}
+            </Link>
+          ))}
+        </div>
         {showManage && (
           <div>
             <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
