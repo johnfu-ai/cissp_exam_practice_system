@@ -2,10 +2,20 @@
 // sheet + feedback -> finish -> wrong book -> re-practice -> mark mastered.
 
 import { test, expect } from "@playwright/test";
-import { ensureMockPapersImported, uiLogin } from "./helpers";
+import {
+  enforceEnglishUi,
+  ensureMockPapersImported,
+  restoreUiLanguage,
+  uiLogin,
+} from "./helpers";
 
 test.beforeAll(async ({ request }) => {
   await ensureMockPapersImported(request);
+  await enforceEnglishUi(request);
+});
+
+test.afterAll(async ({ request }) => {
+  await restoreUiLanguage(request);
 });
 
 test("learner core journey: papers -> practice -> wrong book", async ({ page }) => {
@@ -14,7 +24,7 @@ test("learner core journey: papers -> practice -> wrong book", async ({ page }) 
   // Paper library
   await page.goto("/papers");
   await expect(page.getByRole("heading", { name: "Papers" })).toBeVisible();
-  const firstCard = page.locator("div.grid > div").first();
+  const firstCard = page.getByTestId("papers-grid").locator("> div").first();
   await expect(firstCard).toContainText("CISSP 模拟试卷");
   await expect(firstCard).toContainText("questions");
 

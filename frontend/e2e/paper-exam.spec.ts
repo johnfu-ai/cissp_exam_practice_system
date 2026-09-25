@@ -2,17 +2,27 @@
 // submit, raw paper-scoring report.
 
 import { test, expect } from "@playwright/test";
-import { ensureMockPapersImported, uiLogin } from "./helpers";
+import {
+  enforceEnglishUi,
+  ensureMockPapersImported,
+  restoreUiLanguage,
+  uiLogin,
+} from "./helpers";
 
 test.beforeAll(async ({ request }) => {
   await ensureMockPapersImported(request);
+  await enforceEnglishUi(request);
+});
+
+test.afterAll(async ({ request }) => {
+  await restoreUiLanguage(request);
 });
 
 test("paper exam: answer, submit, report", async ({ page }) => {
   await uiLogin(page);
 
   await page.goto("/papers");
-  const firstCard = page.locator("div.grid > div").first();
+  const firstCard = page.getByTestId("papers-grid").locator("> div").first();
   await firstCard.getByRole("button", { name: /Exam:/ }).click();
   await page.waitForURL(/\/paper-play\/[0-9a-f-]+/);
 

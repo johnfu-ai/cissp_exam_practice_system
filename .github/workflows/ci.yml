@@ -207,6 +207,8 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
       APP_ENV: development
       JWT_SECRET: ci-e2e-jwt-secret-at-least-32-characters
+      # same as backend conftest — e2e bursts past the per-IP 600/min limit
+      API_RATE_LIMIT_PER_MINUTE: "0"
       PLAYWRIGHT_API_BASE: http://127.0.0.1:8000
     steps:
       - uses: actions/checkout@v4

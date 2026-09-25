@@ -47,3 +47,43 @@ export async function uiLogin(page: import("@playwright/test").Page): Promise<vo
   await page.getByRole("button", { name: /log in|登录/i }).click();
   await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 15_000 });
 }
+
+// The e2e account is a real shared account whose persisted UI language may
+// be zh while the specs assert English chrome. Pin it to English for the
+// run and restore the saved value afterwards (partial PUT: other
+// preferences are untouched). Best-effort: a 429/timeout mid-run must not
+// leave the account flipped — restore retries and never throws.
+let savedUiLanguage: string | null = null;
+
+export async function enforceEnglishUi(request: APIRequestContext): Promise<void> {
+  const headers = { Authorization: `Bearer ${await loginToken(request)}` };
+  const me = await request.get(`${API_BASE}/api/auth/me`, { headers });
+  if (me.ok()) {
+    savedUiLanguage = ((await me.json()).interface_language as string) ?? "en";
+  }
+  if (savedUiLanguage !== "en") {
+    await request.put(`${API_BASE}/api/users/me/preferences`, {
+      headers,
+      data: { interface_language: "en" },
+    });
+  }
+}
+
+export async function restoreUiLanguage(request: APIRequestContext): Promise<void> {
+  if (savedUiLanguage == null) return;
+  const target = savedUiLanguage;
+  savedUiLanguage = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const headers = { Authorization: `Bearer ${await loginToken(request)}` };
+      const res = await request.put(`${API_BASE}/api/users/me/preferences`, {
+        headers,
+        data: { interface_language: target },
+      });
+      if (res.ok()) return;
+    } catch {
+      // fall through to the retry/backoff
+    }
+    await new Promise((r) => setTimeout(r, 5_000 * (attempt + 1)));
+  }
+}
