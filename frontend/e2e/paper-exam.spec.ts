@@ -32,7 +32,7 @@ test("paper exam: answer, submit, report", async ({ page }) => {
 
   // answer the first two questions (option A), navigating forward auto-saves
   await page.locator("button", { hasText: /^A\./ }).first().click();
-  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByText("Question 2 of")).toBeVisible();
   await page.locator("button", { hasText: /^A\./ }).first().click();
 

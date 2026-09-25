@@ -90,15 +90,16 @@ export function PaperPlayer({
 
   // FR-PAPER-12: fetch the resume bundle once on mount — restores the answer
   // sheet, timer base (practice) / deadline (exam), and jumps to the first
-  // unanswered question.
+  // unanswered question. No `alive` cancellation: reactStrictMode double-runs
+  // effects in dev, and the run-once guard would combine with the first run's
+  // cleanup into a fetch whose result is always discarded.
   const resumeFetched = useRef(false);
   useEffect(() => {
     if (resumeFetched.current) return;
     resumeFetched.current = true;
-    let alive = true;
     apiJson<PaperSessionState>(`/api/papers/sessions/${sessionId}/state`)
       .then((st) => {
-        if (!alive || st.status !== "in_progress") return;
+        if (st.status !== "in_progress") return;
         const answered: Record<number, boolean> = {};
         const wrong: Record<number, boolean> = {};
         for (const p of st.answered_positions) answered[p] = true;
@@ -122,9 +123,6 @@ export function PaperPlayer({
         }
       })
       .catch(() => {});
-    return () => {
-      alive = false;
-    };
   }, [sessionId]);
 
   useEffect(() => {
