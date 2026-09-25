@@ -1,19 +1,14 @@
 name: Release
 
-# Release pipeline (audit idea #2): versioned, installable artifacts +
-# registry-pushed server images. Triggered by pushing a `v*` tag
-# (e.g. `git tag v1.3.0 && git push origin v1.3.0`).
+# Release pipeline: versioned server images pushed to the registry.
+# Triggered by pushing a `v*` tag (e.g. `git tag v1.4.0 && git push origin v1.4.0`).
+#
+# The learner clients need no CI artifacts (PRD v1.4): the web app ships as the
+# frontend Docker image; the WeChat mini program is uploaded from WeChat
+# DevTools (see miniprogram/README.md).
 #
 # Required repository configuration:
-#   Secret ANDROID_KEYSTORE_BASE64     — base64 of the upload keystore (.jks)
-#   Secret ANDROID_STORE_PASSWORD
-#   Secret ANDROID_KEY_ALIAS
-#   Secret ANDROID_KEY_PASSWORD
 #   Variable PROD_API_BASE_URL         — e.g. https://api.example.com
-#
-# Without those the Android job fails with a clear error instead of silently
-# producing a debug-signed build; set the variable and secrets under
-# Settings → Secrets and variables → Actions before tagging.
 
 on:
   push:
@@ -21,16 +16,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version (e.g. 1.3.1) — dry-run builds, no GH release"
+        description: "Version (e.g. 1.4.0) — dry-run builds, no GH release"
         required: true
         type: string
 
 permissions:
   contents: write # create the GitHub release
   packages: write # push images to ghcr.io
-
-env:
-  FLUTTER_VERSION: "3.32.8"
 
 jobs:
   meta:
@@ -56,130 +48,6 @@ jobs:
             echo "::error::Set the repository variable PROD_API_BASE_URL (Settings → Secrets and variables → Actions → Variables) to the production API origin."
             exit 1
           fi
-
-  android:
-    name: Android (signed release)
-    runs-on: ubuntu-latest
-    needs: meta
-    env:
-      PROD_API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-      - name: Fail fast without signing secrets
-        env:
-          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          if [ -z "$KS" ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 (and ANDROID_STORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD) must be set to cut a signed release."
-            exit 1
-          fi
-      - name: Materialize signing config
-        working-directory: mobile/android
-        env:
-          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          echo "$KS" | base64 --decode > app/upload-keystore.jks
-          cat > key.properties <<EOF
-          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-          storeFile=app/upload-keystore.jks
-          EOF
-      - name: Build signed release APK + AAB
-        working-directory: mobile
-        run: |
-          flutter pub get
-          flutter gen-l10n
-          flutter build apk --release \
-            --build-name=${{ needs.meta.outputs.version }} \
-            --build-number=${{ github.run_number }} \
-            --dart-define=API_BASE_URL=$PROD_API_BASE_URL \
-            --dart-define=APP_ENV=production
-          flutter build appbundle --release \
-            --build-name=${{ needs.meta.outputs.version }} \
-            --build-number=${{ github.run_number }} \
-            --dart-define=API_BASE_URL=$PROD_API_BASE_URL \
-            --dart-define=APP_ENV=production
-          mv build/app/outputs/flutter-apk/app-release.apk \
-             cissp-compass-${{ needs.meta.outputs.version }}-android.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android-release
-          path: |
-            mobile/cissp-compass-*-android.apk
-            mobile/build/app/outputs/bundle/release/app-release.aab
-
-  windows:
-    name: Windows (release zip)
-    runs-on: windows-latest
-    needs: meta
-    env:
-      PROD_API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-      - name: Build Windows release
-        working-directory: mobile
-        run: |
-          flutter pub get
-          flutter gen-l10n
-          flutter build windows --release `
-            --build-name=${{ needs.meta.outputs.version }} `
-            --build-number=${{ github.run_number }} `
-            --dart-define=API_BASE_URL=$env:PROD_API_BASE_URL `
-            --dart-define=APP_ENV=production
-          Compress-Archive -Path build\windows\x64\runner\Release\* `
-            -DestinationPath cissp-compass-${{ needs.meta.outputs.version }}-windows-x64.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-release
-          path: mobile/cissp-compass-*-windows-x64.zip
-
-  ios:
-    name: iOS (release compile, unsigned)
-    runs-on: macos-latest
-    needs: meta
-    env:
-      PROD_API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-      - name: Build iOS release (no codesign)
-        working-directory: mobile
-        run: |
-          flutter pub get
-          flutter gen-l10n
-          flutter build ios --release --no-codesign \
-            --build-name=${{ needs.meta.outputs.version }} \
-            --build-number=${{ github.run_number }} \
-            --dart-define=API_BASE_URL=$PROD_API_BASE_URL \
-            --dart-define=APP_ENV=production
-          cd build/ios/iphoneos
-          ditto -c -k --sequesterRsrc --keepParent Runner.app \
-            ../../../cissp-compass-${{ needs.meta.outputs.version }}-ios-unsigned.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ios-release-unsigned
-          path: mobile/cissp-compass-*-ios-unsigned.zip
-      - name: Note on installability
-        run: echo "Unsigned build — proves release compilation. TestFlight/App Store needs Apple certs + provisioning profiles on the runner; see docs/ops/production-runbook.md."
 
   docker:
     name: Server images (ghcr.io)
@@ -217,34 +85,21 @@ jobs:
   release:
     name: GitHub release
     runs-on: ubuntu-latest
-    needs: [meta, android, windows, ios, docker]
+    needs: [meta, docker]
     if: needs.meta.outputs.is-tag == 'true'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: dist
-      - name: List artifacts
-        run: ls -R dist
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            dist/*.apk
-            dist/*.aab
-            dist/*.zip
           body: |
-            CISSP Compass ${{ needs.meta.outputs.version }}
+            CISSP Papers ${{ needs.meta.outputs.version }}
 
-            - Android APK/AAB: signed with the upload keystore, built with
-              `APP_ENV=production` (dev conveniences compiled out).
-            - Windows x64 zip: unsigned release build (MSIX/store signing is a
-              follow-up; see `docs/ops/production-runbook.md`).
-            - iOS zip: unsigned release compile — for TestFlight/App Store the
-              Apple certs must be installed on the runner first.
             - Server images: `ghcr.io/${{ github.repository }}-backend:${{ needs.meta.outputs.version }}`
               and `...-frontend:${{ needs.meta.outputs.version }}` (also `:latest`).
+            - WeChat mini program: build and upload from WeChat DevTools
+              (`miniprogram/` — set the release API base in `lib/config.js`
+              and whitelist the domain, see `miniprogram/README.md`).
 
             Rollback: re-deploy the compose stack with the previous image tag.
 

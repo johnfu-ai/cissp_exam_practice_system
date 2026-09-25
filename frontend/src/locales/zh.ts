@@ -35,7 +35,7 @@ export const zh: typeof en = {
     eyebrow: "管理门户",
     title: "需要管理员权限",
     description:
-      "此网页门户仅供管理员使用。学员请使用 CISSP Compass 移动端或桌面端应用。",
+      "该区域用于内容管理。学员功能请使用「题库」与「错题集」。",
     cardTitle: "无管理权限",
     cardDesc:
       "你的账号可以登录并访问设置，但内容管理需要管理员角色。如需权限请联系组织管理员。",

@@ -32,18 +32,5 @@ out/
 # superpowers visual companion
 .superpowers/
 
-# Flutter
-mobile/.dart_tool/
-mobile/.packages
-mobile/.flutter-plugins
-mobile/.flutter-plugins-dependencies
-mobile/build/
-mobile/android/build/
-mobile/android/.gradle/
-mobile/ios/Pods/
-mobile/**/Generated.xcconfig
-mobile/**/flutter_export_environment.sh
-mobile/windows/flutter/ephemeral/
-mobile/ios/Flutter/flutter_export_environment.sh
-mobile/.fvm/
-*.iml
+# AI collaboration log (local only, never commit)
+ai-log.md

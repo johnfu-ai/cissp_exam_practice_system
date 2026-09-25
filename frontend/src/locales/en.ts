@@ -33,7 +33,7 @@ export const en = {
     eyebrow: "Admin portal",
     title: "Admin access required",
     description:
-      "This web portal is for administrators. Learners should use the CISSP Compass mobile or desktop app.",
+      "This area is for content management. Learner features live under Papers and Wrong questions.",
     cardTitle: "No management permissions",
     cardDesc:
       "Your account can sign in here for settings, but content management requires an admin role. Ask an organization admin if you need access.",

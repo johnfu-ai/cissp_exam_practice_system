@@ -10,7 +10,7 @@ Operational guide for a non-local deployment. Companion to `docker-compose.yml` 
 | Redis 7 (AOF) | Refresh tokens, lockouts, rate limits, reset tokens |
 | Backend (FastAPI / uvicorn) | API — migrate via one-shot `migrate` service |
 | Frontend (Next.js) | Admin portal only |
-| Flutter apps | Learner clients (Android / iOS / Windows) |
+| WeChat mini program | Learner client (mobile) |
 
 ## Deploy (compose)
 
@@ -35,7 +35,7 @@ Required prod env (compose will fail without them): `JWT_SECRET`, `POSTGRES_PASS
 
 Local prod-profile test (self-signed cert, use `curl -k`): `CADDY_DOMAIN=localhost JWT_SECRET=… POSTGRES_PASSWORD=… CORS_ORIGINS=https://localhost docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
 
-The Flutter learner app's production API address is the same public origin — build release clients with `--dart-define=API_BASE_URL=https://example.com --dart-define=APP_ENV=production` (the release pipeline bakes in the repository variable `PROD_API_BASE_URL`, which should be set to this origin). Same-origin routing also means browser admin sessions need no CORS relaxation.
+The mini program's production API address is the same public origin — set it in `miniprogram/lib/config.js` (release branch) and whitelist the domain (request 合法域名) in the WeChat console. Same-origin routing also means browser sessions need no CORS relaxation.
 
 ## TLS
 
@@ -96,22 +96,13 @@ When `SMTP_HOST` is set (prod compose passes `SMTP_HOST/PORT/USER/PASSWORD/FROM/
 
 Dev default admin password after seed: `Adminadmin1` (override with `SEED_ADMIN_PASSWORD`).
 
-## Flutter store signing
-
-**Android:** copy `mobile/android/key.properties.example` → `mobile/android/key.properties`, point `storeFile` at an upload keystore. Without it, local release builds fall back to debug signing (local-dev convenience only — see below for the release pipeline, which enforces signing).
-
-**iOS:** CI uses `--no-codesign`. App Store / TestFlight needs Apple Developer certs + provisioning profiles in the Mac runner (not stored in this repo).
-
-**Windows:** MSIX / Store signing is a follow-up; the release pipeline ships an unsigned release zip.
 
 ## Release pipeline
 
-Push a `v*` tag (e.g. `git tag v1.3.1 && git push origin v1.3.1`) to run `.github/workflows/release.yml`, which produces versioned, installable artifacts and registry images:
+Push a `v*` tag (e.g. `git tag v1.3.1 && git push origin v1.3.1`) to run `.github/workflows/release.yml`, which pushes registry images:
 
-- **Signed Android APK + AAB** — requires the repository secrets `ANDROID_KEYSTORE_BASE64` (base64 of the upload keystore), `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. The job **fails with a clear error** when they are missing instead of shipping a debug-signed build.
-- **Windows x64 release zip** (unsigned) and an **unsigned iOS release compile** (proves release builds; store upload still needs Apple credentials on the runner).
 - **Server images pushed to ghcr.io** — `ghcr.io/<repo>/backend:<version>` and `ghcr.io/<repo>/frontend:<version>` (+ `:latest`), built with `NEXT_PUBLIC_API_URL` baked in. Compose can then reference these image tags instead of building locally, which is what makes "roll back by redeploying the previous image tag" real.
-- A **GitHub release** with the artifacts and generated notes. All app builds pass `--dart-define=APP_ENV=production` (dev conveniences compiled out) and `--build-name/--build-number` from the tag + run number.
+- **WeChat mini program** — uploaded from WeChat DevTools (`miniprogram/`), not CI; set the release API base in `miniprogram/lib/config.js` and whitelist the domain in the WeChat console.
 
 Prerequisite: set the repository **variable** `PROD_API_BASE_URL` (Settings → Secrets and variables → Actions → Variables) to the production API origin; the workflow fails fast when it is unset. A `workflow_dispatch` dry run (version input) exercises all build jobs without creating the GitHub release.
 

@@ -1,11 +1,11 @@
 # CISSP Exam Practice System
 
-A CISSP exam preparation platform with a **Flutter learner client** (Android, iOS, Windows),
+A CISSP exam preparation platform with a **WeChat mini-program learner client** and a web app,
 a **Next.js admin portal**, and a **FastAPI** backend. Exam rules (domain weights, item counts,
 duration, passing line) live in data via `ExamBlueprint`, not hard-coded constants.
 
 > **Status (PRD v1.3 + P1 completeness).** Backend feature-complete (104+ endpoints, 8 routers).
-> Flutter learner covers auth, practice (domain/book/chapter + difficulty/type/tag, `weak_first`),
+> Learner clients cover paper-based practice/exam (mock-paper imports), the wrong-question book,
 > answer metadata (mapping/history/related/`is_questioned`), review, fixed/CAT exams, analytics,
 > and settings. Next.js is **admin-only** (import with template/mapping, questions, taxonomy
 > including chapter→domain mappings + KP↔domain bindings, admin, settings). Shared OpenAPI
@@ -13,7 +13,7 @@ duration, passing line) live in data via `ExamBlueprint`, not hard-coded constan
 
 ## Features
 
-- **Flutter learner (CISSP Compass)** — one codebase for Android / iOS / Windows: practice,
+- **WeChat mini program (CISSP Papers)** — native mini program: papers, practice/exam, wrong book, settings,
   wrong/bookmark review, fixed + CAT mock exams, dashboard analytics, bilingual question
   rendering, interface language en/zh, desktop keyboard shortcuts.
 - **Next.js admin portal** — question bank editorial workflow, ETL import (template + field map),
@@ -29,13 +29,13 @@ duration, passing line) live in data via `ExamBlueprint`, not hard-coded constan
 
 | Layer | Technology |
 | ----- | ---------- |
-| Learner | Flutter 3.32 (Riverpod, GoRouter, Dio) — Android, iOS, Windows |
+| Learner (mobile) | Native WeChat mini program (`miniprogram/`) |
 | Admin | Next.js 16, React 19, TypeScript, Tailwind v3, shadcn/ui |
 | Backend | FastAPI 0.138, SQLAlchemy 2.x, Alembic, Pydantic Settings |
 | Data | PostgreSQL 16, Redis 7 |
 | Contract | OpenAPI 3.1 → `openapi/openapi.json` |
 
-## Quick Start (Docker + Flutter)
+## Quick Start (Docker)
 
 ```bash
 docker compose up -d --build
@@ -74,12 +74,12 @@ npm run test
 npm run gen:api        # from ../openapi/openapi.json
 ```
 
-### Flutter learner (`mobile/`)
+### WeChat mini program (`miniprogram/`)
 
-See [`mobile/README.md`](mobile/README.md).
+See [`miniprogram/README.md`](miniprogram/README.md).
 
 ```bash
-cd mobile && flutter analyze
+cd miniprogram && npm test
 dart test -p vm test/
 ```
 
@@ -94,7 +94,7 @@ CI fails if `openapi/openapi.json` drifts from the live FastAPI schema.
 ## Architecture
 
 ```
-Flutter learner (Android/iOS/Windows)     Next.js admin (browser)
+WeChat mini program (learner)             Web app (learner + admin, browser)
               \                             /
                +-------- HTTPS / REST ------+
                             |
@@ -102,10 +102,10 @@ Flutter learner (Android/iOS/Windows)     Next.js admin (browser)
                    PostgreSQL + Redis
 ```
 
-- **Learner UX** lives only in Flutter (FR-CLIENT-02).
+- **Learner UX** lives in the mini program AND the web app (FR-CLIENT-02/03).
 - **Admin UX** lives only in Next.js (FR-CLIENT-03/06). Users without manage permissions see
   `/access-required` on the web portal.
-- Access token: memory. Refresh: secure storage (Flutter) / httpOnly cookie (web), with body
+- Access token: memory. Refresh: local storage (mini program) / httpOnly cookie (web), with body
   fallback on `/api/auth/refresh`.
 
 ### Repository layout
@@ -113,9 +113,9 @@ Flutter learner (Android/iOS/Windows)     Next.js admin (browser)
 ```
 backend/           # FastAPI app + tests
 frontend/          # Next.js admin portal
-mobile/            # Flutter learner (CISSP Compass)
+miniprogram/       # WeChat mini program learner client
 openapi/           # Shared OpenAPI artifact
-assets/ui_images/  # Flutter three-platform mockups
+assets/ui_images/  # design mockups
 docs/              # PRD + superpowers specs/plans
 ```
 
@@ -139,12 +139,12 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ./scripts/restore.sh <dump.sql.gz>
 ```
 
-Ops runbook (TLS, SMTP, Sentry, Flutter signing, incidents): [`docs/ops/production-runbook.md`](docs/ops/production-runbook.md)
+Ops runbook (TLS, SMTP, Sentry, incidents): [`docs/ops/production-runbook.md`](docs/ops/production-runbook.md)
 
 ## Documentation
 
 - PRD: [`docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md`](docs/CISSP_EXAM_PRACTICE_SYSTEM_PRD.md)
-- Flutter learner: [`docs/superpowers/specs/2026-08-10-flutter-learner-design.md`](docs/superpowers/specs/2026-08-10-flutter-learner-design.md)
+- MockPaper papers / mini program wave: [`docs/superpowers/specs/2026-09-25-paper-papers-wechat-design.md`](docs/superpowers/specs/2026-09-25-paper-papers-wechat-design.md)
 - Dual-client gap closure: [`docs/superpowers/specs/2026-08-10-prd-apps-gap-closure-design.md`](docs/superpowers/specs/2026-08-10-prd-apps-gap-closure-design.md)
 - P1 completeness: [`docs/superpowers/specs/2026-08-10-prd-p1-completeness-design.md`](docs/superpowers/specs/2026-08-10-prd-p1-completeness-design.md)
 - Agent guidance: [`CLAUDE.md`](CLAUDE.md)
